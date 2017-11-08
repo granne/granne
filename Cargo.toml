@@ -1,0 +1,10 @@
+[package]
+name = "hnsw"
+version = "0.1.0"
+authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
+
+[dependencies]
+arrayvec = "0.4.2"
+ordered-float = "0.5.0"
+time = "*"
+rand = "*"
