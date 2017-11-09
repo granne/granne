@@ -44,7 +44,7 @@ fn main() {
 
     let (vectors, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
 
-    for i in 0..100 {
+    for i in 7000..7100 {
         println!("");
         println!("Nearest neighbors to {}:", words[i]);
         for (&(r, d), (br, bd)) in 
