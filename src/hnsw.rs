@@ -21,9 +21,9 @@ pub use ordered_float::NotNaN;
 const LEVELS: usize = 5;
 const LEVEL_MULTIPLIER: usize = 12;
 
-const MAX_NEIGHBORS: usize = 8;
-const MAX_INDEX_SEARCH: usize = 200;
-const MAX_SEARCH: usize = 200;
+const MAX_NEIGHBORS: usize = 15;
+const MAX_INDEX_SEARCH: usize = 500;
+const MAX_SEARCH: usize = 500;
 
 #[derive(Clone, Default, Debug)]
 struct HnswNode {
@@ -97,45 +97,42 @@ impl Hnsw {
 
         // copy layer above
         layer.extend_from_slice(layers.last().unwrap());
+        layer.resize(elements.len(), HnswNode::default());
 
         let start = time::now();
 
-        let begin = layer.len();
-        let end = elements.len();
+        let already_inserted = layers.last().unwrap().len();
 
-        // insert elements starting at
-        for (idx, element) in elements[..end]
+        // insert elements starting at begin
+        for (idx, element) in elements
             .iter()
             .enumerate()
-            .skip(begin)
+            .skip(already_inserted)
         {
             let entrypoint = Self::find_entrypoint(&layers,
                                                    &element,
                                                    &elements);
 
-            layer.push(HnswNode {
-                neighbors: ArrayVec::new(),
-            });
-
-            let neighbors = Self::search_for_neighbors(
-                layer,
-                &vec![entrypoint],
-                elements,
-                element,
-                MAX_INDEX_SEARCH,
-                MAX_NEIGHBORS);
+            let neighbors = Self::search_for_neighbors(layer,
+                                                       entrypoint,
+                                                       elements,
+                                                       element,
+                                                       MAX_INDEX_SEARCH,
+                                                       MAX_NEIGHBORS);
 
 //            println!("Neighbors to {} found: {:?}", idx, neighbors);
 
             let mut is_connected = false;
             for neighbor in neighbors.into_iter().filter(|&n| n != idx) {
+                // can be done directly since layer[idx].neighbors is empty
                 Self::connect_nodes(layer, elements, idx, neighbor);
+
+                // find a more clever way to decide when to add this edge
                 is_connected = is_connected || Self::connect_nodes(layer, elements, neighbor, idx);
             }
 
             if !is_connected {
                 println!("Unconnected node! {}", idx);
-//                panic!();
             }
 
             if idx % 2500 == 0 {
@@ -145,7 +142,7 @@ impl Hnsw {
     }
 
     fn search_for_neighbors(layer: &Vec<HnswNode>,
-                            entrypoints: &Vec<usize>,
+                            entrypoint: usize,
                             elements: &[Element],
                             goal: &Element,
                             max_search: usize,
@@ -155,26 +152,14 @@ impl Hnsw {
         let mut pq = BinaryHeap::new();
         let mut visited = HashSet::new();
 
-        // push all entrypoints
-        for &ep in entrypoints {
-            debug_assert!(ep < elements.len());
+        pq.push(State {
+            idx: entrypoint,
+            d: NotNaN::new(dist(&elements[entrypoint], &goal)).unwrap()
+        });
 
-//            if ep < layer.len()
-            {
-                pq.push(State {
-                    idx: ep,
-                    d: NotNaN::new(dist(&elements[ep], &goal)).unwrap()
-                });
-            }
-
-            visited.insert(ep);
-        }
-
-//        println!("New search, ep: {}, max_neighbors: {}", entrypoints[0], max_neighbors);
-//        println!("layer length: {}", layer.len());
+        visited.insert(entrypoint);
 
         let mut num_visited = 0;
-        // search for close neighbors
         while let Some(State { idx, d } ) = pq.pop() {
             num_visited += 1;
 
@@ -199,7 +184,7 @@ impl Hnsw {
 
                 if visited.insert(neighbor_idx) {
                     // Remove this check??
-                    if res.len() < max_neighbors || d < NotNaN::new(1.5f32).unwrap() * res.peek().unwrap().0
+                    if res.len() < max_neighbors || d <= NotNaN::new(3f32).unwrap() * res.peek().unwrap().0
                     {
                         pq.push(State {
                             idx: neighbor_idx,
@@ -213,6 +198,7 @@ impl Hnsw {
         return res.into_sorted_vec().into_iter().map(|(_, idx)| idx).collect();
     }
 
+
     fn find_entrypoint(layers: &[Vec<HnswNode>],
                        element: &Element,
                        elements: &[Element]) -> usize {
@@ -221,7 +207,7 @@ impl Hnsw {
         for layer in layers {
             let res = Self::search_for_neighbors(
                 &layer,
-                &vec![entrypoint],
+                entrypoint,
                 &elements,
                 &element,
                 MAX_INDEX_SEARCH,
@@ -233,6 +219,7 @@ impl Hnsw {
         entrypoint
     }
 
+
     fn connect_nodes(layer: &mut Vec<HnswNode>,
                      elements: &[Element],
                      i: usize,
@@ -242,7 +229,8 @@ impl Hnsw {
             layer[i].neighbors.push(j);
             return true;
         } else {
-            let current_distance = NotNaN::new(dist(&elements[i], &elements[j])).unwrap();
+            let current_distance =
+                NotNaN::new(dist(&elements[i], &elements[j])).unwrap();
 
             if let Some((k, max_dist)) = layer[i].neighbors
                 .iter()
@@ -250,7 +238,7 @@ impl Hnsw {
                 .enumerate()
                 .max()
             {
-                if current_distance < NotNaN::new(3.0f32).unwrap() * max_dist {
+                if current_distance < NotNaN::new(2.0f32).unwrap() * max_dist {
                     layer[i].neighbors[k] = j;
                     return true;
                 }
@@ -268,7 +256,7 @@ impl Hnsw {
 
         Self::search_for_neighbors(
             &self.levels[LEVELS-1],
-            &vec![entrypoint],
+            entrypoint,
             &self.elements,
             element,
             MAX_SEARCH,

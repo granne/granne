@@ -35,15 +35,46 @@ fn brute_search(vectors: &Vec<Element>, goal: &Element) -> Vec<(usize, f32)> {
 }
 
 fn main() {
-    let num_vectors = 20001;
+    let num_vectors = 10001;
     let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
 
     println!("Read {} vectors", vectors.len());
     let mut index = hnsw::Hnsw::new(vectors);
     index.build_index();
+    println!("Built index");
 
     let (vectors, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
 
+    let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
+
+    let num_queries = 1000;
+    let mut query_count = 0;
+    for idx in (0..num_vectors).step_by(num_vectors / num_queries) {
+        let res = index.search(&vectors[idx]);
+        let brute = brute_search(&vectors, &vectors[idx]);
+        query_count += 1;
+
+        for i in 0..MAX_NEIGHBORS {
+            if let Some(pos) = res.iter().take(MAX_NEIGHBORS).position(|&(x, _)| x == brute[i].0) {
+                pcounts[i][pos] += 1;
+            }
+        }
+    }
+
+    for i in 0..MAX_NEIGHBORS {
+        let mut sum = 0.0f32;
+
+        print!("{}:\t", i);
+        for j in 0..MAX_NEIGHBORS {
+            sum += pcounts[i][j] as f32 / (query_count as f32);
+
+            print!("{}\t", sum);
+        }
+        println!();
+    }
+
+
+/*
     for i in 7000..7100 {
         println!("");
         println!("Nearest neighbors to {}:", words[i]);
@@ -54,12 +85,6 @@ fn main() {
             println!("{}: {} \t {}: {}", words[r], d, words[br], bd);
         }
     }
-
-//             entrypoints: thread_rng().gen_iter::<usize>().map(|x| x % 5000).take(100).collect(),
-//    println!("{:?}", index.search(&vectors[25512]));
-//    println!("{:?}", index.search(&vectors[13]));
-//    println!("{:?}", index.search(&vectors[0]));
-//    println!("{:?}", index.search(&vectors[112000]));
-
+*/
 
 }
