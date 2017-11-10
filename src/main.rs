@@ -20,7 +20,7 @@ fn brute_search(vectors: &Vec<Element>, goal: &Element) -> Vec<(usize, f32)> {
     let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
 
     for (idx, &v) in vectors.iter().enumerate() {
-        let d = NotNaN::new(dist(&v, goal)).unwrap();
+        let d = dist(&v, goal);
 
         if res.len() < MAX_NEIGHBORS || d < res.peek().unwrap().0 {
             res.push((d, idx));

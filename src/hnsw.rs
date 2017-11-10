@@ -120,19 +120,12 @@ impl Hnsw {
                                                        MAX_INDEX_SEARCH,
                                                        MAX_NEIGHBORS);
 
-//            println!("Neighbors to {} found: {:?}", idx, neighbors);
-
-            let mut is_connected = false;
             for neighbor in neighbors.into_iter().filter(|&n| n != idx) {
                 // can be done directly since layer[idx].neighbors is empty
-                Self::connect_nodes(layer, elements, idx, neighbor);
+                Self::connect_nodes(&mut layer[idx], elements, idx, neighbor);
 
                 // find a more clever way to decide when to add this edge
-                is_connected = is_connected || Self::connect_nodes(layer, elements, neighbor, idx);
-            }
-
-            if !is_connected {
-                println!("Unconnected node! {}", idx);
+                Self::connect_nodes(&mut layer[neighbor], elements, neighbor, idx);
             }
 
             if idx % 2500 == 0 {
@@ -154,7 +147,7 @@ impl Hnsw {
 
         pq.push(State {
             idx: entrypoint,
-            d: NotNaN::new(dist(&elements[entrypoint], &goal)).unwrap()
+            d: dist(&elements[entrypoint], &goal)
         });
 
         visited.insert(entrypoint);
@@ -180,7 +173,7 @@ impl Hnsw {
 
             for &neighbor_idx in &node.neighbors {
                 let neighbor = &elements[neighbor_idx];
-                let distance = NotNaN::new(dist(neighbor, &goal)).unwrap();
+                let distance = dist(neighbor, &goal);
 
                 if visited.insert(neighbor_idx) {
                     // Remove this check??
@@ -220,26 +213,26 @@ impl Hnsw {
     }
 
 
-    fn connect_nodes(layer: &mut Vec<HnswNode>,
+    fn connect_nodes(node: &mut HnswNode,
                      elements: &[Element],
                      i: usize,
                      j: usize) -> bool
     {
-        if layer[i].neighbors.len() < MAX_NEIGHBORS {
-            layer[i].neighbors.push(j);
+        if node.neighbors.len() < MAX_NEIGHBORS {
+            node.neighbors.push(j);
             return true;
         } else {
             let current_distance =
-                NotNaN::new(dist(&elements[i], &elements[j])).unwrap();
+                dist(&elements[i], &elements[j]);
 
-            if let Some((k, max_dist)) = layer[i].neighbors
+            if let Some((k, max_dist)) = node.neighbors
                 .iter()
-                .map(|&k| NotNaN::new(dist(&elements[i], &elements[k])).unwrap())
+                .map(|&k| dist(&elements[i], &elements[k]))
                 .enumerate()
                 .max()
             {
                 if current_distance < NotNaN::new(2.0f32).unwrap() * max_dist {
-                    layer[i].neighbors[k] = j;
+                    node.neighbors[k] = j;
                     return true;
                 }
             }
@@ -262,7 +255,7 @@ impl Hnsw {
             MAX_SEARCH,
             MAX_NEIGHBORS)
             .iter()
-            .map(|&i| (i, dist(&self.elements[i], element))).collect()
+            .map(|&i| (i, dist(&self.elements[i], element).into_inner())).collect()
     }
 }
 

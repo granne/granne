@@ -44,9 +44,9 @@ mod tests {
     
     #[test]
     fn read_file() {
-        let data = read("/Users/erik/data/glove.6B/glove.1K.50d.txt");
+        let data = read("/Users/erik/data/glove.6B/glove.1K.50d.txt", 1000);
         
-        if let Ok(data) = data {
+        if let Ok((data, strings)) = data {
             assert_eq!(1000, data.len());
         }
         else {
@@ -57,6 +57,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn read_nonexistent_file() {
-        read("non_existent").unwrap();
+        read("non_existent", 1000).unwrap();
     }
 }
