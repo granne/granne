@@ -1,5 +1,7 @@
 #![feature(iterator_step_by)]
 
+extern crate rayon;
+
 extern crate arrayvec;
 extern crate ordered_float;
 extern crate time;
@@ -35,7 +37,7 @@ fn brute_search(vectors: &Vec<Element>, goal: &Element) -> Vec<(usize, f32)> {
 }
 
 fn main() {
-    let num_vectors = 10001;
+    let num_vectors = 20001;
     let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
 
     println!("Read {} vectors", vectors.len());

@@ -12,11 +12,14 @@ use arrayvec::ArrayVec;
 use std::collections::BinaryHeap;
 use std::collections::HashSet;
 use std::cmp::Ordering;
-use std::mem;
 use std::iter;
 use std::cmp;
 use time;
+use std::mem;
 pub use ordered_float::NotNaN;
+
+use std::sync::{Arc, RwLock};
+use rayon::prelude::*;
 
 const LEVELS: usize = 5;
 const LEVEL_MULTIPLIER: usize = 12;
@@ -96,43 +99,150 @@ impl Hnsw {
         println!("Building layer {} with {} vectors", layers.len(), elements.len());
 
         // copy layer above
+        *layer = Vec::with_capacity(elements.len());
         layer.extend_from_slice(layers.last().unwrap());
         layer.resize(elements.len(), HnswNode::default());
 
-        let start = time::now();
-
         let already_inserted = layers.last().unwrap().len();
 
-        // insert elements starting at begin
-        for (idx, element) in elements
-            .iter()
+        // create RwLocks for underlying nodes
+        let layer: Arc<Vec<_>> = Arc::new(
+            layer.iter_mut()
+                .map(|node| RwLock::new(node))
+                .collect());
+
+        // insert elements skipping already inserted
+        elements
+            .par_iter()
             .enumerate()
             .skip(already_inserted)
-        {
-            let entrypoint = Self::find_entrypoint(&layers,
-                                                   &element,
-                                                   &elements);
+            .for_each(
+                |(idx, element)| {
+                    let layer = layer.clone();
+                    Self::insert_element(layers,
+                                         &layer,
+                                         elements,
+                                         idx);
+                });
+    }
 
-            let neighbors = Self::search_for_neighbors(layer,
-                                                       entrypoint,
-                                                       elements,
-                                                       element,
-                                                       MAX_INDEX_SEARCH,
-                                                       MAX_NEIGHBORS);
+    fn insert_element(layers: &[Vec<HnswNode>],
+                      layer: &Vec<RwLock<&mut HnswNode>>,
+                      elements: &[Element],
+                      idx: usize) {
 
-            for neighbor in neighbors.into_iter().filter(|&n| n != idx) {
-                // can be done directly since layer[idx].neighbors is empty
-                Self::connect_nodes(&mut layer[idx], elements, idx, neighbor);
+        let element = &elements[idx];
+        let entrypoint = Self::find_entrypoint(layers,
+                                               element,
+                                               elements);
 
-                // find a more clever way to decide when to add this edge
-                Self::connect_nodes(&mut layer[neighbor], elements, neighbor, idx);
-            }
+        let neighbors = Self::search_for_neighbors_lock(&layer,
+                                                        entrypoint,
+                                                        elements,
+                                                        element,
+                                                        MAX_INDEX_SEARCH,
+                                                        MAX_NEIGHBORS);
 
-            if idx % 2500 == 0 {
-                println!("Added {} vectors in {} s", idx, time::now() - start);
-            }
+        for neighbor in neighbors.into_iter().filter(|&n| n != idx) {
+            // can be done directly since layer[idx].neighbors is empty
+            Self::connect_nodes(&layer[idx], elements, idx, neighbor);
+
+            // find a more clever way to decide when to add this edge
+            Self::connect_nodes(&layer[neighbor], elements, neighbor, idx);
         }
     }
+
+
+
+    fn search_for_neighbors_lock(layer: &Vec<RwLock<&mut HnswNode>>,
+                                 entrypoint: usize,
+                                 elements: &[Element],
+                                 goal: &Element,
+                                 max_search: usize,
+                                 max_neighbors: usize) -> Vec<usize> {
+
+        let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
+        let mut pq = BinaryHeap::new();
+        let mut visited = HashSet::new();
+
+        pq.push(State {
+            idx: entrypoint,
+            d: dist(&elements[entrypoint], &goal)
+        });
+
+        visited.insert(entrypoint);
+
+        let mut num_visited = 0;
+        while let Some(State { idx, d } ) = pq.pop() {
+            num_visited += 1;
+
+            if num_visited > max_search {
+                break;
+            }
+
+            if res.len() < max_neighbors || d < res.peek().unwrap().0 {
+                res.push((d, idx));
+
+                if res.len() > max_neighbors {
+                    res.pop();
+                }
+            }
+
+            // Read Lock!
+            let node = layer[idx].read().unwrap();
+
+            for &neighbor_idx in &node.neighbors {
+                let neighbor = &elements[neighbor_idx];
+                let distance = dist(neighbor, &goal);
+
+                if visited.insert(neighbor_idx) {
+                    // Remove this check??
+                    if res.len() < max_neighbors || d <= NotNaN::new(1.5f32).unwrap() * res.peek().unwrap().0
+                    {
+                        pq.push(State {
+                            idx: neighbor_idx,
+                            d: distance,
+                        });
+                    }
+                }
+            }
+        }
+
+        return res.into_sorted_vec().into_iter().map(|(_, idx)| idx).collect();
+    }
+
+
+    fn connect_nodes(node: &RwLock<&mut HnswNode>,
+                     elements: &[Element],
+                     i: usize,
+                     j: usize) -> bool
+    {
+        // Write Lock!
+        let mut node = node.write().unwrap();
+
+        if node.neighbors.len() < MAX_NEIGHBORS {
+            node.neighbors.push(j);
+            return true;
+        } else {
+            let current_distance =
+                dist(&elements[i], &elements[j]);
+
+            if let Some((k, max_dist)) = node.neighbors
+                .iter()
+                .map(|&k| dist(&elements[i], &elements[k]))
+                .enumerate()
+                .max()
+            {
+                if current_distance < NotNaN::new(2.0f32).unwrap() * max_dist {
+                    node.neighbors[k] = j;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
 
     fn search_for_neighbors(layer: &Vec<HnswNode>,
                             entrypoint: usize,
@@ -212,34 +322,6 @@ impl Hnsw {
         entrypoint
     }
 
-
-    fn connect_nodes(node: &mut HnswNode,
-                     elements: &[Element],
-                     i: usize,
-                     j: usize) -> bool
-    {
-        if node.neighbors.len() < MAX_NEIGHBORS {
-            node.neighbors.push(j);
-            return true;
-        } else {
-            let current_distance =
-                dist(&elements[i], &elements[j]);
-
-            if let Some((k, max_dist)) = node.neighbors
-                .iter()
-                .map(|&k| dist(&elements[i], &elements[k]))
-                .enumerate()
-                .max()
-            {
-                if current_distance < NotNaN::new(2.0f32).unwrap() * max_dist {
-                    node.neighbors[k] = j;
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
 
     pub fn search(&self, element: &Element) -> Vec<(usize, f32)> {
 
