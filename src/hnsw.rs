@@ -20,6 +20,7 @@ pub use ordered_float::NotNaN;
 
 use std::sync::{Arc, RwLock};
 use rayon::prelude::*;
+use fnv::FnvHashSet;
 
 const LEVELS: usize = 5;
 const LEVEL_MULTIPLIER: usize = 12;
@@ -59,6 +60,44 @@ impl PartialOrd for State {
         other.d.partial_cmp(&self.d)
     }
 }
+
+struct MaxSizeHeap<T> {
+    heap: BinaryHeap<T>,
+    max_size: usize
+}
+
+impl<T: Ord> MaxSizeHeap<T> {
+
+    pub fn new(max_size: usize) -> Self {
+        MaxSizeHeap {
+            heap: BinaryHeap::with_capacity(max_size),
+            max_size: max_size
+        }
+    }
+
+    pub fn push(self: &mut Self, element: T) {
+        if self.heap.len() < self.max_size {
+            self.heap.push(element);
+        }
+        else if element < *self.heap.peek().unwrap() {
+            if self.heap.len() >= self.max_size {
+                self.heap.pop();
+            }
+
+            self.heap.push(element);
+        }
+    }
+
+    pub fn peek(self: &Self) -> Option<&T> {
+        self.heap.peek()
+    }
+
+    pub fn len(self: &Self) -> usize {
+        self.heap.len()
+    }
+}
+
+
 
 
 impl Hnsw {
@@ -106,10 +145,10 @@ impl Hnsw {
         let already_inserted = layers.last().unwrap().len();
 
         // create RwLocks for underlying nodes
-        let layer: Arc<Vec<_>> = Arc::new(
+        let layer: Vec<_> =
             layer.iter_mut()
                 .map(|node| RwLock::new(node))
-                .collect());
+                .collect();
 
         // insert elements skipping already inserted
         elements
@@ -118,7 +157,6 @@ impl Hnsw {
             .skip(already_inserted)
             .for_each(
                 |(idx, element)| {
-                    let layer = layer.clone();
                     Self::insert_element(layers,
                                          &layer,
                                          elements,
@@ -136,12 +174,12 @@ impl Hnsw {
                                                element,
                                                elements);
 
-        let neighbors = Self::search_for_neighbors_lock(&layer,
-                                                        entrypoint,
-                                                        elements,
-                                                        element,
-                                                        MAX_INDEX_SEARCH,
-                                                        MAX_NEIGHBORS);
+        let neighbors = Self::search_for_neighbors_index(&layer,
+                                                         entrypoint,
+                                                         elements,
+                                                         element,
+                                                         MAX_INDEX_SEARCH,
+                                                         MAX_NEIGHBORS);
 
         for neighbor in neighbors.into_iter().filter(|&n| n != idx) {
             // can be done directly since layer[idx].neighbors is empty
@@ -154,16 +192,16 @@ impl Hnsw {
 
 
 
-    fn search_for_neighbors_lock(layer: &Vec<RwLock<&mut HnswNode>>,
+    fn search_for_neighbors_index(layer: &Vec<RwLock<&mut HnswNode>>,
                                  entrypoint: usize,
                                  elements: &[Element],
                                  goal: &Element,
                                  max_search: usize,
                                  max_neighbors: usize) -> Vec<usize> {
 
-        let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
+        let mut res = MaxSizeHeap::new(max_neighbors);
         let mut pq = BinaryHeap::new();
-        let mut visited = HashSet::new();
+        let mut visited = FnvHashSet::default();
 
         pq.push(State {
             idx: entrypoint,
@@ -172,43 +210,30 @@ impl Hnsw {
 
         visited.insert(entrypoint);
 
-        let mut num_visited = 0;
-        while let Some(State { idx, d } ) = pq.pop() {
-            num_visited += 1;
+        for _ in 0..max_search {
 
-            if num_visited > max_search {
-                break;
-            }
+            if let Some(State { idx, d } ) = pq.pop() {
 
-            if res.len() < max_neighbors || d < res.peek().unwrap().0 {
                 res.push((d, idx));
 
-                if res.len() > max_neighbors {
-                    res.pop();
-                }
-            }
+                // Read Lock!
+                let node = layer[idx].read().unwrap();
 
-            // Read Lock!
-            let node = layer[idx].read().unwrap();
-
-            for &neighbor_idx in &node.neighbors {
-                let neighbor = &elements[neighbor_idx];
-                let distance = dist(neighbor, &goal);
-
-                if visited.insert(neighbor_idx) {
-                    // Remove this check??
-                    if res.len() < max_neighbors || d <= NotNaN::new(1.5f32).unwrap() * res.peek().unwrap().0
-                    {
+                for &neighbor_idx in &node.neighbors {
+                    if visited.insert(neighbor_idx) {
                         pq.push(State {
                             idx: neighbor_idx,
-                            d: distance,
+                            d: dist(&elements[neighbor_idx], &goal),
                         });
                     }
                 }
+
+            } else {
+                break;
             }
         }
 
-        return res.into_sorted_vec().into_iter().map(|(_, idx)| idx).collect();
+        return res.heap.into_vec().into_iter().map(|(_, idx)| idx).collect();
     }
 
 
@@ -251,7 +276,7 @@ impl Hnsw {
                             max_search: usize,
                             max_neighbors: usize) -> Vec<usize> {
 
-        let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
+        let mut res = MaxSizeHeap::new(max_neighbors);
         let mut pq = BinaryHeap::new();
         let mut visited = HashSet::new();
 
@@ -262,43 +287,29 @@ impl Hnsw {
 
         visited.insert(entrypoint);
 
-        let mut num_visited = 0;
-        while let Some(State { idx, d } ) = pq.pop() {
-            num_visited += 1;
+        for _ in 0..max_search {
 
-            if num_visited > max_search {
-//                println!("Reached max_search");
-                break;
-            }
+            if let Some(State { idx, d } ) = pq.pop() {
 
-            if res.len() < max_neighbors || d < res.peek().unwrap().0 {
                 res.push((d, idx));
 
-                if res.len() > max_neighbors {
-                    res.pop();
-                }
-            }
+                let node = &layer[idx];
 
-            let node = &layer[idx];
-
-            for &neighbor_idx in &node.neighbors {
-                let neighbor = &elements[neighbor_idx];
-                let distance = dist(neighbor, &goal);
-
-                if visited.insert(neighbor_idx) {
-                    // Remove this check??
-                    if res.len() < max_neighbors || d <= NotNaN::new(3f32).unwrap() * res.peek().unwrap().0
-                    {
+                for &neighbor_idx in &node.neighbors {
+                    if visited.insert(neighbor_idx) {
                         pq.push(State {
                             idx: neighbor_idx,
-                            d: distance,
+                            d: dist(&elements[neighbor_idx], &goal),
                         });
                     }
                 }
+
+            } else {
+                break;
             }
         }
 
-        return res.into_sorted_vec().into_iter().map(|(_, idx)| idx).collect();
+        return res.heap.into_sorted_vec().into_iter().map(|(_, idx)| idx).collect();
     }
 
 

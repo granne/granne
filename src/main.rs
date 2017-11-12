@@ -1,11 +1,12 @@
 #![feature(iterator_step_by)]
 
-extern crate rayon;
 
 extern crate arrayvec;
 extern crate ordered_float;
 extern crate time;
 extern crate rand;
+extern crate rayon;
+extern crate fnv;
 
 use types::*;
 use std::collections::BinaryHeap;
