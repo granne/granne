@@ -4,6 +4,13 @@ use std::path;
 
 use types::{Element, Scalar, DIM};
 
+use memmap::Mmap;
+
+fn read_index() {
+
+}
+
+
 fn read_line(line: &str) -> (String, Element) {
     let mut iter = line.split_whitespace();
     

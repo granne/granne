@@ -7,11 +7,15 @@ extern crate time;
 extern crate rand;
 extern crate rayon;
 extern crate fnv;
+extern crate memmap;
 
 use types::*;
 use std::collections::BinaryHeap;
 pub use ordered_float::NotNaN;
 use rand::{thread_rng, Rng};
+use std::fs::File;
+use std::io::prelude::*;
+use memmap::Mmap;
 
 mod types;
 mod file_io;
@@ -42,11 +46,26 @@ fn main() {
     let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
 
     println!("Read {} vectors", vectors.len());
-    let mut index = hnsw::Hnsw::new(vectors);
+
+    
+    let mut index = hnsw::HnswBuilder::new(vectors);
     index.build_index();
     println!("Built index");
+    index.write_to_disk();
+    println!("Wrote to disk");
+
+    let file = File::open("test.index").unwrap();
+    let mut mmap = unsafe { Mmap::map(&file).unwrap() };
+
+    println!("Reading");
 
     let (vectors, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
+
+    println!("Reading index");
+    let index = hnsw::Hnsw::load_from_mmap(&mut mmap, &vectors[..]);
+
+    println!("Loaded");
+
 
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
@@ -77,6 +96,13 @@ fn main() {
     }
 
 
+/*
+    for i in 0..LEVELS {
+        for (left, right) in hnsw.levels[i].iter().zip(index.levels[i].iter()) {
+            
+        }
+    }
+*/
 /*
     for i in 7000..7100 {
         println!("");
