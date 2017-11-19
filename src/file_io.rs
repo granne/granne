@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader, Result};
 use std::fs::File;
 use std::path;
 
-use types::{Element, Scalar, DIM};
+use types::{Element, DIM};
 
 use memmap::Mmap;
 
@@ -14,9 +14,9 @@ fn read_line(line: &str) -> (String, Element) {
     
     let word = String::from(iter.next().unwrap());
 
-    let mut v = [Scalar::default(); DIM];
+    let mut v = [0.0f32; DIM];
     for (i, e) in iter.enumerate() {
-        v[i] = e.parse::<Scalar>().unwrap();
+        v[i] = e.parse::<f32>().unwrap();
     }
 
     return (word, v);

@@ -28,6 +28,7 @@ use revord::RevOrd;
 // Threading
 use std::sync::{Arc, RwLock};
 use rayon::prelude::*;
+
 use fnv::FnvHashSet;
 
 const MAX_NEIGHBORS: usize = 20;
@@ -179,12 +180,12 @@ impl<'a> HnswBuilder<'a> {
                                                          config.max_search,
                                                          MAX_NEIGHBORS);
 
-        for neighbor in neighbors.into_iter().filter(|&n| n != idx) {
+        for (neighbor, d) in neighbors.into_iter().filter(|&(n, _)| n != idx) {
             // can be done directly since layer[idx].neighbors is empty
-            Self::connect_nodes(&layer[idx], elements, idx, neighbor);
+            Self::connect_nodes(&layer[idx], elements, idx, neighbor, d);
 
             // find a more clever way to decide when to add this edge
-            Self::connect_nodes(&layer[neighbor], elements, neighbor, idx);
+            Self::connect_nodes(&layer[neighbor], elements, neighbor, idx, d);
         }
     }
 
@@ -194,7 +195,7 @@ impl<'a> HnswBuilder<'a> {
                                   elements: &[Element],
                                   goal: &Element,
                                   max_search: usize,
-                                  max_neighbors: usize) -> Vec<usize> {
+                                  max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
 
         let mut res = MaxSizeHeap::new(max_neighbors);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
@@ -225,14 +226,15 @@ impl<'a> HnswBuilder<'a> {
             }
         }
 
-        return res.heap.into_vec().into_iter().map(|(_, idx)| idx).collect();
+        return res.heap.into_vec().into_iter().map(|(d, idx)| (idx, d)).collect();
     }
 
 
     fn connect_nodes(node: &RwLock<&mut HnswNode>,
                      elements: &[Element],
                      i: usize,
-                     j: usize) -> bool
+                     j: usize,
+                     d: NotNaN<f32>) -> bool
     {
         // Write Lock!
         let mut node = node.write().unwrap();
@@ -241,16 +243,13 @@ impl<'a> HnswBuilder<'a> {
             node.neighbors.push(j);
             return true;
         } else {
-            let current_distance =
-                dist(&elements[i], &elements[j]);
-
             if let Some((k, max_dist)) = node.neighbors
                 .iter()
                 .map(|&k| dist(&elements[i], &elements[k]))
                 .enumerate()
                 .max()
             {
-                if current_distance < NotNaN::new(2.0f32).unwrap() * max_dist {
+                if d < NotNaN::new(2.0f32).unwrap() * max_dist {
                     node.neighbors[k] = j;
                     return true;
                 }
@@ -276,7 +275,7 @@ impl<'a> HnswBuilder<'a> {
                 max_search,
                 1usize);
 
-            entrypoint = res.first().unwrap().clone();
+            entrypoint = res.first().unwrap().0.clone();
         }
 
         entrypoint
@@ -347,8 +346,8 @@ impl<'a> Hnsw<'a> {
             element,
             max_search,
             MAX_NEIGHBORS)
-            .iter()
-            .map(|&i| (i, dist(&self.elements[i], element).into_inner())).collect()
+            .into_iter()
+            .map(|(i, d)| (i, d.into_inner())).collect()
     }
 
 
@@ -367,7 +366,7 @@ impl<'a> Hnsw<'a> {
                 max_search,
                 1usize);
 
-            entrypoint = res.first().unwrap().clone();
+            entrypoint = res.first().unwrap().0.clone();
         }
 
         entrypoint
@@ -380,7 +379,7 @@ fn search_for_neighbors(layer: &[HnswNode],
                         elements: &[Element],
                         goal: &Element,
                         max_search: usize,
-                        max_neighbors: usize) -> Vec<usize> {
+                        max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
 
     let mut res = MaxSizeHeap::new(max_neighbors);
     let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
@@ -411,7 +410,7 @@ fn search_for_neighbors(layer: &[HnswNode],
         }
     }
 
-    return res.heap.into_sorted_vec().into_iter().map(|(_, idx)| idx).collect();
+    return res.heap.into_sorted_vec().into_iter().map(|(d, idx)| (idx, d)).collect();
 }
 
 

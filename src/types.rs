@@ -2,11 +2,10 @@ use std::cmp;
 use ordered_float::NotNaN;
 
 pub const DIM: usize = 50;
-pub type Scalar = f32;
-pub type Element = [Scalar; DIM];
+pub type Element = [f32; DIM];
 
-pub fn dist(x: &Element, y: &Element) -> NotNaN<Scalar> {
-    let mut r = Scalar::default();
+pub fn dist(x: &Element, y: &Element) -> NotNaN<f32> {
+    let mut r = 0.0f32;
 
     let mut dx = 0.0f32;
     let mut dy = 0.0f32;
@@ -17,9 +16,9 @@ pub fn dist(x: &Element, y: &Element) -> NotNaN<Scalar> {
         dy += yi * yi;
     }
 
-    return NotNaN::new(1.0f32 - (r / (dx.sqrt() * dy.sqrt()))).unwrap();
+    let d = NotNaN::new(1.0f32 - (r / (dx.sqrt() * dy.sqrt()))).unwrap();
 
-//    return cmp::min(0.0f32, 1.0f32 - (r / (dx.sqrt() * dy.sqrt())));
+    return cmp::max(NotNaN::new(0.0f32).unwrap(), d);
 }
 
 
@@ -29,12 +28,13 @@ mod tests {
     
     #[test]
     fn test_distance() {
-        let mut a = [Scalar::default(); DIM];
-        let mut b = [Scalar::default(); DIM];
+        let mut a = [0.0f32; DIM];
+        let mut b = [0.0f32; DIM];
 
         a[DIM-1] = 2.0;
         b[DIM-1] = 1.0;
 
         assert_eq!(NotNaN::new(0.0).unwrap(), dist(&a, &b));
     }
+
 }
