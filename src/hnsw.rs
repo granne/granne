@@ -30,12 +30,7 @@ use std::sync::{Arc, RwLock};
 use rayon::prelude::*;
 use fnv::FnvHashSet;
 
-const LEVELS: usize = 5;
-const LEVEL_MULTIPLIER: usize = 12;
-
 const MAX_NEIGHBORS: usize = 20;
-const MAX_INDEX_SEARCH: usize = 500;
-const MAX_SEARCH: usize = 800;
 
 #[derive(Clone, Default, Debug)]
 struct HnswNode {
@@ -43,28 +38,30 @@ struct HnswNode {
 }
 
 pub struct Config {
-    num_levels: usize,
-    level_multiplier: usize,
-    max_search: usize,
+    pub num_levels: usize,
+    pub level_multiplier: usize,
+    pub max_search: usize,
 }
 
 pub struct HnswBuilder<'a> {
     levels: Vec<Vec<HnswNode>>,
     elements: &'a [Element],
+    config: Config,
 }
 
 
 pub struct Hnsw<'a> {
     levels: Vec<&'a [HnswNode]>,
-    elements: &'a [Element]
+    elements: &'a [Element],
 }
 
 
 impl<'a> HnswBuilder<'a> {
-    pub fn new(elements: &'a [Element]) -> Self {
+    pub fn new(config: Config, elements: &'a [Element]) -> Self {
         HnswBuilder {
             levels: Vec::new(),
             elements: elements,
+            config: config,
         }
     }
 
@@ -110,19 +107,22 @@ impl<'a> HnswBuilder<'a> {
         self.levels.push(vec![HnswNode::default()]);
 
         let mut num_elements = 1;
-        for level in 1..LEVELS {
-            num_elements *= LEVEL_MULTIPLIER;
+        for level in 1..self.config.num_levels {
+            num_elements *= self.config.level_multiplier;
             num_elements = cmp::min(num_elements, self.elements.len());
 
-            let mut new_layer = 
-                Self::build_layer(&self.levels[..], &self.elements[..num_elements]);
+            let mut new_layer =
+                Self::build_layer(&self.config,
+                                  &self.levels[..],
+                                  &self.elements[..num_elements]);
 
             self.levels.push(new_layer);
         }
     }
 
 
-    fn build_layer(layers: &[Vec<HnswNode>],
+    fn build_layer(config: &Config,
+                   layers: &[Vec<HnswNode>],
                    elements: &[Element]) -> Vec<HnswNode> {
 
         println!("Building layer {} with {} vectors", layers.len(), elements.len());
@@ -148,7 +148,8 @@ impl<'a> HnswBuilder<'a> {
                 .skip(already_inserted)
                 .for_each(
                     |(idx, element)| {
-                        Self::insert_element(layers,
+                        Self::insert_element(config,
+                                             layers,
                                              &layer,
                                              elements,
                                              idx);
@@ -159,7 +160,8 @@ impl<'a> HnswBuilder<'a> {
     }
 
 
-    fn insert_element(layers: &[Vec<HnswNode>],
+    fn insert_element(config: &Config,
+                      layers: &[Vec<HnswNode>],
                       layer: &Vec<RwLock<&mut HnswNode>>,
                       elements: &[Element],
                       idx: usize) {
@@ -167,13 +169,14 @@ impl<'a> HnswBuilder<'a> {
         let element = &elements[idx];
         let entrypoint = Self::find_entrypoint(layers,
                                                element,
-                                               elements);
+                                               elements,
+                                               config.max_search);
 
         let neighbors = Self::search_for_neighbors_index(&layer[..],
                                                          entrypoint,
                                                          elements,
                                                          element,
-                                                         MAX_INDEX_SEARCH,
+                                                         config.max_search,
                                                          MAX_NEIGHBORS);
 
         for neighbor in neighbors.into_iter().filter(|&n| n != idx) {
@@ -195,7 +198,7 @@ impl<'a> HnswBuilder<'a> {
 
         let mut res = MaxSizeHeap::new(max_neighbors);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
-        let mut visited = HashSet::new();
+        let mut visited = FnvHashSet::default();
 
         pq.push(RevOrd(
             (dist(&elements[entrypoint], &goal), entrypoint)
@@ -260,7 +263,8 @@ impl<'a> HnswBuilder<'a> {
 
     fn find_entrypoint(layers: &[Vec<HnswNode>],
                        element: &Element,
-                       elements: &[Element]) -> usize {
+                       elements: &[Element],
+                       max_search: usize) -> usize {
 
         let mut entrypoint = 0;
         for layer in layers {
@@ -269,7 +273,7 @@ impl<'a> HnswBuilder<'a> {
                 entrypoint,
                 &elements,
                 &element,
-                MAX_INDEX_SEARCH,
+                max_search,
                 1usize);
 
             entrypoint = res.first().unwrap().clone();
@@ -327,18 +331,21 @@ impl<'a> Hnsw<'a> {
     }
 
 
-    pub fn search(&self, element: &Element) -> Vec<(usize, f32)> {
+    pub fn search(&self, element: &Element, max_search: usize) -> Vec<(usize, f32)> {
 
-        let entrypoint = Self::find_entrypoint(&self.levels[..LEVELS-1],
+        let (bottom_level, top_levels) = self.levels.split_last().unwrap();
+
+        let entrypoint = Self::find_entrypoint(&top_levels,
                                                element,
-                                               &self.elements);
+                                               &self.elements,
+                                               max_search);
 
         search_for_neighbors(
-            &self.levels[LEVELS-1],
+            &bottom_level,
             entrypoint,
             &self.elements,
             element,
-            MAX_SEARCH,
+            max_search,
             MAX_NEIGHBORS)
             .iter()
             .map(|&i| (i, dist(&self.elements[i], element).into_inner())).collect()
@@ -347,7 +354,8 @@ impl<'a> Hnsw<'a> {
 
     fn find_entrypoint(layers: &[&[HnswNode]],
                        element: &Element,
-                       elements: &[Element]) -> usize {
+                       elements: &[Element],
+                       max_search: usize) -> usize {
 
         let mut entrypoint = 0;
         for layer in layers {
@@ -356,7 +364,7 @@ impl<'a> Hnsw<'a> {
                 entrypoint,
                 &elements,
                 &element,
-                MAX_SEARCH,
+                max_search,
                 1usize);
 
             entrypoint = res.first().unwrap().clone();
@@ -376,7 +384,7 @@ fn search_for_neighbors(layer: &[HnswNode],
 
     let mut res = MaxSizeHeap::new(max_neighbors);
     let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
-    let mut visited = HashSet::new();
+    let mut visited = FnvHashSet::default();
 
     pq.push(RevOrd(
         (dist(&elements[entrypoint], &goal), entrypoint)

@@ -48,8 +48,13 @@ fn main() {
 
     println!("Read {} vectors", vectors.len());
 
-    
-    let mut index = hnsw::HnswBuilder::new(&vectors[..]);
+    let config = hnsw::Config {
+        num_levels: 5,
+        level_multiplier: 12,
+        max_search: 500,
+    };
+
+    let mut index = hnsw::HnswBuilder::new(config, &vectors[..]);
     index.build_index();
     println!("Built index");
     index.save_to_disk("test.index");
@@ -57,8 +62,6 @@ fn main() {
 
     let file = File::open("test.index").unwrap();
     let mmap = unsafe { Mmap::map(&file).unwrap() };
-
-    println!("Reading");
 
     println!("Reading index");
     let index = hnsw::Hnsw::load(&mmap, &vectors[..]);
@@ -68,10 +71,11 @@ fn main() {
 
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
+    let max_search = 800;
     let num_queries = 1000;
     let mut query_count = 0;
     for idx in (0..num_vectors).step_by(num_vectors / num_queries) {
-        let res = index.search(&vectors[idx]);
+        let res = index.search(&vectors[idx], max_search);
         let brute = brute_search(&vectors, &vectors[idx]);
         query_count += 1;
 
@@ -98,7 +102,7 @@ fn main() {
 /*
     for i in 0..LEVELS {
         for (left, right) in hnsw.levels[i].iter().zip(index.levels[i].iter()) {
-            
+
         }
     }
 */
@@ -106,7 +110,7 @@ fn main() {
     for i in 7000..7100 {
         println!("");
         println!("Nearest neighbors to {}:", words[i]);
-        for (&(r, d), (br, bd)) in 
+        for (&(r, d), (br, bd)) in
             index.search(&vectors[i]).iter()
             .zip(
                 brute_search(&vectors, &vectors[i]).into_iter()) {
