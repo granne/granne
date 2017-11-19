@@ -48,10 +48,10 @@ fn main() {
     println!("Read {} vectors", vectors.len());
 
     
-    let mut index = hnsw::HnswBuilder::new(vectors);
+    let mut index = hnsw::HnswBuilder::new(&vectors[..]);
     index.build_index();
     println!("Built index");
-    index.write_to_disk();
+    index.save_to_disk("test.index");
     println!("Wrote to disk");
 
     let file = File::open("test.index").unwrap();
@@ -59,10 +59,8 @@ fn main() {
 
     println!("Reading");
 
-    let (vectors, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
-
     println!("Reading index");
-    let index = hnsw::Hnsw::load_from_mmap(&mut mmap, &vectors[..]);
+    let index = hnsw::Hnsw::load(&mmap, &vectors[..]);
 
     println!("Loaded");
 

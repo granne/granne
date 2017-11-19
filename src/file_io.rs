@@ -6,9 +6,7 @@ use types::{Element, Scalar, DIM};
 
 use memmap::Mmap;
 
-fn read_index() {
 
-}
 
 
 fn read_line(line: &str) -> (String, Element) {
@@ -44,6 +42,7 @@ pub fn read<P>(path : P, number: usize) -> Result<(Vec<Element>, Vec<String>)>
 
 //    return Ok(file.lines().map(|line| read_line(&line.unwrap()).1).collect());
 }
+
 
 #[cfg(test)]
 mod tests {

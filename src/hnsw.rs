@@ -34,7 +34,7 @@ const LEVEL_MULTIPLIER: usize = 12;
 
 const MAX_NEIGHBORS: usize = 20;
 const MAX_INDEX_SEARCH: usize = 500;
-const MAX_SEARCH: usize = 500;
+const MAX_SEARCH: usize = 800;
 
 #[derive(Clone, Default, Debug)]
 struct HnswNode {
@@ -47,11 +47,16 @@ pub struct Config {
     max_search: usize,
 }
 
-pub struct HnswBuilder {
-    levels: [Vec<HnswNode>; LEVELS],
-    elements: Vec<Element>,
+pub struct HnswBuilder<'a> {
+    levels: Vec<Vec<HnswNode>>,
+    elements: &'a [Element],
 }
 
+
+pub struct Hnsw<'a> {
+    levels: Vec<&'a [HnswNode]>,
+    elements: &'a [Element]
+}
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 struct State {
@@ -60,23 +65,24 @@ struct State {
 }
 
 
-impl HnswBuilder {
-    pub fn new(elements: Vec<Element>) -> Self {
+impl<'a> HnswBuilder<'a> {
+    pub fn new(elements: &'a [Element]) -> Self {
         HnswBuilder {
-//            levels: [Vec::with_capacity(elements.len()); LEVELS],
-            levels: iter::repeat(Vec::new())
-                .collect::<ArrayVec<_>>()
-                .into_inner()
-                .unwrap(),
+            levels: Vec::new(),
             elements: elements,
         }
     }
 
 
-    pub fn write_to_disk(self: &Self) {
+    pub fn save_to_disk(self: &Self, path: &str) {
 
-        let mut file = File::create("test.index").unwrap();
+        let mut file = File::create(path).unwrap();
 
+        self.write(&mut file);
+    }
+
+
+    pub fn write<T: Write>(self: &Self, buffer: &mut T) {
         let num_nodes = self.levels.iter().map(|level| level.len()).sum();
         let num_levels = self.levels.len();
         let level_counts = self.levels.iter().map(|level| level.len());
@@ -90,7 +96,7 @@ impl HnswBuilder {
                 usize_data.len() * ::std::mem::size_of::<usize>())
         };
 
-        file.write(data);
+        buffer.write(data);
 
         for level in &self.levels {
 
@@ -100,61 +106,61 @@ impl HnswBuilder {
                     level.len() * ::std::mem::size_of::<HnswNode>())
             };
 
-            file.write(data);
+            buffer.write(data);
         }
     }
 
 
     pub fn build_index(&mut self) {
-        self.levels[0].push(HnswNode {
-            neighbors: ArrayVec::new(),
-        });
+        self.levels.push(vec![HnswNode::default()]);
 
         let mut num_elements = 1;
         for level in 1..LEVELS {
             num_elements *= LEVEL_MULTIPLIER;
             num_elements = cmp::min(num_elements, self.elements.len());
 
-            let (new_layer, top_layers) =
-                self.levels[..level+1].split_last_mut().unwrap();
+            let mut new_layer = 
+                Self::build_layer(&self.levels[..], &self.elements[..num_elements]);
 
-            Self::build_layer(top_layers,
-                              new_layer,
-                              &self.elements[..num_elements]);
+            self.levels.push(new_layer);
         }
     }
 
+
     fn build_layer(layers: &[Vec<HnswNode>],
-                   layer: &mut Vec<HnswNode>,
-                   elements: &[Element]) {
+                   elements: &[Element]) -> Vec<HnswNode> {
 
         println!("Building layer {} with {} vectors", layers.len(), elements.len());
 
         // copy layer above
-        *layer = Vec::with_capacity(elements.len());
+        let mut layer = Vec::with_capacity(elements.len());
         layer.extend_from_slice(layers.last().unwrap());
         layer.resize(elements.len(), HnswNode::default());
 
-        let already_inserted = layers.last().unwrap().len();
+        {
+            let already_inserted = layers.last().unwrap().len();
 
-        // create RwLocks for underlying nodes
-        let layer: Vec<RwLock<&mut HnswNode>> =
-            layer.iter_mut()
+            // create RwLocks for underlying nodes
+            let layer: Vec<RwLock<&mut HnswNode>> =
+                layer.iter_mut()
                 .map(|node| RwLock::new(node))
                 .collect();
 
-        // insert elements, skipping already inserted
-        elements
-            .par_iter()
-            .enumerate()
-            .skip(already_inserted)
-            .for_each(
-                |(idx, element)| {
-                    Self::insert_element(layers,
-                                         &layer,
-                                         elements,
-                                         idx);
-                });
+            // insert elements, skipping already inserted
+            elements
+                .par_iter()
+                .enumerate()
+                .skip(already_inserted)
+                .for_each(
+                    |(idx, element)| {
+                        Self::insert_element(layers,
+                                             &layer,
+                                             elements,
+                                             idx);
+                    });
+        }
+
+        layer
     }
 
 
@@ -284,26 +290,21 @@ impl HnswBuilder {
 }
 
 
-pub struct Hnsw<'a> {
-    levels: Vec<&'a [HnswNode]>,
-    elements: &'a [Element]
-}
-
 impl<'a> Hnsw<'a> {
 
-    pub fn load_from_mmap(mmap: &'a Mmap, elements: &'a [Element]) -> Self {
+    pub fn load(buffer: &'a [u8], elements: &'a [Element]) -> Self {
 
         let offset = 0 * ::std::mem::size_of::<usize>();
-        let num_nodes = &mmap[offset] as *const u8 as *const usize;
+        let num_nodes = &buffer[offset] as *const u8 as *const usize;
 
         let offset = 1 * ::std::mem::size_of::<usize>();
-        let num_levels = &mmap[offset] as *const u8 as *const usize;
+        let num_levels = &buffer[offset] as *const u8 as *const usize;
 
         let offset = 2 * ::std::mem::size_of::<usize>();
 
         let level_counts: &[usize] = unsafe {
             ::std::slice::from_raw_parts(
-                &mmap[offset] as *const u8 as *const usize,
+                &buffer[offset] as *const u8 as *const usize,
                 *num_levels
         )};
 
@@ -311,7 +312,7 @@ impl<'a> Hnsw<'a> {
 
         let nodes: &[HnswNode] = unsafe {
             ::std::slice::from_raw_parts(
-                &mmap[offset] as *const u8 as *const HnswNode,
+                &buffer[offset] as *const u8 as *const HnswNode,
                 *num_nodes
             )
         };
@@ -325,6 +326,8 @@ impl<'a> Hnsw<'a> {
             levels.push(level);
             start = end;
         }
+
+        assert!(levels.last().unwrap().len() <= elements.len());
 
         Self {
             levels: levels,
@@ -350,6 +353,7 @@ impl<'a> Hnsw<'a> {
             .iter()
             .map(|&i| (i, dist(&self.elements[i], element).into_inner())).collect()
     }
+
 
     fn find_entrypoint(layers: &[&[HnswNode]],
                        element: &Element,
