@@ -23,6 +23,7 @@ pub use ordered_float::NotNaN;
 use std::fs::File;
 use std::io::prelude::*;
 use memmap::Mmap;
+use revord::RevOrd;
 
 // Threading
 use std::sync::{Arc, RwLock};
@@ -56,12 +57,6 @@ pub struct HnswBuilder<'a> {
 pub struct Hnsw<'a> {
     levels: Vec<&'a [HnswNode]>,
     elements: &'a [Element]
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-struct State {
-    d: NotNaN<f32>,
-    idx: usize,
 }
 
 
@@ -199,31 +194,26 @@ impl<'a> HnswBuilder<'a> {
                                   max_neighbors: usize) -> Vec<usize> {
 
         let mut res = MaxSizeHeap::new(max_neighbors);
-        let mut pq = BinaryHeap::new();
-        let mut visited = FnvHashSet::default();
+        let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
+        let mut visited = HashSet::new();
 
-        pq.push(State {
-            idx: entrypoint,
-            d: dist(&elements[entrypoint], &goal)
-        });
+        pq.push(RevOrd(
+            (dist(&elements[entrypoint], &goal), entrypoint)
+        ));
 
         visited.insert(entrypoint);
 
         for _ in 0..max_search {
 
-            if let Some(State { idx, d } ) = pq.pop() {
-
+            if let Some(RevOrd {0: (d, idx)} ) = pq.pop() {
                 res.push((d, idx));
 
-                // Read Lock!
                 let node = layer[idx].read().unwrap();
 
                 for &neighbor_idx in &node.neighbors {
                     if visited.insert(neighbor_idx) {
-                        pq.push(State {
-                            idx: neighbor_idx,
-                            d: dist(&elements[neighbor_idx], &goal),
-                        });
+                        let distance = dist(&elements[neighbor_idx], &goal);
+                        pq.push(RevOrd((distance, neighbor_idx)));
                     }
                 }
 
@@ -385,29 +375,26 @@ fn search_for_neighbors(layer: &[HnswNode],
                         max_neighbors: usize) -> Vec<usize> {
 
     let mut res = MaxSizeHeap::new(max_neighbors);
-    let mut pq = BinaryHeap::new();
+    let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
     let mut visited = HashSet::new();
 
-    pq.push(State {
-        idx: entrypoint,
-        d: dist(&elements[entrypoint], &goal)
-    });
+    pq.push(RevOrd(
+        (dist(&elements[entrypoint], &goal), entrypoint)
+    ));
 
     visited.insert(entrypoint);
 
     for _ in 0..max_search {
 
-        if let Some(State { idx, d } ) = pq.pop() {
+        if let Some(RevOrd {0: (d, idx)} ) = pq.pop() {
             res.push((d, idx));
 
             let node = &layer[idx];
 
             for &neighbor_idx in &node.neighbors {
                 if visited.insert(neighbor_idx) {
-                    pq.push(State {
-                        idx: neighbor_idx,
-                        d: dist(&elements[neighbor_idx], &goal),
-                    });
+                    let distance = dist(&elements[neighbor_idx], &goal);
+                    pq.push(RevOrd((distance, neighbor_idx)));
                 }
             }
 
@@ -419,19 +406,6 @@ fn search_for_neighbors(layer: &[HnswNode],
     return res.heap.into_sorted_vec().into_iter().map(|(_, idx)| idx).collect();
 }
 
-
-impl Ord for State {
-    fn cmp(&self, other: &State) -> Ordering {
-        other.d.cmp(&self.d)
-    }
-}
-
-
-impl PartialOrd for State {
-    fn partial_cmp(&self, other: &State) -> Option<Ordering> {
-        other.d.partial_cmp(&self.d)
-    }
-}
 
 struct MaxSizeHeap<T> {
     heap: BinaryHeap<T>,

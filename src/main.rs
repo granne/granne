@@ -6,6 +6,7 @@ extern crate ordered_float;
 extern crate time;
 extern crate rand;
 extern crate rayon;
+extern crate revord;
 extern crate fnv;
 extern crate memmap;
 
@@ -55,7 +56,7 @@ fn main() {
     println!("Wrote to disk");
 
     let file = File::open("test.index").unwrap();
-    let mut mmap = unsafe { Mmap::map(&file).unwrap() };
+    let mmap = unsafe { Mmap::map(&file).unwrap() };
 
     println!("Reading");
 
