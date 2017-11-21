@@ -3,7 +3,7 @@
 // mmap (X)
 // build layer by layer (X)
 // small size
-// extenstible
+// extenstible (X)
 // merge indexes?
 // fast
 //
@@ -104,6 +104,19 @@ impl<'a> HnswBuilder<'a> {
     }
 
 
+    pub fn load(config: Config, index: &Hnsw, elements: &'a [Element]) -> Self {
+        let mut builder = Self::new(config, elements);
+
+        assert!(index.levels.last().unwrap().len() <= elements.len());
+
+        builder.levels = index.levels.iter()
+            .map(|level| level.to_vec())
+            .collect();
+
+        builder
+    }
+
+
     pub fn build_index(&mut self) {
         self.levels.push(vec![HnswNode::default()]);
 
@@ -112,8 +125,12 @@ impl<'a> HnswBuilder<'a> {
             num_elements *= self.config.level_multiplier;
             num_elements = cmp::min(num_elements, self.elements.len());
 
-            let mut new_layer =
-                Self::build_layer(&self.config,
+            // copy layer above
+            let mut new_layer = Vec::with_capacity(num_elements);
+            new_layer.extend_from_slice(self.levels.last().unwrap());
+
+            Self::insert_elements(&self.config,
+                                  &mut new_layer,
                                   &self.levels[..],
                                   &self.elements[..num_elements]);
 
@@ -121,43 +138,54 @@ impl<'a> HnswBuilder<'a> {
         }
     }
 
+    pub fn append_elements(&mut self, elements: &'a [Element]) {
+        assert!(dist(&self.elements[0],
+                     &elements[0]) <
+                NotNaN::new(::std::f32::EPSILON).unwrap());
 
-    fn build_layer(config: &Config,
-                   layers: &[Vec<HnswNode>],
-                   elements: &[Element]) -> Vec<HnswNode> {
+        assert!(dist(&self.elements[self.elements.len()-1],
+                     &elements[self.elements.len()-1]) <
+                NotNaN::new(::std::f32::EPSILON).unwrap());
+
+        self.elements = elements;
+
+        let (layer, layers) = self.levels.split_last_mut().unwrap();
+        Self::insert_elements(&self.config, layer, layers, self.elements);
+    }
+
+
+    fn insert_elements(config: &Config,
+                       layer: &mut Vec<HnswNode>,
+                       layers: &[Vec<HnswNode>],
+                       elements: &[Element]) {
 
         println!("Building layer {} with {} vectors", layers.len(), elements.len());
 
-        // copy layer above
-        let mut layer = Vec::with_capacity(elements.len());
-        layer.extend_from_slice(layers.last().unwrap());
+        assert!(layer.len() <= elements.len());
+
+        let already_inserted = layer.len();
+
         layer.resize(elements.len(), HnswNode::default());
 
-        {
-            let already_inserted = layers.last().unwrap().len();
+        // create RwLocks for underlying nodes
+        let layer: Vec<RwLock<&mut HnswNode>> =
+            layer.iter_mut()
+            .map(|node| RwLock::new(node))
+            .collect();
 
-            // create RwLocks for underlying nodes
-            let layer: Vec<RwLock<&mut HnswNode>> =
-                layer.iter_mut()
-                .map(|node| RwLock::new(node))
-                .collect();
-
-            // insert elements, skipping already inserted
-            elements
-                .par_iter()
-                .enumerate()
-                .skip(already_inserted)
-                .for_each(
-                    |(idx, element)| {
-                        Self::insert_element(config,
-                                             layers,
-                                             &layer,
-                                             elements,
-                                             idx);
-                    });
-        }
-
-        layer
+        // insert elements, skipping already inserted
+        elements
+            .par_iter()
+            .enumerate()
+            .skip(already_inserted)
+            .for_each(
+                |(idx, element)| {
+                    Self::insert_element(config,
+                                         layers,
+                                         &layer,
+                                         elements,
+                                         idx);
+                });
     }
 
 

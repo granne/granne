@@ -46,6 +46,9 @@ fn main() {
     let num_vectors = 20001;
     let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
 
+    let (vectors2, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
+
+
     println!("Read {} vectors", vectors.len());
 
     let config = hnsw::Config {
@@ -54,9 +57,14 @@ fn main() {
         max_search: 500,
     };
 
-    let mut index = hnsw::HnswBuilder::new(config, &vectors[..]);
+    let mut index = hnsw::HnswBuilder::new(config, &vectors[..15000]);
     index.build_index();
     println!("Built index");
+
+
+    // HUH??
+    index.append_elements(&vectors2[..]);
+
     index.save_to_disk("test.index");
     println!("Wrote to disk");
 
