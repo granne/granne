@@ -1,6 +1,5 @@
 #![feature(iterator_step_by)]
 
-
 extern crate arrayvec;
 extern crate ordered_float;
 extern crate time;
@@ -9,8 +8,8 @@ extern crate rayon;
 extern crate revord;
 extern crate fnv;
 extern crate memmap;
+extern crate hnsw;
 
-use types::*;
 use std::collections::BinaryHeap;
 pub use ordered_float::NotNaN;
 use rand::{thread_rng, Rng};
@@ -18,9 +17,9 @@ use std::fs::File;
 use std::io::prelude::*;
 use memmap::Mmap;
 
-mod types;
-mod file_io;
-mod hnsw;
+use hnsw::types::*;
+use hnsw::hnsw::*;
+use hnsw::file_io;
 
 const MAX_NEIGHBORS: usize = 5;
 
@@ -51,13 +50,13 @@ fn main() {
 
     println!("Read {} vectors", vectors.len());
 
-    let config = hnsw::Config {
+    let config = Config {
         num_levels: 5,
         level_multiplier: 12,
         max_search: 500,
     };
 
-    let mut index = hnsw::HnswBuilder::new(config, &vectors[..15000]);
+    let mut index = HnswBuilder::new(config, &vectors[..15000]);
     index.build_index();
     println!("Built index");
 
@@ -72,7 +71,7 @@ fn main() {
     let mmap = unsafe { Mmap::map(&file).unwrap() };
 
     println!("Reading index");
-    let index = hnsw::Hnsw::load(&mmap, &vectors[..]);
+    let index = Hnsw::load(&mmap, &vectors[..]);
 
     println!("Loaded");
 
