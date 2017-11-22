@@ -2,14 +2,12 @@ use std::io::{BufRead, BufReader, Result};
 use std::fs::File;
 use std::path;
 
-use types::{Element, DIM};
+use types::{FloatElement, DIM};
 
 use memmap::Mmap;
 
 
-
-
-fn read_line(line: &str) -> (String, Element) {
+fn read_line(line: &str) -> (String, FloatElement) {
     let mut iter = line.split_whitespace();
     
     let word = String::from(iter.next().unwrap());
@@ -19,10 +17,10 @@ fn read_line(line: &str) -> (String, Element) {
         v[i] = e.parse::<f32>().unwrap();
     }
 
-    return (word, v);
+    return (word, v.into());
 }
 
-pub fn read<P>(path : P, number: usize) -> Result<(Vec<Element>, Vec<String>)>
+pub fn read<P>(path : P, number: usize) -> Result<(Vec<FloatElement>, Vec<String>)>
     where P : AsRef<path::Path> {
     let file = File::open(path)?;
     let file = BufReader::new(file);

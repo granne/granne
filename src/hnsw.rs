@@ -33,10 +33,12 @@ use fnv::FnvHashSet;
 
 const MAX_NEIGHBORS: usize = 20;
 
+#[repr(C)]
 #[derive(Clone, Default, Debug)]
 struct HnswNode {
     neighbors: ArrayVec<[usize; MAX_NEIGHBORS]>,
 }
+
 
 pub struct Config {
     pub num_levels: usize,
@@ -44,21 +46,23 @@ pub struct Config {
     pub max_search: usize,
 }
 
-pub struct HnswBuilder<'a> {
+
+pub struct HnswBuilder<'a, T: HasDistance + Sync + 'a> {
     levels: Vec<Vec<HnswNode>>,
-    elements: &'a [Element],
+    elements: &'a [T],
     config: Config,
 }
 
 
-pub struct Hnsw<'a> {
+pub struct Hnsw<'a, T: HasDistance + 'a> {
     levels: Vec<&'a [HnswNode]>,
-    elements: &'a [Element],
+    elements: &'a [T],
 }
 
 
-impl<'a> HnswBuilder<'a> {
-    pub fn new(config: Config, elements: &'a [Element]) -> Self {
+impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
+
+    pub fn new(config: Config, elements: &'a [T]) -> Self {
         HnswBuilder {
             levels: Vec::new(),
             elements: elements,
@@ -75,7 +79,7 @@ impl<'a> HnswBuilder<'a> {
     }
 
 
-    pub fn write<T: Write>(self: &Self, buffer: &mut T) {
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) {
         let num_nodes = self.levels.iter().map(|level| level.len()).sum();
         let num_levels = self.levels.len();
         let level_counts = self.levels.iter().map(|level| level.len());
@@ -104,7 +108,7 @@ impl<'a> HnswBuilder<'a> {
     }
 
 
-    pub fn load(config: Config, index: &Hnsw, elements: &'a [Element]) -> Self {
+    pub fn load(config: Config, index: &Hnsw<T>, elements: &'a [T]) -> Self {
         let mut builder = Self::new(config, elements);
 
         assert!(index.levels.last().unwrap().len() <= elements.len());
@@ -138,12 +142,11 @@ impl<'a> HnswBuilder<'a> {
         }
     }
 
-    pub fn append_elements(&mut self, elements: &'a [Element]) {
-        assert!(dist(&self.elements[0],
-                     &elements[0]) <
+    pub fn append_elements(&mut self, elements: &'a [T]) {
+        assert!(self.elements[0].dist(&elements[0]) <
                 NotNaN::new(::std::f32::EPSILON).unwrap());
 
-        assert!(dist(&self.elements[self.elements.len()-1],
+        assert!(self.elements[self.elements.len()-1].dist(
                      &elements[self.elements.len()-1]) <
                 NotNaN::new(::std::f32::EPSILON).unwrap());
 
@@ -157,7 +160,7 @@ impl<'a> HnswBuilder<'a> {
     fn insert_elements(config: &Config,
                        layer: &mut Vec<HnswNode>,
                        layers: &[Vec<HnswNode>],
-                       elements: &[Element]) {
+                       elements: &[T]) {
 
         println!("Building layer {} with {} vectors", layers.len(), elements.len());
 
@@ -174,12 +177,12 @@ impl<'a> HnswBuilder<'a> {
             .collect();
 
         // insert elements, skipping already inserted
-        elements
+        layer
             .par_iter()
             .enumerate()
             .skip(already_inserted)
             .for_each(
-                |(idx, element)| {
+                |(idx, _)| {
                     Self::insert_element(config,
                                          layers,
                                          &layer,
@@ -192,7 +195,7 @@ impl<'a> HnswBuilder<'a> {
     fn insert_element(config: &Config,
                       layers: &[Vec<HnswNode>],
                       layer: &Vec<RwLock<&mut HnswNode>>,
-                      elements: &[Element],
+                      elements: &[T],
                       idx: usize) {
 
         let element = &elements[idx];
@@ -220,8 +223,8 @@ impl<'a> HnswBuilder<'a> {
 
     fn search_for_neighbors_index(layer: &[RwLock<&mut HnswNode>],
                                   entrypoint: usize,
-                                  elements: &[Element],
-                                  goal: &Element,
+                                  elements: &[T],
+                                  goal: &T,
                                   max_search: usize,
                                   max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
 
@@ -230,21 +233,21 @@ impl<'a> HnswBuilder<'a> {
         let mut visited = FnvHashSet::default();
 
         pq.push(RevOrd(
-            (dist(&elements[entrypoint], &goal), entrypoint)
+            (elements[entrypoint].dist(&goal), entrypoint)
         ));
 
         visited.insert(entrypoint);
 
         for _ in 0..max_search {
 
-            if let Some(RevOrd {0: (d, idx)} ) = pq.pop() {
+            if let Some(RevOrd((d, idx))) = pq.pop() {
                 res.push((d, idx));
 
                 let node = layer[idx].read().unwrap();
 
                 for &neighbor_idx in &node.neighbors {
                     if visited.insert(neighbor_idx) {
-                        let distance = dist(&elements[neighbor_idx], &goal);
+                        let distance = elements[neighbor_idx].dist(&goal);
                         pq.push(RevOrd((distance, neighbor_idx)));
                     }
                 }
@@ -259,7 +262,7 @@ impl<'a> HnswBuilder<'a> {
 
 
     fn connect_nodes(node: &RwLock<&mut HnswNode>,
-                     elements: &[Element],
+                     elements: &[T],
                      i: usize,
                      j: usize,
                      d: NotNaN<f32>) -> bool
@@ -273,7 +276,7 @@ impl<'a> HnswBuilder<'a> {
         } else {
             if let Some((k, max_dist)) = node.neighbors
                 .iter()
-                .map(|&k| dist(&elements[i], &elements[k]))
+                .map(|&k| elements[i].dist(&elements[k]))
                 .enumerate()
                 .max()
             {
@@ -289,8 +292,8 @@ impl<'a> HnswBuilder<'a> {
 
 
     fn find_entrypoint(layers: &[Vec<HnswNode>],
-                       element: &Element,
-                       elements: &[Element],
+                       element: &T,
+                       elements: &[T],
                        max_search: usize) -> usize {
 
         let mut entrypoint = 0;
@@ -311,9 +314,9 @@ impl<'a> HnswBuilder<'a> {
 }
 
 
-impl<'a> Hnsw<'a> {
+impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
-    pub fn load(buffer: &'a [u8], elements: &'a [Element]) -> Self {
+    pub fn load(buffer: &'a [u8], elements: &'a [T]) -> Self {
 
         let offset = 0 * ::std::mem::size_of::<usize>();
         let num_nodes = &buffer[offset] as *const u8 as *const usize;
@@ -358,7 +361,7 @@ impl<'a> Hnsw<'a> {
     }
 
 
-    pub fn search(&self, element: &Element, max_search: usize) -> Vec<(usize, f32)> {
+    pub fn search(&self, element: &T, max_search: usize) -> Vec<(usize, f32)> {
 
         let (bottom_level, top_levels) = self.levels.split_last().unwrap();
 
@@ -380,8 +383,8 @@ impl<'a> Hnsw<'a> {
 
 
     fn find_entrypoint(layers: &[&[HnswNode]],
-                       element: &Element,
-                       elements: &[Element],
+                       element: &T,
+                       elements: &[T],
                        max_search: usize) -> usize {
 
         let mut entrypoint = 0;
@@ -402,33 +405,34 @@ impl<'a> Hnsw<'a> {
 }
 
 
-fn search_for_neighbors(layer: &[HnswNode],
-                        entrypoint: usize,
-                        elements: &[Element],
-                        goal: &Element,
-                        max_search: usize,
-                        max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
+fn search_for_neighbors<T: HasDistance>(layer: &[HnswNode],
+                                        entrypoint: usize,
+                                        elements: &[T],
+                                        goal: &T,
+                                        max_search: usize,
+                                        max_neighbors: usize)
+                                        -> Vec<(usize, NotNaN<f32>)> {
 
     let mut res = MaxSizeHeap::new(max_neighbors);
     let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
     let mut visited = FnvHashSet::default();
 
     pq.push(RevOrd(
-        (dist(&elements[entrypoint], &goal), entrypoint)
+        (elements[entrypoint].dist(&goal), entrypoint)
     ));
 
     visited.insert(entrypoint);
 
     for _ in 0..max_search {
 
-        if let Some(RevOrd {0: (d, idx)} ) = pq.pop() {
+        if let Some(RevOrd((d, idx))) = pq.pop() {
             res.push((d, idx));
 
             let node = &layer[idx];
 
             for &neighbor_idx in &node.neighbors {
                 if visited.insert(neighbor_idx) {
-                    let distance = dist(&elements[neighbor_idx], &goal);
+                    let distance = elements[neighbor_idx].dist(&goal);
                     pq.push(RevOrd((distance, neighbor_idx)));
                 }
             }

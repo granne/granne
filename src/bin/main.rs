@@ -23,11 +23,11 @@ use hnsw::file_io;
 
 const MAX_NEIGHBORS: usize = 5;
 
-fn brute_search(vectors: &Vec<Element>, goal: &Element) -> Vec<(usize, f32)> {
+fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize, f32)> {
     let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
 
-    for (idx, &v) in vectors.iter().enumerate() {
-        let d = dist(&v, goal);
+    for (idx, v) in vectors.iter().enumerate() {
+        let d = v.dist(goal);
 
         if res.len() < MAX_NEIGHBORS || d < res.peek().unwrap().0 {
             res.push((d, idx));
