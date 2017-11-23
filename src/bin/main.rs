@@ -17,8 +17,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use memmap::Mmap;
 
-use hnsw::types::*;
-use hnsw::hnsw::*;
+use hnsw::*;
 use hnsw::file_io;
 
 const MAX_NEIGHBORS: usize = 5;
@@ -43,9 +42,9 @@ fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize,
 
 fn main() {
     let num_vectors = 20001;
-    let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
+    let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
 
-    let (vectors2, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.50d.txt", num_vectors).unwrap();
+    let (vectors2, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
 
 
     println!("Read {} vectors", vectors.len());

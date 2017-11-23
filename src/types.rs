@@ -1,7 +1,7 @@
 use std::cmp;
 use ordered_float::NotNaN;
 
-pub const DIM: usize = 50;
+pub const DIM: usize = 100;
 
 pub trait HasDistance {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32>;
@@ -70,5 +70,4 @@ mod tests {
     #[test]
     fn test_distance() {
     }
-
 }

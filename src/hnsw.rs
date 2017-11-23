@@ -2,9 +2,9 @@
 // concurrent, little waiting (X)
 // mmap (X)
 // build layer by layer (X)
-// small size
 // extenstible (X)
 // merge indexes?
+// small size
 // fast
 //
 

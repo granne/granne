@@ -7,6 +7,9 @@ extern crate revord;
 extern crate fnv;
 extern crate memmap;
 
-pub mod types;
+mod hnsw;
+mod types;
 pub mod file_io;
-pub mod hnsw;
+
+pub use hnsw::{Hnsw, HnswBuilder, Config};
+pub use types::{FloatElement, Int8Element, HasDistance};
