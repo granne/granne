@@ -8,23 +8,21 @@
 // fast
 //
 
-use types::*;
 use arrayvec::ArrayVec;
+use fnv::FnvHashSet;
+use ordered_float::NotNaN;
+use revord::RevOrd;
 use std::collections::BinaryHeap;
 use std::cmp;
-pub use ordered_float::NotNaN;
+use types::*;
 
 // Write and read
 use std::fs::File;
-use std::io::prelude::*;
-use memmap::Mmap;
-use revord::RevOrd;
+use std::io::{Write, Result};
 
 // Threading
-use std::sync::RwLock;
 use rayon::prelude::*;
-
-use fnv::FnvHashSet;
+use std::sync::RwLock;
 
 const MAX_NEIGHBORS: usize = 20;
 
@@ -74,7 +72,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
     }
 
 
-    pub fn write<B: Write>(self: &Self, buffer: &mut B) {
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
         let num_nodes = self.levels.iter().map(|level| level.len()).sum();
         let num_levels = self.levels.len();
         let level_counts = self.levels.iter().map(|level| level.len());
@@ -88,7 +86,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                 usize_data.len() * ::std::mem::size_of::<usize>())
         };
 
-        buffer.write(data);
+        buffer.write(data)?;
 
         for level in &self.levels {
 
@@ -98,8 +96,10 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                     level.len() * ::std::mem::size_of::<HnswNode>())
             };
 
-            buffer.write(data);
+            buffer.write(data)?;
         }
+
+        Ok(())
     }
 
 
@@ -131,7 +131,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
         self.levels.push(vec![HnswNode::default()]);
 
         let mut num_elements = 1;
-        for level in 1..self.config.num_levels {
+        for _level in 1..self.config.num_levels {
             num_elements *= self.config.level_multiplier;
             num_elements = cmp::min(num_elements, self.elements.len());
 
@@ -466,22 +466,14 @@ impl<T: Ord> MaxSizeHeap<T> {
     pub fn push(self: &mut Self, element: T) {
         if self.heap.len() < self.max_size {
             self.heap.push(element);
-        }
-        else if element < *self.heap.peek().unwrap() {
+
+        } else if element < *self.heap.peek().unwrap() {
             if self.heap.len() >= self.max_size {
                 self.heap.pop();
             }
 
             self.heap.push(element);
         }
-    }
-
-    pub fn peek(self: &Self) -> Option<&T> {
-        self.heap.peek()
-    }
-
-    pub fn len(self: &Self) -> usize {
-        self.heap.len()
     }
 }
 

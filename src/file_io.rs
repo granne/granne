@@ -4,8 +4,6 @@ use std::path;
 
 use types::{FloatElement, DIM};
 
-use memmap::Mmap;
-
 
 fn read_line(line: &str) -> (String, FloatElement) {
     let mut iter = line.split_whitespace();

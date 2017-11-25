@@ -72,8 +72,6 @@ fn main() {
 
     println!("Loaded");
 
-
-
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
     let max_search = 1000;

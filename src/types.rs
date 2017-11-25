@@ -104,12 +104,10 @@ pub mod example {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    #[test]
 
     #[test]
     fn test_rblas_dist() {
-        for i in 0..100 {
+        for _ in 0..100 {
             let x = example::random_float_element();
             let y = example::random_float_element();
 
@@ -119,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_dist_between_same_vector() {
-        for i in 0..100 {
+        for _ in 0..100 {
             let x = example::random_float_element();
 
             assert!(x.dist(&x).into_inner() < DIST_EPSILON);
