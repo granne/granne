@@ -146,7 +146,7 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
 
             Self::insert_elements(&self.config,
                                   &mut new_layer,
-                                  &self.levels[..],
+                                  &self.get_index(),
                                   &self.elements[..num_elements]);
 
             self.levels.push(new_layer);
@@ -164,17 +164,23 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
 
         self.elements = elements;
 
-        let (layer, layers) = self.levels.split_last_mut().unwrap();
-        Self::insert_elements(&self.config, layer, layers, self.elements);
+        let mut layer = self.levels.pop().unwrap();
+
+        Self::insert_elements(&self.config,
+                              &mut layer,
+                              &self.get_index(),
+                              self.elements);
+
+        self.levels.push(layer);
     }
 
 
     fn insert_elements(config: &Config,
                        layer: &mut Vec<HnswNode>,
-                       layers: &[Vec<HnswNode>],
+                       index: &Hnsw<T>,
                        elements: &[T]) {
 
-        println!("Building layer {} with {} vectors", layers.len(), elements.len());
+        println!("Building layer with {} vectors", elements.len());
 
         assert!(layer.len() <= elements.len());
 
@@ -189,14 +195,13 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
             .collect();
 
         // insert elements, skipping already inserted
-        layer
-            .par_iter()
+        layer.par_iter()
             .enumerate()
             .skip(already_inserted)
             .for_each(
                 |(idx, _)| {
                     Self::insert_element(config,
-                                         layers,
+                                         index,
                                          &layer,
                                          elements,
                                          idx);
@@ -205,16 +210,13 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
 
 
     fn insert_element(config: &Config,
-                      layers: &[Vec<HnswNode>],
+                      index: &Hnsw<T>,
                       layer: &Vec<RwLock<&mut HnswNode>>,
                       elements: &[T],
                       idx: usize) {
 
         let element = &elements[idx];
-        let entrypoint = Self::find_entrypoint(layers,
-                                               element,
-                                               elements,
-                                               config.max_search);
+        let (entrypoint, _) = index.search(element, config.max_search)[0];
 
         let neighbors = Self::search_for_neighbors_index(&layer[..],
                                                          entrypoint,
@@ -232,13 +234,15 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
         }
     }
 
-
+    // Similar to Hnsw::search_for_neighbors but with RwLocks for
+    // parallel insertion
     fn search_for_neighbors_index(layer: &[RwLock<&mut HnswNode>],
                                   entrypoint: usize,
                                   elements: &[T],
                                   goal: &T,
                                   max_search: usize,
-                                  max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
+                                  max_neighbors: usize) 
+                                  -> Vec<(usize, NotNaN<f32>)> {
 
         let mut res = MaxSizeHeap::new(max_neighbors);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
@@ -277,14 +281,13 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
                      elements: &[T],
                      i: usize,
                      j: usize,
-                     d: NotNaN<f32>) -> bool
+                     d: NotNaN<f32>)
     {
         // Write Lock!
         let mut node = node.write().unwrap();
 
         if node.neighbors.len() < MAX_NEIGHBORS {
             node.neighbors.push(j);
-            return true;
         } else {
             if let Some((k, max_dist)) = node.neighbors
                 .iter()
@@ -294,34 +297,9 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
             {
                 if d < NotNaN::new(2.0f32).unwrap() * max_dist {
                     node.neighbors[k] = j;
-                    return true;
                 }
             }
         }
-
-        return false;
-    }
-
-
-    fn find_entrypoint(layers: &[Vec<HnswNode>],
-                       element: &T,
-                       elements: &[T],
-                       max_search: usize) -> usize {
-
-        let mut entrypoint = 0;
-        for layer in layers {
-            let res = search_for_neighbors(
-                &layer,
-                entrypoint,
-                &elements,
-                &element,
-                max_search,
-                1usize);
-
-            entrypoint = res.first().unwrap().0.clone();
-        }
-
-        entrypoint
     }
 }
 
@@ -382,7 +360,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
                                                &self.elements,
                                                max_search);
 
-        search_for_neighbors(
+        Self::search_for_neighbors(
             &bottom_level,
             entrypoint,
             &self.elements,
@@ -401,7 +379,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
         let mut entrypoint = 0;
         for layer in layers {
-            let res = search_for_neighbors(
+            let res = Self::search_for_neighbors(
                 &layer,
                 entrypoint,
                 &elements,
@@ -409,52 +387,56 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
                 max_search,
                 1usize);
 
-            entrypoint = res.first().unwrap().0.clone();
+            entrypoint = res[0].0;
         }
 
         entrypoint
     }
-}
 
 
-fn search_for_neighbors<T: HasDistance>(layer: &[HnswNode],
-                                        entrypoint: usize,
-                                        elements: &[T],
-                                        goal: &T,
-                                        max_search: usize,
-                                        max_neighbors: usize)
-                                        -> Vec<(usize, NotNaN<f32>)> {
+    fn search_for_neighbors(layer: &[HnswNode],
+                            entrypoint: usize,
+                            elements: &[T],
+                            goal: &T,
+                            max_search: usize,
+                            max_neighbors: usize)
+                            -> Vec<(usize, NotNaN<f32>)> {
 
-    let mut res = MaxSizeHeap::new(max_neighbors);
-    let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
-    let mut visited = FnvHashSet::default();
+        let mut res = MaxSizeHeap::new(max_neighbors);
+        let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
+        let mut visited = FnvHashSet::default();
 
-    pq.push(RevOrd(
-        (elements[entrypoint].dist(&goal), entrypoint)
-    ));
+        pq.push(RevOrd(
+            (elements[entrypoint].dist(&goal), entrypoint)
+        ));
 
-    visited.insert(entrypoint);
+        visited.insert(entrypoint);
 
-    for _ in 0..max_search {
+        for _ in 0..max_search {
 
-        if let Some(RevOrd((d, idx))) = pq.pop() {
-            res.push((d, idx));
+            if let Some(RevOrd((d, idx))) = pq.pop() {
+                res.push((d, idx));
 
-            let node = &layer[idx];
+                let node = &layer[idx];
 
-            for &neighbor_idx in &node.neighbors {
-                if visited.insert(neighbor_idx) {
-                    let distance = elements[neighbor_idx].dist(&goal);
-                    pq.push(RevOrd((distance, neighbor_idx)));
+                for &neighbor_idx in &node.neighbors {
+                    if visited.insert(neighbor_idx) {
+                        let distance = elements[neighbor_idx].dist(&goal);
+                        pq.push(RevOrd((distance, neighbor_idx)));
+                    }
                 }
+
+            } else {
+                break;
             }
-
-        } else {
-            break;
         }
-    }
 
-    return res.heap.into_sorted_vec().into_iter().map(|(d, idx)| (idx, d)).collect();
+        return res.heap
+            .into_sorted_vec()
+            .into_iter()
+            .map(|(d, idx)| (idx, d))
+            .collect();
+    }
 }
 
 
