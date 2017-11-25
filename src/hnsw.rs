@@ -11,12 +11,7 @@
 use types::*;
 use arrayvec::ArrayVec;
 use std::collections::BinaryHeap;
-use std::collections::HashSet;
-use std::cmp::Ordering;
-use std::iter;
 use std::cmp;
-use time;
-use std::mem;
 pub use ordered_float::NotNaN;
 
 // Write and read
@@ -26,7 +21,7 @@ use memmap::Mmap;
 use revord::RevOrd;
 
 // Threading
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 use rayon::prelude::*;
 
 use fnv::FnvHashSet;
@@ -155,12 +150,12 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
 
     pub fn append_elements(&mut self, elements: &'a [T]) {
-        assert!(self.elements[0].dist(&elements[0]) <
-                NotNaN::new(10.0f32 * ::std::f32::EPSILON).unwrap());
+        assert!(self.elements[0].dist(&elements[0]).into_inner() <
+                DIST_EPSILON);
 
         assert!(self.elements[self.elements.len()-1].dist(
-                     &elements[self.elements.len()-1]) <
-                NotNaN::new(10.0f32 * ::std::f32::EPSILON).unwrap());
+                     &elements[self.elements.len()-1]).into_inner() <
+                DIST_EPSILON);
 
         self.elements = elements;
 
@@ -372,7 +367,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let entrypoint = Self::find_entrypoint(&top_levels,
                                                element,
                                                &self.elements,
-                                               max_search);
+                                               max_search / 10);
 
         Self::search_for_neighbors(
             &bottom_level,
@@ -493,6 +488,7 @@ impl<T: Ord> MaxSizeHeap<T> {
 
 mod tests {
     use super::*;
+    use std::mem;
     use types::example::*;
 
     #[test]

@@ -12,7 +12,6 @@ extern crate hnsw;
 
 use std::collections::BinaryHeap;
 pub use ordered_float::NotNaN;
-use rand::{thread_rng, Rng};
 use std::fs::File;
 use std::io::prelude::*;
 use memmap::Mmap;
@@ -26,7 +25,7 @@ fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize,
     let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
 
     for (idx, v) in vectors.iter().enumerate() {
-        let d = v.dist(goal);
+        let d = reference_dist(&v, goal);
 
         if res.len() < MAX_NEIGHBORS || d < res.peek().unwrap().0 {
             res.push((d, idx));
@@ -41,7 +40,7 @@ fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize,
 }
 
 fn main() {
-    let num_vectors = 20001;
+    let num_vectors = 200001;
     let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
 
     let (vectors2, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
@@ -50,21 +49,20 @@ fn main() {
     println!("Read {} vectors", vectors.len());
 
     let config = Config {
-        num_levels: 5,
-        level_multiplier: 12,
+        num_levels: 6,
+        level_multiplier: 14,
         max_search: 500,
     };
 
-    let mut index = HnswBuilder::new(config, &vectors[..15000]);
+    let mut index = HnswBuilder::new(config, &vectors[..]);
     index.build_index();
     println!("Built index");
 
-
-    // HUH??
-    index.append_elements(&vectors2[..]);
-
     index.save_to_disk("test.index");
     println!("Wrote to disk");
+
+    let index = index.get_index();
+
 
     let file = File::open("test.index").unwrap();
     let mmap = unsafe { Mmap::map(&file).unwrap() };
@@ -75,9 +73,10 @@ fn main() {
     println!("Loaded");
 
 
+
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
-    let max_search = 800;
+    let max_search = 1000;
     let num_queries = 1000;
     let mut query_count = 0;
     for idx in (0..num_vectors).step_by(num_vectors / num_queries) {
@@ -104,25 +103,5 @@ fn main() {
         println!();
     }
 
-
-/*
-    for i in 0..LEVELS {
-        for (left, right) in hnsw.levels[i].iter().zip(index.levels[i].iter()) {
-
-        }
-    }
-*/
-/*
-    for i in 7000..7100 {
-        println!("");
-        println!("Nearest neighbors to {}:", words[i]);
-        for (&(r, d), (br, bd)) in
-            index.search(&vectors[i]).iter()
-            .zip(
-                brute_search(&vectors, &vectors[i]).into_iter()) {
-            println!("{}: {} \t {}: {}", words[r], d, words[br], bd);
-        }
-    }
-*/
 
 }
