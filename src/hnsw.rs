@@ -47,7 +47,7 @@ pub struct Config {
 }
 
 
-pub struct HnswBuilder<'a, T: HasDistance + Sync + 'a> {
+pub struct HnswBuilder<'a, T: HasDistance + Sync + Send + 'a> {
     levels: Vec<Vec<HnswNode>>,
     elements: &'a [T],
     config: Config,
@@ -60,7 +60,7 @@ pub struct Hnsw<'a, T: HasDistance + 'a> {
 }
 
 
-impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
+impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
     pub fn new(config: Config, elements: &'a [T]) -> Self {
         HnswBuilder {
@@ -195,7 +195,7 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
             .collect();
 
         // insert elements, skipping already inserted
-        layer.par_iter()
+        elements.par_iter()
             .enumerate()
             .skip(already_inserted)
             .for_each(
@@ -225,14 +225,15 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
                                                          config.max_search,
                                                          MAX_NEIGHBORS);
 
-        for (neighbor, d) in neighbors.into_iter().filter(|&(n, _)| n != idx) {
-            // can be done directly since layer[idx].neighbors is empty
-            Self::connect_nodes(&layer[idx], elements, idx, neighbor, d);
+        // can be done directly since layer[idx].neighbors is empty
+        Self::initialize_neighbors(&layer[idx], &neighbors[..]);
 
+        for (neighbor, d) in neighbors {
             // find a more clever way to decide when to add this edge
             Self::connect_nodes(&layer[neighbor], elements, neighbor, idx, d);
         }
     }
+
 
     // Similar to Hnsw::search_for_neighbors but with RwLocks for
     // parallel insertion
@@ -241,7 +242,7 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
                                   elements: &[T],
                                   goal: &T,
                                   max_search: usize,
-                                  max_neighbors: usize) 
+                                  max_neighbors: usize)
                                   -> Vec<(usize, NotNaN<f32>)> {
 
         let mut res = MaxSizeHeap::new(max_neighbors);
@@ -277,6 +278,21 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
     }
 
 
+    fn initialize_neighbors(node: &RwLock<&mut HnswNode>,
+                            neighbors: &[(usize, NotNaN<f32>)]) {
+        // Write Lock!
+        let mut node = node.write().unwrap();
+
+        debug_assert!(node.neighbors.len() == 0);
+        let num_to_add =
+            node.neighbors.capacity() - node.neighbors.len();
+
+        for &(idx, _) in neighbors.iter().take(num_to_add) {
+            node.neighbors.push(idx);
+        }
+    }
+
+
     fn connect_nodes(node: &RwLock<&mut HnswNode>,
                      elements: &[T],
                      i: usize,
@@ -289,15 +305,14 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
         if node.neighbors.len() < MAX_NEIGHBORS {
             node.neighbors.push(j);
         } else {
-            if let Some((k, max_dist)) = node.neighbors
+            let (k, max_dist) = node.neighbors
                 .iter()
                 .map(|&k| elements[i].dist(&elements[k]))
                 .enumerate()
-                .max()
-            {
-                if d < NotNaN::new(2.0f32).unwrap() * max_dist {
-                    node.neighbors[k] = j;
-                }
+                .max().unwrap();
+
+            if d < NotNaN::new(2.0f32).unwrap() * max_dist {
+                node.neighbors[k] = j;
             }
         }
     }
@@ -347,7 +362,6 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
             levels: levels,
             elements: elements,
         }
-
     }
 
 
