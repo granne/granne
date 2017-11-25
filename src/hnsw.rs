@@ -108,6 +108,17 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
     }
 
 
+    pub fn get_index(self: &'a Self) -> Hnsw<'a, T> {
+        Hnsw {
+            levels: self.levels
+                .iter()
+                .map(|level| &level[..])
+                .collect(),
+            elements: self.elements,
+        }
+    }
+
+
     pub fn load(config: Config, index: &Hnsw<T>, elements: &'a [T]) -> Self {
         let mut builder = Self::new(config, elements);
 
@@ -142,13 +153,14 @@ impl<'a, T: 'a + HasDistance + Sync> HnswBuilder<'a, T> {
         }
     }
 
+
     pub fn append_elements(&mut self, elements: &'a [T]) {
         assert!(self.elements[0].dist(&elements[0]) <
-                NotNaN::new(::std::f32::EPSILON).unwrap());
+                NotNaN::new(10.0f32 * ::std::f32::EPSILON).unwrap());
 
         assert!(self.elements[self.elements.len()-1].dist(
                      &elements[self.elements.len()-1]) <
-                NotNaN::new(::std::f32::EPSILON).unwrap());
+                NotNaN::new(10.0f32 * ::std::f32::EPSILON).unwrap());
 
         self.elements = elements;
 
@@ -485,6 +497,7 @@ impl<T: Ord> MaxSizeHeap<T> {
 
 mod tests {
     use super::*;
+    use types::example::*;
 
     #[test]
     fn test_hnsw_node_size()
@@ -493,8 +506,85 @@ mod tests {
     }
 
     #[test]
-    fn test_hnsw()
+    fn write_and_load()
     {
+        let elements: Vec<FloatElement> =
+            (0..100).map(|_| random_float_element()).collect();
+
+        let config = Config {
+            num_levels: 4,
+            level_multiplier: 6,
+            max_search: 100,
+        };
+
+        let mut builder = HnswBuilder::new(config, &elements[..]);
+        builder.build_index();
+
+        let mut data = Vec::new();
+        builder.write(&mut data);
+
+        let index = Hnsw::load(&data[..], &elements[..]);
+
+        assert_eq!(builder.levels.len(), index.levels.len());
+
+        for level in 0..builder.levels.len() {
+            assert_eq!(builder.levels[level].len(), index.levels[level].len());
+
+            for i in 0..builder.levels[level].len() {
+                assert_eq!(builder.levels[level][i].neighbors,
+                           index.levels[level][i].neighbors);
+            }
+        }
+    }
+
+    #[test]
+    fn append_elements() {
+        let elements: Vec<FloatElement> =
+            (0..200).map(|_| random_float_element()).collect();
+
+        let config = Config {
+            num_levels: 4,
+            level_multiplier: 6,
+            max_search: 100,
+        };
+
+        // insert half of the elements
+        let mut builder = HnswBuilder::new(config, &elements[..100]);
+        builder.build_index();
+
+        assert_eq!(4, builder.levels.len());
+        assert_eq!(100, builder.levels[3].len());
+
+        let max_search = 200;
+
+        // assert that one arbitrary element is findable (might fail)
+        {
+            let index = builder.get_index();
+
+            assert!(index.search(&elements[50], max_search)
+                    .iter()
+                    .any(|&(idx, _)| 50 == idx));
+        }
+
+        // insert rest of the elements
+        builder.append_elements(&elements[..]);
+
+        assert_eq!(4, builder.levels.len());
+        assert_eq!(200, builder.levels[3].len());
+
+        // assert that the same arbitrary element and a newly added one
+        // is findable (might fail)
+        {
+            let index = builder.get_index();
+
+            assert!(index.search(&elements[50], max_search)
+                    .iter()
+                    .any(|&(idx, _)| 50 == idx));
+
+            assert!(index.search(&elements[150], max_search)
+                    .iter()
+                    .any(|&(idx, _)| 150 == idx));
+        }
 
     }
 }

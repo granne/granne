@@ -63,6 +63,27 @@ impl HasDistance for Int8Element {
     }
 }
 
+
+pub mod example {
+    use super::*;
+    use rand;
+    use rand::Rng;
+
+    pub fn random_float_element() -> FloatElement {
+        let mut rng = rand::thread_rng();
+
+        let mut data = [0.0f32; DIM];
+
+        for f in &mut data[..] {
+            *f = rng.gen();
+        }
+
+        data.into()
+    }
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

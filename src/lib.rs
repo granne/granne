@@ -7,6 +7,9 @@ extern crate revord;
 extern crate fnv;
 extern crate memmap;
 
+#[macro_use]
+extern crate rand_derive;
+
 mod hnsw;
 mod types;
 pub mod file_io;
