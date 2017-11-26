@@ -7,6 +7,7 @@ extern crate revord;
 extern crate fnv;
 extern crate memmap;
 extern crate rblas;
+extern crate pbr;
 
 mod hnsw;
 mod types;

@@ -40,7 +40,7 @@ fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize,
 }
 
 fn main() {
-    let num_vectors = 200001;
+    let num_vectors = 200000;
     let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
 
     let (vectors2, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
@@ -50,8 +50,9 @@ fn main() {
 
     let config = Config {
         num_levels: 6,
-        level_multiplier: 14,
+        level_multiplier: 15,
         max_search: 500,
+        show_progress: true,
     };
 
     let mut index = HnswBuilder::new(config, &vectors[..]);
@@ -74,7 +75,7 @@ fn main() {
 
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
-    let max_search = 1000;
+    let max_search = 2500;
     let num_queries = 1000;
     let mut query_count = 0;
     for idx in (0..num_vectors).step_by(num_vectors / num_queries) {
@@ -96,7 +97,7 @@ fn main() {
         for j in 0..MAX_NEIGHBORS {
             sum += pcounts[i][j] as f32 / (query_count as f32);
 
-            print!("{}\t", sum);
+            print!("{:.3}\t", sum);
         }
         println!();
     }

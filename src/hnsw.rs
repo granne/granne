@@ -15,6 +15,7 @@ use revord::RevOrd;
 use std::collections::BinaryHeap;
 use std::cmp;
 use types::*;
+use pbr::ProgressBar;
 
 // Write and read
 use std::fs::File;
@@ -22,7 +23,7 @@ use std::io::{Write, Result};
 
 // Threading
 use rayon::prelude::*;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 const MAX_NEIGHBORS: usize = 20;
 
@@ -37,6 +38,7 @@ pub struct Config {
     pub num_levels: usize,
     pub level_multiplier: usize,
     pub max_search: usize,
+    pub show_progress: bool,
 }
 
 
@@ -175,8 +177,6 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                        index: &Hnsw<T>,
                        elements: &[T]) {
 
-        println!("Building layer with {} vectors", elements.len());
-
         assert!(layer.len() <= elements.len());
 
         let already_inserted = layer.len();
@@ -189,6 +189,22 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
             .map(|node| RwLock::new(node))
             .collect();
 
+        // set up progress bar
+        let step_size = cmp::max(10, elements.len() / 100);
+        let progress_bar = {
+            if config.show_progress {
+                let mut progress_bar = ProgressBar::new(elements.len() as u64);
+                let info_text = format!("Level {}: ", index.levels.len());
+                progress_bar.message(&info_text);
+                progress_bar.set((step_size * (already_inserted / step_size)) as u64);
+
+                Some(Mutex::new(progress_bar))
+
+            } else {
+                None
+            }
+        };
+
         // insert elements, skipping already inserted
         elements.par_iter()
             .enumerate()
@@ -200,7 +216,19 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                                          &layer,
                                          elements,
                                          idx);
-                });
+
+                    // This only shows approximate progress because of par_iter
+                    if idx % step_size == 0 {
+                        if let Some(ref progress_bar) = progress_bar {
+                            progress_bar.lock().unwrap().add(step_size as u64);
+                        }
+                    }
+                }
+            );
+
+        if let Some(progress_bar) = progress_bar {
+            progress_bar.lock().unwrap().finish_println("");
+        }
     }
 
 
@@ -211,7 +239,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                       idx: usize) {
 
         let element = &elements[idx];
-        let (entrypoint, _) = index.search(element, config.max_search)[0];
+        let (entrypoint, _) = index.search(element, config.max_search / 10)[0];
 
         let neighbors = Self::search_for_neighbors_index(&layer[..],
                                                          entrypoint,
@@ -499,6 +527,7 @@ mod tests {
             num_levels: 4,
             level_multiplier: 6,
             max_search: 100,
+            show_progress: false,
         };
 
         let mut builder = HnswBuilder::new(config, &elements[..]);
@@ -530,6 +559,7 @@ mod tests {
             num_levels: 4,
             level_multiplier: 6,
             max_search: 100,
+            show_progress: false,
         };
 
         // insert half of the elements
