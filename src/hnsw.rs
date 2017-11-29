@@ -25,7 +25,7 @@ use std::io::{Write, Result};
 use rayon::prelude::*;
 use std::sync::{Mutex, RwLock};
 
-const MAX_NEIGHBORS: usize = 20;
+const MAX_NEIGHBORS: usize = 32;
 
 #[repr(C)]
 #[derive(Clone, Default, Debug)]
@@ -248,11 +248,9 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                                                          config.max_search,
                                                          MAX_NEIGHBORS);
 
-        // can be done directly since layer[idx].neighbors is empty
         Self::initialize_neighbors(&layer[idx], &neighbors[..]);
 
         for (neighbor, d) in neighbors {
-            // find a more clever way to decide when to add this edge
             Self::connect_nodes(&layer[neighbor], elements, neighbor, idx, d);
         }
     }
@@ -297,7 +295,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
             }
         }
 
-        return res.heap.into_vec().into_iter().map(|(d, idx)| (idx, d)).collect();
+        return res.heap.into_sorted_vec().into_iter().map(|(d, idx)| (idx, d)).collect();
     }
 
 
@@ -328,13 +326,16 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
         if node.neighbors.len() < MAX_NEIGHBORS {
             node.neighbors.push(j);
         } else {
+
+            // add j as neighbor if dist(i,j) < dist(k,j)
+            // for some k in node[j].neighbors
             let (k, max_dist) = node.neighbors
                 .iter()
-                .map(|&k| elements[i].dist(&elements[k]))
+                .map(|&k| elements[j].dist(&elements[k]))
                 .enumerate()
                 .max().unwrap();
 
-            if d < NotNaN::new(2.0f32).unwrap() * max_dist {
+            if d < max_dist {
                 node.neighbors[k] = j;
             }
         }
@@ -395,7 +396,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let entrypoint = Self::find_entrypoint(&top_levels,
                                                element,
                                                &self.elements,
-                                               max_search / 10);
+                                               cmp::max(50, max_search / 50));
 
         Self::search_for_neighbors(
             &bottom_level,

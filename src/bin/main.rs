@@ -15,6 +15,9 @@ pub use ordered_float::NotNaN;
 use std::fs::File;
 use std::io::prelude::*;
 use memmap::Mmap;
+use rand::{thread_rng, Rng};
+
+use rayon::prelude::*;
 
 use hnsw::*;
 use hnsw::file_io;
@@ -24,8 +27,9 @@ const MAX_NEIGHBORS: usize = 5;
 fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize, f32)> {
     let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
 
-    for (idx, v) in vectors.iter().enumerate() {
-        let d = reference_dist(&v, goal);
+    let dists: Vec<NotNaN<f32>> = vectors.par_iter().map(|v| reference_dist(v, goal)).collect();
+
+    for (idx, d) in dists.into_iter().enumerate() {
 
         if res.len() < MAX_NEIGHBORS || d < res.peek().unwrap().0 {
             res.push((d, idx));
@@ -40,18 +44,19 @@ fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize,
 }
 
 fn main() {
-    let num_vectors = 200000;
-    let (vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
+    let num_vectors = 100000;
+    let (mut vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
 
-    let (vectors2, _) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
+    thread_rng().shuffle(&mut vectors[..]);
 
+    let vectors2 = vectors.clone();
 
     println!("Read {} vectors", vectors.len());
 
     let config = Config {
-        num_levels: 6,
-        level_multiplier: 15,
-        max_search: 500,
+        num_levels: 5,
+        level_multiplier: 18,
+        max_search: 1200,
         show_progress: true,
     };
 
@@ -59,12 +64,13 @@ fn main() {
     index.build_index();
     println!("Built index");
 
-    index.save_to_disk("test.index");
-    println!("Wrote to disk");
+
+//    index.save_to_disk("test.index");
+//    println!("Wrote to disk");
 
     let index = index.get_index();
 
-
+/*
     let file = File::open("test.index").unwrap();
     let mmap = unsafe { Mmap::map(&file).unwrap() };
 
@@ -72,7 +78,7 @@ fn main() {
     let index = Hnsw::load(&mmap, &vectors[..]);
 
     println!("Loaded");
-
+*/
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
     let max_search = 2500;

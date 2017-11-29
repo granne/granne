@@ -10,6 +10,7 @@ pub trait HasDistance {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct FloatElement([f32; DIM]);
 
 impl From<[f32; DIM]> for FloatElement {
@@ -50,6 +51,7 @@ pub fn reference_dist(first: &FloatElement, second: &FloatElement) -> NotNaN<f32
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct Int8Element([u8; DIM]);
 
 impl HasDistance for Int8Element {
