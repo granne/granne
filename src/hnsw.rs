@@ -26,11 +26,12 @@ use rayon::prelude::*;
 use std::sync::{Mutex, RwLock};
 
 const MAX_NEIGHBORS: usize = 32;
+type NeighborType = u32;
 
 #[repr(C)]
 #[derive(Clone, Default, Debug)]
 struct HnswNode {
-    neighbors: ArrayVec<[usize; MAX_NEIGHBORS]>,
+    neighbors: ArrayVec<[NeighborType; MAX_NEIGHBORS]>,
 }
 
 
@@ -58,6 +59,8 @@ pub struct Hnsw<'a, T: HasDistance + 'a> {
 impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
     pub fn new(config: Config, elements: &'a [T]) -> Self {
+        assert!(elements.len() < <NeighborType>::max_value() as usize);
+
         HnswBuilder {
             levels: Vec::new(),
             elements: elements,
@@ -152,6 +155,8 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
 
     pub fn append_elements(&mut self, elements: &'a [T]) {
+        assert!(elements.len() < <NeighborType>::max_value() as usize);
+
         assert!(self.elements[0].dist(&elements[0]).into_inner() <
                 DIST_EPSILON);
 
@@ -283,7 +288,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
                 let node = layer[idx].read().unwrap();
 
-                for &neighbor_idx in &node.neighbors {
+                for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
                     if visited.insert(neighbor_idx) {
                         let distance = elements[neighbor_idx].dist(&goal);
                         pq.push(RevOrd((distance, neighbor_idx)));
@@ -309,7 +314,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
             node.neighbors.capacity() - node.neighbors.len();
 
         for &(idx, _) in neighbors.iter().take(num_to_add) {
-            node.neighbors.push(idx);
+            node.neighbors.push(idx as NeighborType);
         }
     }
 
@@ -324,19 +329,19 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
         let mut node = node.write().unwrap();
 
         if node.neighbors.len() < MAX_NEIGHBORS {
-            node.neighbors.push(j);
+            node.neighbors.push(j as NeighborType);
         } else {
 
             // add j as neighbor if dist(i,j) < dist(k,j)
             // for some k in node[j].neighbors
             let (k, max_dist) = node.neighbors
                 .iter()
-                .map(|&k| elements[j].dist(&elements[k]))
+                .map(|&k| elements[j].dist(&elements[k as usize]))
                 .enumerate()
                 .max().unwrap();
 
             if d < max_dist {
-                node.neighbors[k] = j;
+                node.neighbors[k] = j as NeighborType;
             }
         }
     }
@@ -457,7 +462,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
                 let node = &layer[idx];
 
-                for &neighbor_idx in &node.neighbors {
+                for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
                     if visited.insert(neighbor_idx) {
                         let distance = elements[neighbor_idx].dist(&goal);
                         pq.push(RevOrd((distance, neighbor_idx)));
@@ -515,7 +520,7 @@ mod tests {
     #[test]
     fn test_hnsw_node_size()
     {
-        assert!((MAX_NEIGHBORS) * mem::size_of::<usize>() < mem::size_of::<HnswNode>());
+        assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborType>() <= mem::size_of::<HnswNode>());
     }
 
     #[test]
