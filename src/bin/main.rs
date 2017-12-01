@@ -47,16 +47,16 @@ fn main() {
     let num_vectors = 100000;
     let (mut vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
 
-    thread_rng().shuffle(&mut vectors[..]);
+    //thread_rng().shuffle(&mut vectors[..]);
 
     let vectors2 = vectors.clone();
 
     println!("Read {} vectors", vectors.len());
 
     let config = Config {
-        num_levels: 5,
-        level_multiplier: 18,
-        max_search: 1200,
+        num_levels: 6,
+        level_multiplier: 12,
+        max_search: 400,
         show_progress: true,
     };
 
@@ -65,8 +65,8 @@ fn main() {
     println!("Built index");
 
 
-//    index.save_to_disk("test.index");
-//    println!("Wrote to disk");
+    index.save_to_disk("test.index");
+    println!("Wrote to disk");
 
     let index = index.get_index();
 
@@ -81,7 +81,7 @@ fn main() {
 */
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
-    let max_search = 2500;
+    let max_search = 30;
     let num_queries = 1000;
     let mut query_count = 0;
     for idx in (0..num_vectors).step_by(num_vectors / num_queries) {

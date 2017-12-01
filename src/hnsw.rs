@@ -3,9 +3,9 @@
 // mmap (X)
 // build layer by layer (X)
 // extenstible (X)
-// merge indexes?
-// small size
+// small size (X)
 // fast
+// merge indexes?
 //
 
 use arrayvec::ArrayVec;
@@ -253,6 +253,12 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                                                          config.max_search,
                                                          MAX_NEIGHBORS);
 
+        let neighbors =
+            Self::select_neighbors(idx,
+                                   neighbors,
+                                   elements,
+                                   MAX_NEIGHBORS);
+
         Self::initialize_neighbors(&layer[idx], &neighbors[..]);
 
         for (neighbor, d) in neighbors {
@@ -271,7 +277,8 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                                   max_neighbors: usize)
                                   -> Vec<(usize, NotNaN<f32>)> {
 
-        let mut res = MaxSizeHeap::new(max_neighbors);
+        let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> =
+            MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
         let mut visited = FnvHashSet::default();
 
@@ -281,27 +288,63 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
         visited.insert(entrypoint);
 
-        for _ in 0..max_search {
+        while let Some(RevOrd((d, idx))) = pq.pop() {
+            if res.is_full() && d > res.peek().unwrap().0 {
+                break;
+            }
 
-            if let Some(RevOrd((d, idx))) = pq.pop() {
-                res.push((d, idx));
+            res.push((d, idx));
 
-                let node = layer[idx].read().unwrap();
+            let node = layer[idx].read().unwrap();
 
-                for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
-                    if visited.insert(neighbor_idx) {
-                        let distance = elements[neighbor_idx].dist(&goal);
+            for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
+                if visited.insert(neighbor_idx) {
+                    let distance = elements[neighbor_idx].dist(&goal);
+
+                    if !res.is_full() || distance < res.peek().unwrap().0 {
                         pq.push(RevOrd((distance, neighbor_idx)));
                     }
                 }
-
-            } else {
-                break;
             }
         }
 
-        return res.heap.into_sorted_vec().into_iter().map(|(d, idx)| (idx, d)).collect();
+        res.heap
+            .into_sorted_vec()
+            .into_iter().take(max_neighbors)
+            .map(|(d, idx)| (idx, d))
+            .collect()
     }
+
+
+    fn select_neighbors(idx: usize,
+                        candidates: Vec<(usize, NotNaN<f32>)>,
+                        elements: &[T],
+                        max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
+        if candidates.len() <= max_neighbors {
+            return candidates;
+        }
+
+        let mut res = Vec::new();
+        let mut pruned = Vec::new();
+        // candidates is sorted on distance from idx
+        for (j, d) in candidates.into_iter() {
+            if res.len() >= max_neighbors {
+                break;
+            }
+
+            if res.iter().all(|k| d < elements[idx].dist(&elements[j])) {
+                res.push((j, d));
+            } else {
+                pruned.push((j, d));
+            }
+        }
+
+        let remaining = max_neighbors - res.len();
+        res.extend(pruned.into_iter().take(remaining));
+
+        res
+    }
+
 
 
     fn initialize_neighbors(node: &RwLock<&mut HnswNode>,
@@ -332,16 +375,16 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
             node.neighbors.push(j as NeighborType);
         } else {
 
-            // add j as neighbor if dist(i,j) < dist(k,j)
-            // for some k in node[j].neighbors
-            let (k, max_dist) = node.neighbors
-                .iter()
-                .map(|&k| elements[j].dist(&elements[k as usize]))
-                .enumerate()
-                .max().unwrap();
+            let mut candidates: Vec<_> = node.neighbors.iter()
+                .map(|&k| (k as usize, elements[i].dist(&elements[k as usize])))
+                .collect();
 
-            if d < max_dist {
-                node.neighbors[k] = j as NeighborType;
+            candidates.push((j as usize, d));
+            candidates.sort_unstable_by_key(|&(_, d)| d);
+            let neighbors = Self::select_neighbors(i, candidates, &elements, MAX_NEIGHBORS);
+
+            for (k, (n, _)) in neighbors.into_iter().enumerate() {
+                node.neighbors[k] = n as u32;
             }
         }
     }
@@ -445,7 +488,9 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
                             max_neighbors: usize)
                             -> Vec<(usize, NotNaN<f32>)> {
 
-        let mut res = MaxSizeHeap::new(max_neighbors);
+
+        let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> =
+            MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
         let mut visited = FnvHashSet::default();
 
@@ -455,30 +500,32 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
         visited.insert(entrypoint);
 
-        for _ in 0..max_search {
+        while let Some(RevOrd((d, idx))) = pq.pop() {
+            if res.is_full() && d > res.peek().unwrap().0 {
+                break;
+            }
 
-            if let Some(RevOrd((d, idx))) = pq.pop() {
-                res.push((d, idx));
+            res.push((d, idx));
 
-                let node = &layer[idx];
+            let node = &layer[idx];
 
-                for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
-                    if visited.insert(neighbor_idx) {
-                        let distance = elements[neighbor_idx].dist(&goal);
+            for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
+                if visited.insert(neighbor_idx) {
+                    let distance = elements[neighbor_idx].dist(&goal);
+
+                    if !res.is_full() || distance < res.peek().unwrap().0 {
                         pq.push(RevOrd((distance, neighbor_idx)));
                     }
                 }
-
-            } else {
-                break;
             }
         }
 
-        return res.heap
+        res.heap
             .into_sorted_vec()
             .into_iter()
+            .take(max_neighbors)
             .map(|(d, idx)| (idx, d))
-            .collect();
+            .collect()
     }
 }
 
@@ -498,7 +545,7 @@ impl<T: Ord> MaxSizeHeap<T> {
     }
 
     pub fn push(self: &mut Self, element: T) {
-        if self.heap.len() < self.max_size {
+        if !self.is_full() {
             self.heap.push(element);
 
         } else if element < *self.heap.peek().unwrap() {
@@ -508,6 +555,14 @@ impl<T: Ord> MaxSizeHeap<T> {
 
             self.heap.push(element);
         }
+    }
+
+    pub fn is_full(self: &Self) -> bool {
+        self.heap.len() >= self.max_size
+    }
+
+    pub fn peek(self: &Self) -> Option<&T> {
+        self.heap.peek()
     }
 }
 
