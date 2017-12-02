@@ -620,6 +620,36 @@ mod tests {
     }
 
     #[test]
+    fn build_and_search()
+    {
+        let elements: Vec<FloatElement> =
+            (0..1500).map(|_| random_float_element()).collect();
+
+        let config = Config {
+            num_layers: 5,
+            layer_multiplier: 10,
+            max_search: 20,
+            show_progress: false,
+        };
+
+        let mut builder = HnswBuilder::new(config, &elements[..]);
+        builder.build_index();
+        let index = builder.get_index();
+
+        let max_search = 10;
+        let mut num_found = 0;
+        for (i, element) in elements.iter().enumerate() {
+            if index.search(element, max_search)[0].0 == i {
+                num_found += 1;
+            }
+        }
+
+        let p1 = num_found as f32 / elements.len() as f32;
+
+        assert!(0.99 < p1);
+    }
+
+    #[test]
     fn more_layers_than_needed()
     {
         let elements: Vec<FloatElement> =
