@@ -250,16 +250,14 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                                                          entrypoint,
                                                          elements,
                                                          element,
-                                                         config.max_search,
-                                                         MAX_NEIGHBORS);
+                                                         config.max_search);
 
         let neighbors =
-            Self::select_neighbors(idx,
-                                   neighbors,
+            Self::select_neighbors(neighbors,
                                    elements,
                                    MAX_NEIGHBORS);
 
-        Self::initialize_neighbors(&layer[idx], &neighbors[..]);
+        Self::initialize_node(&layer[idx], &neighbors[..]);
 
         for (neighbor, d) in neighbors {
             Self::connect_nodes(&layer[neighbor], elements, neighbor, idx, d);
@@ -273,8 +271,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                                   entrypoint: usize,
                                   elements: &[T],
                                   goal: &T,
-                                  max_search: usize,
-                                  max_neighbors: usize)
+                                  max_search: usize)
                                   -> Vec<(usize, NotNaN<f32>)> {
 
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> =
@@ -310,45 +307,47 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
         res.heap
             .into_sorted_vec()
-            .into_iter().take(max_neighbors)
+            .into_iter()
             .map(|(d, idx)| (idx, d))
             .collect()
     }
 
 
-    fn select_neighbors(idx: usize,
-                        candidates: Vec<(usize, NotNaN<f32>)>,
+    fn select_neighbors(candidates: Vec<(usize, NotNaN<f32>)>,
                         elements: &[T],
                         max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
+
         if candidates.len() <= max_neighbors {
             return candidates;
         }
 
-        let mut res = Vec::new();
+        let mut neighbors = Vec::new();
         let mut pruned = Vec::new();
-        // candidates is sorted on distance from idx
+
+        // candidates are sorted on distance from idx
         for (j, d) in candidates.into_iter() {
-            if res.len() >= max_neighbors {
+            if neighbors.len() >= max_neighbors {
                 break;
             }
 
-            if res.iter().all(|k| d < elements[idx].dist(&elements[j])) {
-                res.push((j, d));
+            // add j to neighbors if j is closer to idx,
+            // than to all previously added neighbors
+            if neighbors.iter().all(|&(k, _)| d < elements[j].dist(&elements[k])) {
+                neighbors.push((j, d));
             } else {
                 pruned.push((j, d));
             }
         }
 
-        let remaining = max_neighbors - res.len();
-        res.extend(pruned.into_iter().take(remaining));
+        let remaining = max_neighbors - neighbors.len();
+        neighbors.extend(pruned.into_iter().take(remaining));
 
-        res
+        neighbors
     }
 
 
-
-    fn initialize_neighbors(node: &RwLock<&mut HnswNode>,
-                            neighbors: &[(usize, NotNaN<f32>)]) {
+    fn initialize_node(node: &RwLock<&mut HnswNode>,
+                       neighbors: &[(usize, NotNaN<f32>)]) {
         // Write Lock!
         let mut node = node.write().unwrap();
 
@@ -381,10 +380,12 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
 
             candidates.push((j as usize, d));
             candidates.sort_unstable_by_key(|&(_, d)| d);
-            let neighbors = Self::select_neighbors(i, candidates, &elements, MAX_NEIGHBORS);
+
+            let neighbors =
+                Self::select_neighbors(candidates, &elements, MAX_NEIGHBORS);
 
             for (k, (n, _)) in neighbors.into_iter().enumerate() {
-                node.neighbors[k] = n as u32;
+                node.neighbors[k] = n as NeighborType;
             }
         }
     }
@@ -575,7 +576,41 @@ mod tests {
     #[test]
     fn test_hnsw_node_size()
     {
-        assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborType>() <= mem::size_of::<HnswNode>());
+        assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborType>() <=
+                mem::size_of::<HnswNode>());
+
+        assert!(mem::size_of::<HnswNode>() <=
+                MAX_NEIGHBORS * mem::size_of::<NeighborType>()
+                + mem::size_of::<usize>());
+    }
+
+    #[test]
+    fn test_select_neighbors()
+    {
+        let element = random_float_element();
+
+        let other_elements: Vec<FloatElement> =
+            (0..50).map(|_| random_float_element()).collect();
+
+        let candidates: Vec<_> = other_elements
+            .iter()
+            .map(|e| e.dist(&element))
+            .enumerate()
+            .collect();
+
+        let neighbors =
+            HnswBuilder::select_neighbors(candidates.clone(),
+                                          &other_elements[..],
+                                          10);
+
+        assert_eq!(10, neighbors.len());
+
+
+        let neighbors = HnswBuilder::select_neighbors(candidates.clone(),
+                                                      &other_elements[..],
+                                                      60);
+
+        assert_eq!(50, neighbors.len());
     }
 
     #[test]
@@ -587,7 +622,7 @@ mod tests {
         let config = Config {
             num_levels: 4,
             level_multiplier: 6,
-            max_search: 100,
+            max_search: 10,
             show_progress: false,
         };
 
@@ -619,7 +654,7 @@ mod tests {
         let config = Config {
             num_levels: 4,
             level_multiplier: 6,
-            max_search: 100,
+            max_search: 10,
             show_progress: false,
         };
 
@@ -630,7 +665,7 @@ mod tests {
         assert_eq!(4, builder.levels.len());
         assert_eq!(100, builder.levels[3].len());
 
-        let max_search = 200;
+        let max_search = 10;
 
         // assert that one arbitrary element is findable (might fail)
         {
@@ -660,6 +695,5 @@ mod tests {
                     .iter()
                     .any(|&(idx, _)| 150 == idx));
         }
-
     }
 }
