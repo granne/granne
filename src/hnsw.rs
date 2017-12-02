@@ -253,9 +253,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                                                          config.max_search);
 
         let neighbors =
-            Self::select_neighbors(neighbors,
-                                   elements,
-                                   MAX_NEIGHBORS);
+            Self::select_neighbors(neighbors, elements, MAX_NEIGHBORS);
 
         Self::initialize_node(&layer[idx], &neighbors[..]);
 
@@ -445,16 +443,18 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let entrypoint = Self::find_entrypoint(&top_levels,
                                                element,
                                                &self.elements,
-                                               cmp::max(50, max_search / 50));
+                                               cmp::max(10, max_search / 5));
+
+        let num_neighbors = 5;
 
         Self::search_for_neighbors(
             &bottom_level,
             entrypoint,
             &self.elements,
             element,
-            max_search,
-            MAX_NEIGHBORS)
+            max_search)
             .into_iter()
+            .take(num_neighbors)
             .map(|(i, d)| (i, d.into_inner())).collect()
     }
 
@@ -471,8 +471,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
                 entrypoint,
                 &elements,
                 &element,
-                max_search,
-                1usize);
+                max_search);
 
             entrypoint = res[0].0;
         }
@@ -485,8 +484,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
                             entrypoint: usize,
                             elements: &[T],
                             goal: &T,
-                            max_search: usize,
-                            max_neighbors: usize)
+                            max_search: usize)
                             -> Vec<(usize, NotNaN<f32>)> {
 
 
@@ -524,7 +522,6 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         res.heap
             .into_sorted_vec()
             .into_iter()
-            .take(max_neighbors)
             .map(|(d, idx)| (idx, d))
             .collect()
     }

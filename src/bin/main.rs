@@ -47,7 +47,7 @@ fn main() {
     let num_vectors = 100000;
     let (mut vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
 
-    //thread_rng().shuffle(&mut vectors[..]);
+    thread_rng().shuffle(&mut vectors[..]);
 
     let vectors2 = vectors.clone();
 
@@ -55,8 +55,8 @@ fn main() {
 
     let config = Config {
         num_levels: 6,
-        level_multiplier: 12,
-        max_search: 400,
+        level_multiplier: 11,
+        max_search: 200,
         show_progress: true,
     };
 
@@ -64,13 +64,12 @@ fn main() {
     index.build_index();
     println!("Built index");
 
-
     index.save_to_disk("test.index");
     println!("Wrote to disk");
 
     let index = index.get_index();
 
-/*
+
     let file = File::open("test.index").unwrap();
     let mmap = unsafe { Mmap::map(&file).unwrap() };
 
@@ -78,11 +77,11 @@ fn main() {
     let index = Hnsw::load(&mmap, &vectors[..]);
 
     println!("Loaded");
-*/
+
     let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
-    let max_search = 30;
-    let num_queries = 1000;
+    let max_search = 20;
+    let num_queries = 2500;
     let mut query_count = 0;
     for idx in (0..num_vectors).step_by(num_vectors / num_queries) {
         let res = index.search(&vectors[idx], max_search);
