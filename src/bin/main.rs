@@ -54,8 +54,8 @@ fn main() {
     println!("Read {} vectors", vectors.len());
 
     let config = Config {
-        num_levels: 6,
-        level_multiplier: 11,
+        num_layers: 8,
+        layer_multiplier: 11,
         max_search: 200,
         show_progress: true,
     };
