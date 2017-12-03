@@ -580,7 +580,7 @@ mod tests {
     use types::example::*;
 
     #[test]
-    fn test_hnsw_node_size()
+    fn hnsw_node_size()
     {
         assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborType>() <=
                 mem::size_of::<HnswNode>());
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_neighbors()
+    fn select_neighbors()
     {
         let element = random_float_element();
 
@@ -619,15 +619,12 @@ mod tests {
         assert_eq!(50, neighbors.len());
     }
 
-    #[test]
-    fn build_and_search()
+    fn build_and_search<T: HasDistance + Sync + Send>(elements: &[T])
     {
-        let elements: Vec<FloatElement> =
-            (0..1500).map(|_| random_float_element()).collect();
 
         let config = Config {
             num_layers: 5,
-            layer_multiplier: 10,
+            layer_multiplier: 8,
             max_search: 20,
             show_progress: false,
         };
@@ -647,6 +644,24 @@ mod tests {
         let p1 = num_found as f32 / elements.len() as f32;
 
         assert!(0.99 < p1);
+    }
+
+    #[test]
+    fn build_and_search_float()
+    {
+        let elements: Vec<FloatElement> =
+            (0..1500).map(|_| random_float_element()).collect();
+
+        build_and_search(&elements[..]);
+    }
+
+    #[test]
+    fn build_and_search_int8()
+    {
+        let elements: Vec<Int8Element> =
+            (0..500).map(|_| random_int8_element()).collect();
+
+        build_and_search(&elements[..]);
     }
 
     #[test]

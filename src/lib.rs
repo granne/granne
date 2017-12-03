@@ -14,4 +14,4 @@ mod types;
 pub mod file_io;
 
 pub use hnsw::{Hnsw, HnswBuilder, Config};
-pub use types::{FloatElement, Int8Element, HasDistance, reference_dist};
+pub use types::{FloatElement, Int8Element, HasDistance, reference_dist, example};
