@@ -24,10 +24,10 @@ use hnsw::file_io;
 
 const MAX_NEIGHBORS: usize = 5;
 
-fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize, f32)> {
+fn brute_search(vectors: &Vec<NormalizedFloatElement>, goal: &NormalizedFloatElement) -> Vec<(usize, f32)> {
     let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
 
-    let dists: Vec<NotNaN<f32>> = vectors.par_iter().map(|v| reference_dist(v, goal)).collect();
+    let dists: Vec<NotNaN<f32>> = vectors.par_iter().map(|v| v.dist(goal)).collect();
 
     for (idx, d) in dists.into_iter().enumerate() {
 
@@ -46,6 +46,8 @@ fn brute_search(vectors: &Vec<FloatElement>, goal: &FloatElement) -> Vec<(usize,
 fn main() {
     let num_vectors = 100000;
     let (mut vectors, words) = file_io::read("/Users/erik/data/glove.6B/glove.6B.100d.txt", num_vectors).unwrap();
+
+    let mut vectors: Vec<_> = vectors.into_iter().map(|v| v.normalized()).collect();
 
     thread_rng().shuffle(&mut vectors[..]);
 

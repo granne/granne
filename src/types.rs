@@ -162,7 +162,6 @@ pub mod example {
 }
 
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,7 +200,7 @@ mod tests {
 
             // looser condition since conversion into Int8Elements
             // causes quantization effects
-            assert!((xi8.dist(&yi8) - x.dist(&y)).abs() < 0.05);
+            assert!((xi8.dist(&yi8) - x.dist(&y)).abs() < 0.02);
         }
     }
 
