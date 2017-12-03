@@ -1,5 +1,3 @@
-#![feature(iterator_step_by)]
-
 extern crate arrayvec;
 extern crate ordered_float;
 extern crate time;
@@ -9,6 +7,7 @@ extern crate revord;
 extern crate fnv;
 extern crate memmap;
 extern crate hnsw;
+extern crate num_iter;
 
 use std::collections::BinaryHeap;
 pub use ordered_float::NotNaN;
@@ -85,7 +84,7 @@ fn main() {
     let max_search = 20;
     let num_queries = 2500;
     let mut query_count = 0;
-    for idx in (0..num_vectors).step_by(num_vectors / num_queries) {
+    for idx in num_iter::range_step(0, num_vectors, num_vectors / num_queries) {
         let res = index.search(&vectors[idx], max_search);
         let brute = brute_search(&vectors, &vectors[idx]);
         query_count += 1;
