@@ -85,12 +85,12 @@ fn main() {
     let num_queries = 2500;
     let mut query_count = 0;
     for idx in num_iter::range_step(0, num_vectors, num_vectors / num_queries) {
-        let res = index.search(&vectors[idx], max_search);
+        let res = index.search(&vectors[idx], MAX_NEIGHBORS, max_search);
         let brute = brute_search(&vectors, &vectors[idx]);
         query_count += 1;
 
         for i in 0..MAX_NEIGHBORS {
-            if let Some(pos) = res.iter().take(MAX_NEIGHBORS).position(|&(x, _)| x == brute[i].0) {
+            if let Some(pos) = res.iter().position(|&(x, _)| x == brute[i].0) {
                 pcounts[i][pos] += 1;
             }
         }

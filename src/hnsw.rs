@@ -4,7 +4,7 @@
 // build layer by layer (X)
 // extenstible (X)
 // small size (X)
-// fast
+// fast (X)
 // merge indexes?
 //
 
@@ -253,7 +253,7 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                       idx: usize) {
 
         let element = &elements[idx];
-        let (entrypoint, _) = prev_layers.search(element, config.max_search / 10)[0];
+        let (entrypoint, _) = prev_layers.search(element, 1, config.max_search / 10)[0];
 
         let neighbors = Self::search_for_neighbors_index(elements,
                                                          &layer[..],
@@ -445,7 +445,8 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
     }
 
 
-    pub fn search(&self, element: &T, max_search: usize) -> Vec<(usize, f32)> {
+    pub fn search(&self, element: &T, num_neighbors: usize, max_search: usize) 
+                  -> Vec<(usize, f32)> {
 
         let (bottom_layer, top_layers) = self.layers.split_last().unwrap();
 
@@ -453,8 +454,6 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
                                                element,
                                                &self.elements,
                                                cmp::max(10, max_search / 5));
-
-        let num_neighbors = 5;
 
         Self::search_for_neighbors(
             &bottom_layer,
@@ -636,7 +635,7 @@ mod tests {
         let max_search = 10;
         let mut num_found = 0;
         for (i, element) in elements.iter().enumerate() {
-            if index.search(element, max_search)[0].0 == i {
+            if index.search(element, 1, max_search)[0].0 == i {
                 num_found += 1;
             }
         }
@@ -739,22 +738,22 @@ mod tests {
 
     #[test]
     fn append_elements() {
-        let elements: Vec<FloatElement> =
-            (0..200).map(|_| random_float_element()).collect();
+        let elements: Vec<NormalizedFloatElement> =
+            (0..1000).map(|_| random_float_element().normalized()).collect();
 
         let config = Config {
             num_layers: 4,
-            layer_multiplier: 6,
-            max_search: 10,
+            layer_multiplier: 11,
+            max_search: 20,
             show_progress: false,
         };
 
         // insert half of the elements
-        let mut builder = HnswBuilder::new(config, &elements[..100]);
+        let mut builder = HnswBuilder::new(config, &elements[..500]);
         builder.build_index();
 
         assert_eq!(4, builder.layers.len());
-        assert_eq!(100, builder.layers[3].len());
+        assert_eq!(500, builder.layers[3].len());
 
         let max_search = 10;
 
@@ -762,29 +761,29 @@ mod tests {
         {
             let index = builder.get_index();
 
-            assert!(index.search(&elements[50], max_search)
+            assert!(index.search(&elements[123], 1, max_search)
                     .iter()
-                    .any(|&(idx, _)| 50 == idx));
+                    .any(|&(idx, _)| 123 == idx));
         }
 
         // insert rest of the elements
         builder.append_elements(&elements[..]);
 
         assert_eq!(4, builder.layers.len());
-        assert_eq!(200, builder.layers[3].len());
+        assert_eq!(1000, builder.layers[3].len());
 
         // assert that the same arbitrary element and a newly added one
         // is findable (might fail)
         {
             let index = builder.get_index();
 
-            assert!(index.search(&elements[50], max_search)
+            assert!(index.search(&elements[123], 1, max_search)
                     .iter()
-                    .any(|&(idx, _)| 50 == idx));
+                    .any(|&(idx, _)| 123 == idx));
 
-            assert!(index.search(&elements[150], max_search)
+            assert!(index.search(&elements[789], 1, max_search)
                     .iter()
-                    .any(|&(idx, _)| 150 == idx));
+                    .any(|&(idx, _)| 789 == idx));
         }
     }
 }
