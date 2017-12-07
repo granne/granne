@@ -1,6 +1,7 @@
-use std::io::{BufRead, BufReader, Result};
+use std::io::{BufRead, BufReader, Result, Write};
 use std::fs::File;
 use std::path;
+use memmap::Mmap;
 
 use types::{FloatElement, DIM};
 
@@ -38,6 +39,51 @@ pub fn read<P>(path : P, number: usize) -> Result<(Vec<FloatElement>, Vec<String
 
 //    return Ok(file.lines().map(|line| read_line(&line.unwrap()).1).collect());
 }
+
+fn write<T, B: Write>(vectors: &[T], buffer: &mut B) -> Result<()>
+{
+    let data = unsafe {
+        ::std::slice::from_raw_parts(
+            vectors.as_ptr() as *const u8,
+            vectors.len() * ::std::mem::size_of::<T>())
+    };
+
+    buffer.write(data)?;
+
+    Ok(())
+}
+
+pub fn save_to_disk<T>(vectors: &[T], path: &str) -> Result<()>
+{
+    let mut file = File::create(path)?;
+
+    write(vectors, &mut file)
+}
+
+
+pub fn load_from_disk<T: Clone>(path: &str) -> Result<(Vec<T>)>
+{
+    let file = File::open(path)?;
+    let mmap = unsafe { Mmap::map(&file)? };
+
+    let vectors = load::<T>(&mmap);
+
+    Ok(vectors.into())
+}
+
+
+pub fn load<T>(buffer: &[u8]) -> &[T] 
+{
+    let vectors: &[T] = unsafe {
+        ::std::slice::from_raw_parts(
+            buffer.as_ptr() as *const T,
+            buffer.len() / ::std::mem::size_of::<T>()
+        )
+    };
+
+    vectors
+}
+
 
 
 #[cfg(test)]

@@ -1,0 +1,8 @@
+output_file = "index.hnsw"
+vectors_output_file = "index.vectors"
+num_layers = 6
+max_search = 50
+max_number_of_vectors = 50000
+compress_vectors = true
+
+#4294967296

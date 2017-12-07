@@ -37,7 +37,6 @@ struct HnswNode {
 
 pub struct Config {
     pub num_layers: usize,
-    pub layer_multiplier: usize,
     pub max_search: usize,
     pub show_progress: bool,
 }
@@ -67,7 +66,6 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
             config: config,
         }
     }
-
 
     pub fn save_to_disk(self: &Self, path: &str) {
 
@@ -135,9 +133,14 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
     pub fn build_index(&mut self) {
         self.layers.push(vec![HnswNode::default()]);
 
+        let layer_multiplier =
+            Self::compute_layer_multiplier(
+                self.elements.len(),
+                self.config.num_layers);
+
         let mut num_elements_in_layer = 1;
         for layer in 1..self.config.num_layers {
-            num_elements_in_layer *= self.config.layer_multiplier;
+            num_elements_in_layer *= layer_multiplier;
 
             if num_elements_in_layer > self.elements.len() ||
                layer == self.config.num_layers - 1
@@ -160,6 +163,12 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                 break;
             }
         }
+    }
+
+    // Computes a layer multiplier m, s.t. the number of elements in layer i is
+    // equal to m^i
+    fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
+        (num_elements as f32).powf(1.0 / (num_layers - 1) as f32).ceil() as usize
     }
 
 
@@ -445,7 +454,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
     }
 
 
-    pub fn search(&self, element: &T, num_neighbors: usize, max_search: usize) 
+    pub fn search(&self, element: &T, num_neighbors: usize, max_search: usize)
                   -> Vec<(usize, f32)> {
 
         let (bottom_layer, top_layers) = self.layers.split_last().unwrap();
@@ -623,7 +632,6 @@ mod tests {
 
         let config = Config {
             num_layers: 5,
-            layer_multiplier: 8,
             max_search: 20,
             show_progress: false,
         };
@@ -664,43 +672,10 @@ mod tests {
     }
 
     #[test]
-    fn more_layers_than_needed()
-    {
-        let elements: Vec<FloatElement> =
-            (0..100).map(|_| random_float_element()).collect();
-
-        let config = Config {
-            num_layers: 6,
-            layer_multiplier: 4,
-            max_search: 10,
-            show_progress: false,
-        };
-
-        let mut builder = HnswBuilder::new(config, &elements[..]);
-        builder.build_index();
-
-        assert_eq!(5, builder.layers.len());
-        assert_eq!(elements.len(), builder.layers[4].len());
-    }
-
-    #[test]
-    fn fewer_layers_than_needed()
-    {
-        let elements: Vec<FloatElement> =
-            (0..100).map(|_| random_float_element()).collect();
-
-        let config = Config {
-            num_layers: 4,
-            layer_multiplier: 4,
-            max_search: 10,
-            show_progress: false,
-        };
-
-        let mut builder = HnswBuilder::new(config, &elements[..]);
-        builder.build_index();
-
-        assert_eq!(4, builder.layers.len());
-        assert_eq!(elements.len(), builder.layers[3].len());
+    fn compute_layer_multiplier() {
+        assert_eq!(2, HnswBuilder::<FloatElement>::compute_layer_multiplier(10, 5));
+        assert_eq!(14, HnswBuilder::<FloatElement>::compute_layer_multiplier(400000, 6));
+        assert_eq!(22, HnswBuilder::<FloatElement>::compute_layer_multiplier(2000000000, 8));
     }
 
     #[test]
@@ -711,7 +686,6 @@ mod tests {
 
         let config = Config {
             num_layers: 4,
-            layer_multiplier: 6,
             max_search: 10,
             show_progress: false,
         };
@@ -743,7 +717,6 @@ mod tests {
 
         let config = Config {
             num_layers: 4,
-            layer_multiplier: 11,
             max_search: 20,
             show_progress: false,
         };
