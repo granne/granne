@@ -35,8 +35,8 @@ impl FloatElement {
 impl HasDistance for FloatElement {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32>
     {
-        let &FloatElement(x) = self;
-        let &FloatElement(y) = other;
+        let &FloatElement(ref x) = self;
+        let &FloatElement(ref y) = other;
 
         let r: f32 = rblas::Dot::dot(&x[..], &y[..]);
         let dx: f32 = rblas::Nrm2::nrm2(&x[..]);
@@ -62,8 +62,8 @@ impl From<[f32; DIM]> for NormalizedFloatElement {
 impl HasDistance for NormalizedFloatElement {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32>
     {
-        let &NormalizedFloatElement(x) = self;
-        let &NormalizedFloatElement(y) = other;
+        let &NormalizedFloatElement(ref x) = self;
+        let &NormalizedFloatElement(ref y) = other;
 
         let r: f32 = rblas::Dot::dot(&x[..], &y[..]);
 
@@ -119,8 +119,8 @@ impl From<NormalizedFloatElement> for Int8Element {
 impl HasDistance for Int8Element {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32>
     {
-        let &Int8Element(x) = self;
-        let &Int8Element(y) = other;
+        let &Int8Element(ref x) = self;
+        let &Int8Element(ref y) = other;
 
         let r: i32 = x.iter()
             .zip(y.iter())
