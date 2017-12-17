@@ -262,7 +262,8 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
                       idx: usize) {
 
         let element = &elements[idx];
-        let (entrypoint, _) = prev_layers.search(element, 1, config.max_search / 10)[0];
+
+        let (entrypoint, _) = prev_layers.search(element, 1, 1)[0];
 
         let neighbors = Self::search_for_neighbors_index(elements,
                                                          &layer[..],
@@ -293,7 +294,9 @@ impl<'a, T: HasDistance + Sync + Send + 'a> HnswBuilder<'a, T> {
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> =
             MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
-        let mut visited = FnvHashSet::default();
+        let mut visited =
+            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS,
+                                                 Default::default());
 
         pq.push(RevOrd(
             (elements[entrypoint].dist(&goal), entrypoint)
@@ -462,7 +465,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let entrypoint = Self::find_entrypoint(&top_layers,
                                                element,
                                                &self.elements,
-                                               cmp::max(10, max_search / 5));
+                                               max_search);
 
         Self::search_for_neighbors(
             &bottom_layer,
@@ -508,7 +511,9 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> =
             MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
-        let mut visited = FnvHashSet::default();
+        let mut visited =
+            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS,
+                                                 Default::default());
 
         pq.push(RevOrd(
             (elements[entrypoint].dist(&goal), entrypoint)
