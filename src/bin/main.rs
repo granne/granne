@@ -149,8 +149,9 @@ fn build_and_save(settings: Settings, input_file: &str) {
 
         println!("Building index...");
 
-        let mut builder = hnsw::HnswBuilder::new(build_config, &vectors[..]);
+        let mut builder = hnsw::HnswBuilder::new(build_config);
 
+        builder.add(vectors);
         builder.build_index();
 
         println!("Index built.");
@@ -167,8 +168,9 @@ fn build_and_save(settings: Settings, input_file: &str) {
 
         println!("Building index...");
 
-        let mut builder = hnsw::HnswBuilder::new(build_config, &vectors[..]);
+        let mut builder = hnsw::HnswBuilder::new(build_config);
 
+        builder.add(vectors);
         builder.build_index();
 
         println!("Index built.");
@@ -191,14 +193,21 @@ fn test_index<T: HasDistance + Sync + Send + Clone>() {
 
         if let Ok(mut settings) = toml::from_str::<Settings>(&contents) {
 
-            println!("Reading index");
-            let vectors: Vec<T> = file_io::load_from_disk(&settings.vectors_output_file).unwrap();
-            let num_vectors = vectors.len();
+            println!("Loading index...");
+
             let file = File::open(settings.output_file).unwrap();
             let mmap = unsafe { Mmap::map(&file).unwrap() };
-            let index = Hnsw::load(&mmap, &vectors[..]);
+            let index = Hnsw::load(&mmap);
+            println!("Loaded");
+
+            println!("Loading vectors...");
+            let vectors: Vec<T> =
+                file_io::load_from_disk(&settings.vectors_output_file).unwrap();
 
             println!("Loaded");
+
+            let num_vectors = vectors.len();
+            assert_eq!(num_vectors, index.len());
 
             let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
 
@@ -223,7 +232,7 @@ fn test_index<T: HasDistance + Sync + Send + Clone>() {
                 print!("{}:\t", i);
                 for j in 0..MAX_NEIGHBORS {
                     sum += pcounts[i][j] as f32 / (query_count as f32);
-                    
+
                     print!("{:.3}\t", sum);
                 }
                 println!();

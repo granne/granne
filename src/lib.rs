@@ -15,4 +15,4 @@ pub mod file_io;
 
 pub use hnsw::{Hnsw, HnswBuilder, Config};
 pub use types::{FloatElement, NormalizedFloatElement, Int8Element,
-                HasDistance, reference_dist, example};
+                HasDistance, reference_dist, example, DIM};

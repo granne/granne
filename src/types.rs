@@ -101,6 +101,15 @@ impl From<[i8; DIM]> for Int8Element {
     }
 }
 
+impl PartialEq for Int8Element {
+    fn eq(self: &Self, other: &Self) -> bool {
+        let &Int8Element(ref x) = self;
+        let &Int8Element(ref y) = other;
+
+        x.iter().zip(y.iter()).all(|(x,y)| x == y)
+    }
+}
+
 
 impl From<NormalizedFloatElement> for Int8Element {
     fn from(element: NormalizedFloatElement) -> Int8Element {
