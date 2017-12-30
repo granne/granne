@@ -15,7 +15,7 @@ pub struct FloatElement([f32; DIM]);
 
 impl From<[f32; DIM]> for FloatElement {
     fn from(array: [f32; DIM]) -> FloatElement {
-        FloatElement (array)
+        FloatElement(array)
     }
 }
 
@@ -27,14 +27,13 @@ impl FloatElement {
         let norm: f32 = rblas::Nrm2::nrm2(&unnormed[..]);
         rblas::Scal::scal(&(1.0 / norm), &mut unnormed[..]);
 
-        NormalizedFloatElement (unnormed)
+        NormalizedFloatElement(unnormed)
     }
 }
 
 
 impl HasDistance for FloatElement {
-    fn dist(self: &Self, other: &Self) -> NotNaN<f32>
-    {
+    fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         let &FloatElement(ref x) = self;
         let &FloatElement(ref y) = other;
 
@@ -55,13 +54,12 @@ pub struct NormalizedFloatElement([f32; DIM]);
 
 impl From<[f32; DIM]> for NormalizedFloatElement {
     fn from(array: [f32; DIM]) -> NormalizedFloatElement {
-        NormalizedFloatElement (array)
+        NormalizedFloatElement(array)
     }
 }
 
 impl HasDistance for NormalizedFloatElement {
-    fn dist(self: &Self, other: &Self) -> NotNaN<f32>
-    {
+    fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         let &NormalizedFloatElement(ref x) = self;
         let &NormalizedFloatElement(ref y) = other;
 
@@ -74,12 +72,14 @@ impl HasDistance for NormalizedFloatElement {
 }
 
 
-pub fn reference_dist(first: &FloatElement, second: &FloatElement) -> NotNaN<f32>
-{
+pub fn reference_dist(first: &FloatElement, second: &FloatElement) -> NotNaN<f32> {
     let &FloatElement(x) = first;
     let &FloatElement(y) = second;
 
-    let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi as f32 * yi as f32).sum();
+    let r: f32 = x.iter()
+        .zip(y.iter())
+        .map(|(&xi, &yi)| xi as f32 * yi as f32)
+        .sum();
     let dx: f32 = x.iter().map(|&xi| xi as f32 * xi as f32).sum();
     let dy: f32 = y.iter().map(|&yi| yi as f32 * yi as f32).sum();
 
@@ -97,7 +97,7 @@ const INT8_ELEMENT_NORM: i32 = 100;
 
 impl From<[i8; DIM]> for Int8Element {
     fn from(array: [i8; DIM]) -> Int8Element {
-        Int8Element (array)
+        Int8Element(array)
     }
 }
 
@@ -106,7 +106,7 @@ impl PartialEq for Int8Element {
         let &Int8Element(ref x) = self;
         let &Int8Element(ref y) = other;
 
-        x.iter().zip(y.iter()).all(|(x,y)| x == y)
+        x.iter().zip(y.iter()).all(|(x, y)| x == y)
     }
 }
 
@@ -126,8 +126,7 @@ impl From<NormalizedFloatElement> for Int8Element {
 
 
 impl HasDistance for Int8Element {
-    fn dist(self: &Self, other: &Self) -> NotNaN<f32>
-    {
+    fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         let &Int8Element(ref x) = self;
         let &Int8Element(ref y) = other;
 
@@ -136,12 +135,9 @@ impl HasDistance for Int8Element {
             .map(|(&xi, &yi)| xi as i32 * yi as i32)
             .sum();
 
-        const INT8_ELEMENT_NORM_SQUARED: f32 =
-            (INT8_ELEMENT_NORM * INT8_ELEMENT_NORM) as f32;
+        const INT8_ELEMENT_NORM_SQUARED: f32 = (INT8_ELEMENT_NORM * INT8_ELEMENT_NORM) as f32;
 
-        let d = NotNaN::new(
-            1.0f32 - (r as f32 / INT8_ELEMENT_NORM_SQUARED)
-        ).unwrap();
+        let d = NotNaN::new(1.0f32 - (r as f32 / INT8_ELEMENT_NORM_SQUARED)).unwrap();
 
         cmp::max(NotNaN::new(0.0f32).unwrap(), d)
     }

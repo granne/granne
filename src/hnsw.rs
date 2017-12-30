@@ -56,7 +56,6 @@ pub struct Hnsw<'a, T: HasDistance + 'a> {
 
 
 impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
-
     pub fn new(config: Config) -> Self {
 
         HnswBuilder {
@@ -90,7 +89,8 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
         let data = unsafe {
             ::std::slice::from_raw_parts(
                 usize_data.as_ptr() as *const u8,
-                usize_data.len() * ::std::mem::size_of::<usize>())
+                usize_data.len() * ::std::mem::size_of::<usize>(),
+            )
         };
 
         bytes_written += buffer.write(data)?;
@@ -101,7 +101,8 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             let data = unsafe {
                 ::std::slice::from_raw_parts(
                     layer.as_ptr() as *const u8,
-                    layer.len() * ::std::mem::size_of::<HnswNode>())
+                    layer.len() * ::std::mem::size_of::<HnswNode>(),
+                )
             };
 
             bytes_written += buffer.write(data)?;
@@ -111,7 +112,8 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
         let data = unsafe {
             ::std::slice::from_raw_parts(
                 self.elements.as_ptr() as *const u8,
-                self.elements.len() * ::std::mem::size_of::<T>())
+                self.elements.len() * ::std::mem::size_of::<T>(),
+            )
         };
 
         bytes_written += buffer.write(data)?;
@@ -120,7 +122,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     }
 
     pub fn read<B: Read>(reader: &mut B) -> Result<Self> {
-        use ::std::mem::size_of;
+        use std::mem::size_of;
 
         // read metadata
         const BUFFER_SIZE: usize = 512;
@@ -129,13 +131,9 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
         assert_eq!(2 * size_of::<usize>(), n);
 
-        let num_nodes: usize = unsafe {
-            *(&buffer[0] as *const u8 as *const usize)
-        };
+        let num_nodes: usize = unsafe { *(&buffer[0] as *const u8 as *const usize) };
 
-        let num_layers = unsafe {
-            *(&buffer[1 * size_of::<usize>()] as *const u8 as *const usize)
-        };
+        let num_layers = unsafe { *(&buffer[1 * size_of::<usize>()] as *const u8 as *const usize) };
 
         let n = reader.read(&mut buffer[..num_layers * size_of::<usize>()])?;
 
@@ -144,9 +142,8 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
         let mut layer_counts = Vec::new();
 
         for i in 0..num_layers {
-            let count: usize = unsafe {
-                *(&buffer[i * size_of::<usize>()] as *const u8 as *const usize)
-            };
+            let count: usize =
+                unsafe { *(&buffer[i * size_of::<usize>()] as *const u8 as *const usize) };
 
             layer_counts.push(count);
         }
@@ -163,11 +160,9 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
                 let n = reader.read(&mut buffer[..size_of::<HnswNode>()])?;
                 assert_eq!(size_of::<HnswNode>(), n);
 
-                layers.last_mut().unwrap().push(
-                    unsafe {
-                        (*(&buffer[0] as *const u8 as *const HnswNode)).clone()
-                    }
-                )
+                layers.last_mut().unwrap().push(unsafe {
+                    (*(&buffer[0] as *const u8 as *const HnswNode)).clone()
+                })
             }
         }
 
@@ -179,11 +174,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             let n = reader.read(&mut buffer[..size_of::<T>()])?;
             assert_eq!(size_of::<T>(), n);
 
-            elements.push(
-                unsafe {
-                    (*(&buffer[0] as *const u8 as *const T)).clone()
-                }
-            )
+            elements.push(unsafe { (*(&buffer[0] as *const u8 as *const T)).clone() })
         }
 
         let config = Config {
@@ -195,17 +186,14 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
         return Ok(Self {
             layers: layers,
             elements: elements,
-            config: config
-        })
+            config: config,
+        });
     }
 
 
     pub fn get_index<'a>(self: &'a Self) -> Hnsw<'a, T> {
         Hnsw {
-            layers: self.layers
-                .iter()
-                .map(|layer| &layer[..])
-                .collect(),
+            layers: self.layers.iter().map(|layer| &layer[..]).collect(),
             elements: &self.elements[..],
         }
     }
@@ -215,9 +203,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
         let mut builder = Self::new(config);
 
         builder.elements = index.elements.to_vec();
-        builder.layers = index.layers.iter()
-            .map(|layer| layer.to_vec())
-            .collect();
+        builder.layers = index.layers.iter().map(|layer| layer.to_vec()).collect();
 
         builder
     }
@@ -229,9 +215,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             self.layers.push(vec![HnswNode::default()]);
 
             let layer_multiplier =
-                Self::compute_layer_multiplier(
-                    self.elements.len(),
-                    self.config.num_layers);
+                Self::compute_layer_multiplier(self.elements.len(), self.config.num_layers);
 
             let mut num_elements_in_layer = 1;
             for layer in 1..self.config.num_layers {
@@ -247,10 +231,12 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
                 let mut new_layer = Vec::with_capacity(num_elements_in_layer);
                 new_layer.extend_from_slice(self.layers.last().unwrap());
 
-                Self::insert_elements(&self.config,
-                                      &self.elements[..num_elements_in_layer],
-                                      &self.get_index(),
-                                      &mut new_layer);
+                Self::insert_elements(
+                    &self.config,
+                    &self.elements[..num_elements_in_layer],
+                    &self.get_index(),
+                    &mut new_layer,
+                );
 
                 self.layers.push(new_layer);
 
@@ -260,14 +246,10 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             }
         }
         // inserting recently added elements only
-        else
-        {
+        else {
             let mut layer = self.layers.pop().unwrap();
 
-            Self::insert_elements(&self.config,
-                                  &self.elements,
-                                  &self.get_index(),
-                                  &mut layer);
+            Self::insert_elements(&self.config, &self.elements, &self.get_index(), &mut layer);
 
             self.layers.push(layer);
         }
@@ -276,13 +258,14 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     // Computes a layer multiplier m, s.t. the number of elements in layer i is
     // equal to m^i
     fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
-        (num_elements as f32).powf(1.0 / (num_layers - 1) as f32).ceil() as usize
+        (num_elements as f32)
+            .powf(1.0 / (num_layers - 1) as f32)
+            .ceil() as usize
     }
 
 
     pub fn add(&mut self, elements: Vec<T>) {
-        assert!(self.elements.len() + elements.len() <
-                <NeighborType>::max_value() as usize);
+        assert!(self.elements.len() + elements.len() < <NeighborType>::max_value() as usize);
 
         if self.elements.is_empty() {
             self.elements = elements;
@@ -292,10 +275,12 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     }
 
 
-    fn insert_elements(config: &Config,
-                       elements: &[T],
-                       prev_layers: &Hnsw<T>,
-                       layer: &mut Vec<HnswNode>) {
+    fn insert_elements(
+        config: &Config,
+        elements: &[T],
+        prev_layers: &Hnsw<T>,
+        layer: &mut Vec<HnswNode>,
+    ) {
 
         assert!(layer.len() <= elements.len());
 
@@ -305,9 +290,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
         // create RwLocks for underlying nodes
         let layer: Vec<RwLock<&mut HnswNode>> =
-            layer.iter_mut()
-            .map(|node| RwLock::new(node))
-            .collect();
+            layer.iter_mut().map(|node| RwLock::new(node)).collect();
 
         // set up progress bar
         let step_size = cmp::max(100, elements.len() / 400);
@@ -326,25 +309,20 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
         };
 
         // insert elements, skipping already inserted
-        elements.par_iter()
+        elements
+            .par_iter()
             .enumerate()
             .skip(already_inserted)
-            .for_each(
-                |(idx, _)| {
-                    Self::insert_element(config,
-                                         elements,
-                                         prev_layers,
-                                         &layer,
-                                         idx);
+            .for_each(|(idx, _)| {
+                Self::insert_element(config, elements, prev_layers, &layer, idx);
 
-                    // This only shows approximate progress because of par_iter
-                    if idx % step_size == 0 {
-                        if let Some(ref progress_bar) = progress_bar {
-                            progress_bar.lock().unwrap().add(step_size as u64);
-                        }
+                // This only shows approximate progress because of par_iter
+                if idx % step_size == 0 {
+                    if let Some(ref progress_bar) = progress_bar {
+                        progress_bar.lock().unwrap().add(step_size as u64);
                     }
                 }
-            );
+            });
 
         if let Some(progress_bar) = progress_bar {
             progress_bar.lock().unwrap().finish_println("");
@@ -352,24 +330,27 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     }
 
 
-    fn insert_element(config: &Config,
-                      elements: &[T],
-                      prev_layers: &Hnsw<T>,
-                      layer: &Vec<RwLock<&mut HnswNode>>,
-                      idx: usize) {
+    fn insert_element(
+        config: &Config,
+        elements: &[T],
+        prev_layers: &Hnsw<T>,
+        layer: &Vec<RwLock<&mut HnswNode>>,
+        idx: usize,
+    ) {
 
         let element = &elements[idx];
 
         let (entrypoint, _) = prev_layers.search(element, 1, 1)[0];
 
-        let neighbors = Self::search_for_neighbors_index(elements,
-                                                         &layer[..],
-                                                         entrypoint,
-                                                         element,
-                                                         config.max_search);
+        let neighbors = Self::search_for_neighbors_index(
+            elements,
+            &layer[..],
+            entrypoint,
+            element,
+            config.max_search,
+        );
 
-        let neighbors =
-            Self::select_neighbors(elements, neighbors, MAX_NEIGHBORS);
+        let neighbors = Self::select_neighbors(elements, neighbors, MAX_NEIGHBORS);
 
         Self::initialize_node(&layer[idx], &neighbors[..]);
 
@@ -381,23 +362,20 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
     // Similar to Hnsw::search_for_neighbors but with RwLocks for
     // parallel insertion
-    fn search_for_neighbors_index(elements: &[T],
-                                  layer: &[RwLock<&mut HnswNode>],
-                                  entrypoint: usize,
-                                  goal: &T,
-                                  max_search: usize)
-                                  -> Vec<(usize, NotNaN<f32>)> {
+    fn search_for_neighbors_index(
+        elements: &[T],
+        layer: &[RwLock<&mut HnswNode>],
+        entrypoint: usize,
+        goal: &T,
+        max_search: usize,
+    ) -> Vec<(usize, NotNaN<f32>)> {
 
-        let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> =
-            MaxSizeHeap::new(max_search);
+        let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
         let mut visited =
-            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS,
-                                                 Default::default());
+            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS, Default::default());
 
-        pq.push(RevOrd(
-            (elements[entrypoint].dist(&goal), entrypoint)
-        ));
+        pq.push(RevOrd((elements[entrypoint].dist(&goal), entrypoint)));
 
         visited.insert(entrypoint);
 
@@ -429,9 +407,11 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     }
 
 
-    fn select_neighbors(elements: &[T],
-                        candidates: Vec<(usize, NotNaN<f32>)>,
-                        max_neighbors: usize) -> Vec<(usize, NotNaN<f32>)> {
+    fn select_neighbors(
+        elements: &[T],
+        candidates: Vec<(usize, NotNaN<f32>)>,
+        max_neighbors: usize,
+    ) -> Vec<(usize, NotNaN<f32>)> {
 
         if candidates.len() <= max_neighbors {
             return candidates;
@@ -448,7 +428,10 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
             // add j to neighbors if j is closer to idx,
             // than to all previously added neighbors
-            if neighbors.iter().all(|&(k, _)| d < elements[j].dist(&elements[k])) {
+            if neighbors.iter().all(
+                |&(k, _)| d < elements[j].dist(&elements[k]),
+            )
+            {
                 neighbors.push((j, d));
             } else {
                 pruned.push((j, d));
@@ -462,14 +445,12 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     }
 
 
-    fn initialize_node(node: &RwLock<&mut HnswNode>,
-                       neighbors: &[(usize, NotNaN<f32>)]) {
+    fn initialize_node(node: &RwLock<&mut HnswNode>, neighbors: &[(usize, NotNaN<f32>)]) {
         // Write Lock!
         let mut node = node.write().unwrap();
 
         debug_assert!(node.neighbors.len() == 0);
-        let num_to_add =
-            node.neighbors.capacity() - node.neighbors.len();
+        let num_to_add = node.neighbors.capacity() - node.neighbors.len();
 
         for &(idx, _) in neighbors.iter().take(num_to_add) {
             node.neighbors.push(idx as NeighborType);
@@ -477,12 +458,13 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     }
 
 
-    fn connect_nodes(elements: &[T],
-                     node: &RwLock<&mut HnswNode>,
-                     i: usize,
-                     j: usize,
-                     d: NotNaN<f32>)
-    {
+    fn connect_nodes(
+        elements: &[T],
+        node: &RwLock<&mut HnswNode>,
+        i: usize,
+        j: usize,
+        d: NotNaN<f32>,
+    ) {
         // Write Lock!
         let mut node = node.write().unwrap();
 
@@ -490,15 +472,15 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             node.neighbors.push(j as NeighborType);
         } else {
 
-            let mut candidates: Vec<_> = node.neighbors.iter()
+            let mut candidates: Vec<_> = node.neighbors
+                .iter()
                 .map(|&k| (k as usize, elements[i].dist(&elements[k as usize])))
                 .collect();
 
             candidates.push((j as usize, d));
             candidates.sort_unstable_by_key(|&(_, d)| d);
 
-            let neighbors =
-                Self::select_neighbors(elements, candidates, MAX_NEIGHBORS);
+            let neighbors = Self::select_neighbors(elements, candidates, MAX_NEIGHBORS);
 
             for (k, (n, _)) in neighbors.into_iter().enumerate() {
                 node.neighbors[k] = n as NeighborType;
@@ -509,7 +491,6 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
 
 impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
-
     pub fn load(buffer: &'a [u8]) -> Self {
 
         let offset = 0 * ::std::mem::size_of::<usize>();
@@ -521,17 +502,15 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let offset = 2 * ::std::mem::size_of::<usize>();
 
         let layer_counts: &[usize] = unsafe {
-            ::std::slice::from_raw_parts(
-                &buffer[offset] as *const u8 as *const usize,
-                *num_layers
-        )};
+            ::std::slice::from_raw_parts(&buffer[offset] as *const u8 as *const usize, *num_layers)
+        };
 
         let offset = (2 + layer_counts.len()) * ::std::mem::size_of::<usize>();
 
         let nodes: &[HnswNode] = unsafe {
             ::std::slice::from_raw_parts(
                 &buffer[offset] as *const u8 as *const HnswNode,
-                *num_nodes
+                *num_nodes,
             )
         };
 
@@ -550,7 +529,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let elements: &[T] = unsafe {
             ::std::slice::from_raw_parts(
                 &buffer[offset] as *const u8 as *const T,
-                layers.last().unwrap().len()
+                layers.last().unwrap().len(),
             )
         };
 
@@ -561,41 +540,41 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
     }
 
 
-    pub fn search(&self, element: &T, num_neighbors: usize, max_search: usize)
-                  -> Vec<(usize, f32)> {
+    pub fn search(
+        &self,
+        element: &T,
+        num_neighbors: usize,
+        max_search: usize,
+    ) -> Vec<(usize, f32)> {
 
         let (bottom_layer, top_layers) = self.layers.split_last().unwrap();
 
-        let entrypoint = Self::find_entrypoint(&top_layers,
-                                               element,
-                                               &self.elements,
-                                               max_search);
+        let entrypoint = Self::find_entrypoint(&top_layers, element, &self.elements, max_search);
 
         Self::search_for_neighbors(
             &bottom_layer,
             entrypoint,
             &self.elements,
             element,
-            max_search)
-            .into_iter()
+            max_search,
+        ).into_iter()
             .take(num_neighbors)
-            .map(|(i, d)| (i, d.into_inner())).collect()
+            .map(|(i, d)| (i, d.into_inner()))
+            .collect()
     }
 
 
-    fn find_entrypoint(layers: &[&[HnswNode]],
-                       element: &T,
-                       elements: &[T],
-                       max_search: usize) -> usize {
+    fn find_entrypoint(
+        layers: &[&[HnswNode]],
+        element: &T,
+        elements: &[T],
+        max_search: usize,
+    ) -> usize {
 
         let mut entrypoint = 0;
         for layer in layers {
-            let res = Self::search_for_neighbors(
-                &layer,
-                entrypoint,
-                &elements,
-                &element,
-                max_search);
+            let res =
+                Self::search_for_neighbors(&layer, entrypoint, &elements, &element, max_search);
 
             entrypoint = res[0].0;
         }
@@ -604,24 +583,21 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
     }
 
 
-    fn search_for_neighbors(layer: &[HnswNode],
-                            entrypoint: usize,
-                            elements: &[T],
-                            goal: &T,
-                            max_search: usize)
-                            -> Vec<(usize, NotNaN<f32>)> {
+    fn search_for_neighbors(
+        layer: &[HnswNode],
+        entrypoint: usize,
+        elements: &[T],
+        goal: &T,
+        max_search: usize,
+    ) -> Vec<(usize, NotNaN<f32>)> {
 
 
-        let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> =
-            MaxSizeHeap::new(max_search);
+        let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
         let mut visited =
-            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS,
-                                                 Default::default());
+            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS, Default::default());
 
-        pq.push(RevOrd(
-            (elements[entrypoint].dist(&goal), entrypoint)
-        ));
+        pq.push(RevOrd((elements[entrypoint].dist(&goal), entrypoint)));
 
         visited.insert(entrypoint);
 
@@ -660,15 +636,14 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
 struct MaxSizeHeap<T> {
     heap: BinaryHeap<T>,
-    max_size: usize
+    max_size: usize,
 }
 
 impl<T: Ord> MaxSizeHeap<T> {
-
     pub fn new(max_size: usize) -> Self {
         MaxSizeHeap {
             heap: BinaryHeap::with_capacity(max_size),
-            max_size: max_size
+            max_size: max_size,
         }
     }
 
@@ -701,23 +676,20 @@ mod tests {
     use types::example::*;
 
     #[test]
-    fn hnsw_node_size()
-    {
-        assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborType>() <=
-                mem::size_of::<HnswNode>());
+    fn hnsw_node_size() {
+        assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborType>() <= mem::size_of::<HnswNode>());
 
-        assert!(mem::size_of::<HnswNode>() <=
-                MAX_NEIGHBORS * mem::size_of::<NeighborType>()
-                + mem::size_of::<usize>());
+        assert!(
+            mem::size_of::<HnswNode>() <=
+                MAX_NEIGHBORS * mem::size_of::<NeighborType>() + mem::size_of::<usize>()
+        );
     }
 
     #[test]
-    fn select_neighbors()
-    {
+    fn select_neighbors() {
         let element = random_float_element();
 
-        let other_elements: Vec<FloatElement> =
-            (0..50).map(|_| random_float_element()).collect();
+        let other_elements: Vec<FloatElement> = (0..50).map(|_| random_float_element()).collect();
 
         let candidates: Vec<_> = other_elements
             .iter()
@@ -725,23 +697,17 @@ mod tests {
             .enumerate()
             .collect();
 
-        let neighbors =
-            HnswBuilder::select_neighbors(&other_elements[..],
-                                          candidates.clone(),
-                                          10);
+        let neighbors = HnswBuilder::select_neighbors(&other_elements[..], candidates.clone(), 10);
 
         assert_eq!(10, neighbors.len());
 
 
-        let neighbors = HnswBuilder::select_neighbors(&other_elements[..],
-                                                      candidates.clone(),
-                                                      60);
+        let neighbors = HnswBuilder::select_neighbors(&other_elements[..], candidates.clone(), 60);
 
         assert_eq!(50, neighbors.len());
     }
 
-    fn build_and_search<T: HasDistance + Sync + Send + Clone>(elements: Vec<T>)
-    {
+    fn build_and_search<T: HasDistance + Sync + Send + Clone>(elements: Vec<T>) {
         let config = Config {
             num_layers: 5,
             max_search: 20,
@@ -767,35 +733,38 @@ mod tests {
     }
 
     #[test]
-    fn build_and_search_float()
-    {
-        let elements: Vec<FloatElement> =
-            (0..1500).map(|_| random_float_element()).collect();
+    fn build_and_search_float() {
+        let elements: Vec<FloatElement> = (0..1500).map(|_| random_float_element()).collect();
 
         build_and_search(elements);
     }
 
     #[test]
-    fn build_and_search_int8()
-    {
-        let elements: Vec<Int8Element> =
-            (0..500).map(|_| random_int8_element()).collect();
+    fn build_and_search_int8() {
+        let elements: Vec<Int8Element> = (0..500).map(|_| random_int8_element()).collect();
 
         build_and_search(elements);
     }
 
     #[test]
     fn compute_layer_multiplier() {
-        assert_eq!(2, HnswBuilder::<FloatElement>::compute_layer_multiplier(10, 5));
-        assert_eq!(14, HnswBuilder::<FloatElement>::compute_layer_multiplier(400000, 6));
-        assert_eq!(22, HnswBuilder::<FloatElement>::compute_layer_multiplier(2000000000, 8));
+        assert_eq!(
+            2,
+            HnswBuilder::<FloatElement>::compute_layer_multiplier(10, 5)
+        );
+        assert_eq!(
+            14,
+            HnswBuilder::<FloatElement>::compute_layer_multiplier(400000, 6)
+        );
+        assert_eq!(
+            22,
+            HnswBuilder::<FloatElement>::compute_layer_multiplier(2000000000, 8)
+        );
     }
 
     #[test]
-    fn write_and_load()
-    {
-        let elements: Vec<FloatElement> =
-            (0..100).map(|_| random_float_element()).collect();
+    fn write_and_load() {
+        let elements: Vec<FloatElement> = (0..100).map(|_| random_float_element()).collect();
 
         let config = Config {
             num_layers: 4,
@@ -810,10 +779,14 @@ mod tests {
         let mut data = Vec::new();
         let bytes = builder.write(&mut data).unwrap();
 
-        assert!(builder.layers.iter().map(|layer| layer.len()).sum::<usize>()
-                * mem::size_of::<HnswNode>()
-                + builder.elements.len() * mem::size_of::<FloatElement>()
-                <= bytes);
+        assert!(
+            builder
+                .layers
+                .iter()
+                .map(|layer| layer.len())
+                .sum::<usize>() * mem::size_of::<HnswNode>() +
+                builder.elements.len() * mem::size_of::<FloatElement>() <= bytes
+        );
 
         let index = Hnsw::<FloatElement>::load(&data[..]);
 
@@ -823,28 +796,28 @@ mod tests {
             assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
 
             for i in 0..builder.layers[layer].len() {
-                assert_eq!(builder.layers[layer][i].neighbors,
-                           index.layers[layer][i].neighbors);
+                assert_eq!(
+                    builder.layers[layer][i].neighbors,
+                    index.layers[layer][i].neighbors
+                );
             }
         }
 
         assert_eq!(builder.elements.len(), index.elements.len());
 
         for i in 0..builder.elements.len() {
-            assert!(builder.elements[i]
-                    .dist(&index.elements[i]).into_inner() < DIST_EPSILON);
+            assert!(builder.elements[i].dist(&index.elements[i]).into_inner() < DIST_EPSILON);
         }
     }
 
     #[test]
     fn write_and_read() {
-        let elements: Vec<_> =
-            (0..100).map(|_| random_int8_element()).collect();
+        let elements: Vec<_> = (0..100).map(|_| random_int8_element()).collect();
 
         let config = Config {
             num_layers: 4,
             max_search: 10,
-            show_progress: false
+            show_progress: false,
         };
 
         let mut original = HnswBuilder::new(config);
@@ -854,13 +827,16 @@ mod tests {
         let mut data = Vec::new();
         let bytes = original.write(&mut data).unwrap();
 
-        assert!(original.layers.iter().map(|layer| layer.len()).sum::<usize>()
-                * mem::size_of::<HnswNode>()
-                + original.elements.len() * mem::size_of::<Int8Element>()
-                <= bytes);
+        assert!(
+            original
+                .layers
+                .iter()
+                .map(|layer| layer.len())
+                .sum::<usize>() * mem::size_of::<HnswNode>() +
+                original.elements.len() * mem::size_of::<Int8Element>() <= bytes
+        );
 
-        let copy =
-            HnswBuilder::<Int8Element>::read(&mut data.as_slice()).unwrap();
+        let copy = HnswBuilder::<Int8Element>::read(&mut data.as_slice()).unwrap();
 
         assert_eq!(original.layers.len(), copy.layers.len());
 
@@ -868,23 +844,29 @@ mod tests {
             assert_eq!(original.layers[layer].len(), copy.layers[layer].len());
 
             for i in 0..original.layers[layer].len() {
-                assert_eq!(original.layers[layer][i].neighbors,
-                           copy.layers[layer][i].neighbors);
+                assert_eq!(
+                    original.layers[layer][i].neighbors,
+                    copy.layers[layer][i].neighbors
+                );
             }
         }
 
         assert_eq!(original.elements.len(), copy.elements.len());
 
         for i in 0..original.elements.len() {
-            assert!(original.elements[i] == copy.elements[i],
-                    "Elements with index {} differ", i);
+            assert!(
+                original.elements[i] == copy.elements[i],
+                "Elements with index {} differ",
+                i
+            );
         }
     }
 
     #[test]
     fn append_elements() {
-        let elements: Vec<NormalizedFloatElement> =
-            (0..1000).map(|_| random_float_element().normalized()).collect();
+        let elements: Vec<NormalizedFloatElement> = (0..1000)
+            .map(|_| random_float_element().normalized())
+            .collect();
 
         let config = Config {
             num_layers: 4,
@@ -906,9 +888,9 @@ mod tests {
         {
             let index = builder.get_index();
 
-            assert!(index.search(&elements[123], 1, max_search)
-                    .iter()
-                    .any(|&(idx, _)| 123 == idx));
+            assert!(index.search(&elements[123], 1, max_search).iter().any(
+                |&(idx, _)| 123 == idx,
+            ));
         }
 
         // insert rest of the elements
@@ -923,13 +905,13 @@ mod tests {
         {
             let index = builder.get_index();
 
-            assert!(index.search(&elements[123], 1, max_search)
-                    .iter()
-                    .any(|&(idx, _)| 123 == idx));
+            assert!(index.search(&elements[123], 1, max_search).iter().any(
+                |&(idx, _)| 123 == idx,
+            ));
 
-            assert!(index.search(&elements[789], 1, max_search)
-                    .iter()
-                    .any(|&(idx, _)| 789 == idx));
+            assert!(index.search(&elements[789], 1, max_search).iter().any(
+                |&(idx, _)| 789 == idx,
+            ));
         }
     }
 }

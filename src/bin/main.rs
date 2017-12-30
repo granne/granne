@@ -49,7 +49,10 @@ fn brute_search<T: HasDistance + Sync + Send>(vectors: &[T], goal: &T) -> Vec<(u
         }
     }
 
-    return res.into_sorted_vec().into_iter().map(|(d, idx)| (idx, d.into())).collect();
+    return res.into_sorted_vec()
+        .into_iter()
+        .map(|(d, idx)| (idx, d.into()))
+        .collect();
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,28 +67,35 @@ struct Settings {
 
 
 fn main() {
-    let matches =
-        App::new("Hnsw")
+    let matches = App::new("Hnsw")
         .version(crate_version!())
         .about("Builds an index for ANN searching")
-        .arg(Arg::with_name("config_file")
-             .long("config")
-             .short("c")
-             .help("Config file contaning configuration to use for index creation.")
-             .takes_value(true)
-             .default_value("default_settings.toml"))
-        .arg(Arg::with_name("input_file")
-             .long("input")
-             .short("i")
-             .help("Input file containing vectors to be indexed")
-             .takes_value(true)
-             .required(true)
-             .index(1))
-        .arg(Arg::with_name("compress_vectors")
-             .long("compress")
-             .short("z")
-             .help("Compress vectors by converting scalars into int8")
-             .takes_value(false))
+        .arg(
+            Arg::with_name("config_file")
+                .long("config")
+                .short("c")
+                .help(
+                    "Config file contaning configuration to use for index creation.",
+                )
+                .takes_value(true)
+                .default_value("default_settings.toml"),
+        )
+        .arg(
+            Arg::with_name("input_file")
+                .long("input")
+                .short("i")
+                .help("Input file containing vectors to be indexed")
+                .takes_value(true)
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            Arg::with_name("compress_vectors")
+                .long("compress")
+                .short("z")
+                .help("Compress vectors by converting scalars into int8")
+                .takes_value(false),
+        )
         .get_matches();
 
     let config_file = matches.value_of("config_file").unwrap();
@@ -111,7 +121,10 @@ fn main() {
         }
 
     } else {
-        panic!("An error occurred: Could not open config file: {}", config_file);
+        panic!(
+            "An error occurred: Could not open config file: {}",
+            config_file
+        );
     }
 
     return;
@@ -119,17 +132,12 @@ fn main() {
 
 fn build_and_save(settings: Settings, input_file: &str) {
 
-    let (vectors, _) =
-        file_io::read(
-            &input_file,
-            settings.max_number_of_vectors
-        ).expect(&format!("Could not open input file: \"{}\"",
-                          input_file));
+    let (vectors, _) = file_io::read(&input_file, settings.max_number_of_vectors)
+        .expect(&format!("Could not open input file: \"{}\"", input_file));
 
     println!("{} vectors read from {}", vectors.len(), input_file);
 
-    let mut vectors: Vec<_> =
-        vectors.into_iter().map(|v| v.normalized()).collect();
+    let mut vectors: Vec<_> = vectors.into_iter().map(|v| v.normalized()).collect();
 
     thread_rng().shuffle(&mut vectors[..]);
 
@@ -137,12 +145,11 @@ fn build_and_save(settings: Settings, input_file: &str) {
     let build_config = hnsw::Config {
         num_layers: settings.num_layers,
         max_search: settings.max_search,
-        show_progress: true
+        show_progress: true,
     };
 
     if settings.compress_vectors {
-        let vectors: Vec<Int8Element> =
-            vectors.into_iter().map(|v| v.into()).collect();
+        let vectors: Vec<Int8Element> = vectors.into_iter().map(|v| v.into()).collect();
 
         println!("Saving vectors to {}", settings.vectors_output_file);
         file_io::save_to_disk(&vectors[..], &settings.vectors_output_file);
@@ -201,8 +208,7 @@ fn test_index<T: HasDistance + Sync + Send + Clone>() {
             println!("Loaded");
 
             println!("Loading vectors...");
-            let vectors: Vec<T> =
-                file_io::load_from_disk(&settings.vectors_output_file).unwrap();
+            let vectors: Vec<T> = file_io::load_from_disk(&settings.vectors_output_file).unwrap();
 
             println!("Loaded");
 
