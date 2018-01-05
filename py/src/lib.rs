@@ -9,16 +9,51 @@ use std::cell::RefCell;
 use std::fs::File;
 use memmap::Mmap;
 
+type Scalar = i8;
+type ElementType = granne::Int8Element;
+
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     try!(m.add(py, "__doc__", "This module is implemented in Rust."));
+    try!(m.add_class::<Hnsw>(py));
     try!(m.add_class::<HnswBuilder>(py));
 
     Ok(())
 });
 
 
+
+py_class!(class Hnsw |py| {
+    data data: memmap::Mmap;
+
+    def __new__(_cls,
+                path: &str) -> PyResult<Hnsw> {
+
+        let file = File::open(path).unwrap();
+        let mmap = unsafe { Mmap::map(&file).unwrap() };
+
+        Hnsw::create_instance(py, mmap)
+    }
+
+    def search(&self,
+               element: Vec<Scalar>,
+               num_elements: usize = 5,
+               max_search: usize = 50) -> PyResult<Vec<(usize, f32)>>
+    {
+        let index = granne::Hnsw::<ElementType>::load(&self.data(py));
+
+        Ok(index.search(
+            &convert_to_element(element), num_elements, max_search))
+    }
+
+    def __len__(&self) -> PyResult<usize> {
+        Ok(granne::Hnsw::<ElementType>::load(&self.data(py)).len())
+    }
+
+});
+
+
 py_class!(class HnswBuilder |py| {
-    data builder: RefCell<granne::HnswBuilder<granne::NormalizedFloatElement>>;
+    data builder: RefCell<granne::HnswBuilder<ElementType>>;
 
     def __new__(_cls,
                 num_layers: usize,
@@ -37,22 +72,14 @@ py_class!(class HnswBuilder |py| {
     }
 
     @classmethod def load(_cls, path: &str) -> PyResult<HnswBuilder> {
-        let file = File::open(path).unwrap();
-        let mmap = unsafe { Mmap::map(&file).unwrap() };
-        let index = granne::Hnsw::load(&mmap);
+        let mut file = File::open(path).unwrap();
 
-        let config = granne::Config {
-            num_layers: 1,
-            max_search: 50,
-            show_progress: true,
-        };
-
-        let builder = granne::HnswBuilder::from_index(config, &index);
+        let builder = granne::HnswBuilder::read(&mut file).unwrap();
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
 
-    def add(&self, element: Vec<f32>) -> PyResult<PyObject> {
+    def add(&self, element: Vec<Scalar>) -> PyResult<PyObject> {
         self.builder(py).borrow_mut().add(vec![convert_to_element(element)]);
 
         Ok(py.None())
@@ -74,7 +101,7 @@ py_class!(class HnswBuilder |py| {
         Ok(py.None())
     }
 
-    def search(&self, element: Vec<f32>,
+    def search(&self, element: Vec<Scalar>,
                num_elements: usize = 5,
                max_search: usize = 50) -> PyResult<Vec<(usize, f32)>>
     {
@@ -88,11 +115,11 @@ py_class!(class HnswBuilder |py| {
 });
 
 
-fn convert_to_element(element: Vec<f32>) -> granne::NormalizedFloatElement {
+fn convert_to_element(element: Vec<Scalar>) -> ElementType {
     assert_eq!(granne::DIM, element.len());
 
-    let mut data = [0.0f32; granne::DIM];
+    let mut data = [0 as Scalar; granne::DIM];
     data.copy_from_slice(element.as_slice());
 
-    granne::FloatElement::from(data).normalized()
+    data.into()
 }

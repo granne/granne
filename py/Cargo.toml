@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 git = "https://github.com/dgrunwald/rust-cpython.git"
 #version = "0.1"
 default-features = false
-features = ["python27-sys", "nightly"]#, "extension-module-2-7"]
+features = ["python27-sys", "nightly", "extension-module-2-7"]
 
 [dependencies]
 memmap = "0.6.1"
