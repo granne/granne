@@ -8,6 +8,7 @@ extern crate fnv;
 extern crate memmap;
 extern crate rblas;
 extern crate pbr;
+extern crate serde_json;
 
 mod hnsw;
 mod types;
