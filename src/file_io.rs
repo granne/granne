@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Result, Write};
+use std::io::{BufRead, BufReader, Result, Write, Read};
 use std::fs::File;
 use std::path;
 use memmap::Mmap;
@@ -73,8 +73,6 @@ where
     words.shrink_to_fit();
 
     return Ok((elements, words));
-
-    //    return Ok(file.lines().map(|line| read_line(&line.unwrap()).1).collect());
 }
 
 pub fn read_int<P>(path: P, number: usize) -> Result<(Vec<Int8Element>, Vec<String>)>
@@ -103,11 +101,9 @@ where
     words.shrink_to_fit();
 
     return Ok((elements, words));
-
-    //    return Ok(file.lines().map(|line| read_line(&line.unwrap()).1).collect());
 }
 
-fn write<T, B: Write>(vectors: &[T], buffer: &mut B) -> Result<()> {
+pub fn write<T, B: Write>(vectors: &[T], buffer: &mut B) -> Result<()> {
     let data = unsafe {
         ::std::slice::from_raw_parts(
             vectors.as_ptr() as *const u8,
@@ -146,7 +142,21 @@ pub fn load<T>(buffer: &[u8]) -> &[T] {
     vectors
 }
 
+pub fn read_elements<T : Clone, B: Read>(reader: &mut B) -> Result<Vec<T>> {
+    use std::mem::size_of;
 
+    const BUFFER_SIZE: usize = 512;
+    let mut buffer = [0u8; BUFFER_SIZE];
+
+    let mut elements: Vec<T> = Vec::new();
+
+    while reader.read_exact(&mut buffer[..size_of::<T>()]).is_ok() {
+
+        elements.push(unsafe { (*(&buffer[0] as *const u8 as *const T)).clone() })
+    }
+
+    return Ok(elements)
+}
 
 #[cfg(test)]
 mod tests {

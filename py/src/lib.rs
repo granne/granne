@@ -12,6 +12,9 @@ use memmap::Mmap;
 type Scalar = i8;
 type ElementType = granne::Int8Element;
 
+const DEFAULT_NUM_NEIGHBORS: usize = 5;
+const DEFAULT_MAX_SEARCH: usize = 50;
+
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     try!(m.add(py, "__doc__", "This module is implemented in Rust."));
     try!(m.add_class::<Hnsw>(py));
@@ -20,33 +23,42 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     Ok(())
 });
 
-
-
 py_class!(class Hnsw |py| {
-    data data: memmap::Mmap;
+    data index: memmap::Mmap;
+    data elements: memmap::Mmap;
 
     def __new__(_cls,
-                path: &str) -> PyResult<Hnsw> {
+                index_path: &str,
+                elements_path: &str) -> PyResult<Hnsw> {
 
-        let file = File::open(path).unwrap();
-        let mmap = unsafe { Mmap::map(&file).unwrap() };
+        let index = File::open(index_path).unwrap();
+        let index = unsafe { Mmap::map(&index).unwrap() };
 
-        Hnsw::create_instance(py, mmap)
+        let elements = File::open(elements_path).unwrap();
+        let elements = unsafe { Mmap::map(&elements).unwrap() };
+
+        Hnsw::create_instance(py, index, elements)
     }
 
     def search(&self,
                element: Vec<Scalar>,
-               num_elements: usize = 5,
-               max_search: usize = 50) -> PyResult<Vec<(usize, f32)>>
+               num_elements: usize = DEFAULT_NUM_NEIGHBORS,
+               max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let index = granne::Hnsw::<ElementType>::load(&self.data(py));
+        let index = granne::Hnsw::<ElementType>::load(&self.index(py), granne::file_io::load(&self.elements(py)));
 
         Ok(index.search(
-            &convert_to_element(element), num_elements, max_search))
+            &element.into(), num_elements, max_search))
+    }
+
+    def __getitem__(&self, idx: usize) -> PyResult<Vec<Scalar>> {
+        let elements = granne::file_io::load::<ElementType>(&self.elements(py));
+        Ok(elements[idx].0.to_vec())
     }
 
     def __len__(&self) -> PyResult<usize> {
-        Ok(granne::Hnsw::<ElementType>::load(&self.data(py)).len())
+        let elements = granne::file_io::load::<ElementType>(&self.elements(py));
+        Ok(elements.len())
     }
 
 });
@@ -57,7 +69,7 @@ py_class!(class HnswBuilder |py| {
 
     def __new__(_cls,
                 num_layers: usize,
-                max_search: usize = 50,
+                max_search: usize = DEFAULT_MAX_SEARCH,
                 show_progress: bool = true) -> PyResult<HnswBuilder> {
 
         let config = granne::Config {
@@ -71,16 +83,17 @@ py_class!(class HnswBuilder |py| {
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
 
-    @classmethod def load(_cls, path: &str) -> PyResult<HnswBuilder> {
+    @classmethod def load(_cls, path: &str, element_path: &str) -> PyResult<HnswBuilder> {
         let mut file = File::open(path).unwrap();
+        let mut element_file = File::open(element_path).unwrap();
 
-        let builder = granne::HnswBuilder::read(&mut file).unwrap();
+        let builder = granne::HnswBuilder::read(&mut file, &mut element_file).unwrap();
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
 
     def add(&self, element: Vec<Scalar>) -> PyResult<PyObject> {
-        self.builder(py).borrow_mut().add(vec![convert_to_element(element)]);
+        self.builder(py).borrow_mut().add(vec![element.into()]);
 
         Ok(py.None())
     }
@@ -96,30 +109,20 @@ py_class!(class HnswBuilder |py| {
     }
 
     def save(&self, path: &str) -> PyResult<PyObject> {
-        self.builder(py).borrow().save_to_disk(path);
+        self.builder(py).borrow().save_to_disk(path).unwrap();
 
         Ok(py.None())
     }
 
     def search(&self, element: Vec<Scalar>,
-               num_elements: usize = 5,
-               max_search: usize = 50) -> PyResult<Vec<(usize, f32)>>
+               num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
+               max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
         let builder = self.builder(py).borrow();
         let search_index = builder.get_index();
 
         Ok(search_index.search(
-            &convert_to_element(element), num_elements, max_search))
+            &element.into(), num_neighbors, max_search))
     }
 
 });
-
-
-fn convert_to_element(element: Vec<Scalar>) -> ElementType {
-    assert_eq!(granne::DIM, element.len());
-
-    let mut data = [0 as Scalar; granne::DIM];
-    data.copy_from_slice(element.as_slice());
-
-    data.into()
-}
