@@ -66,8 +66,6 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        let mut bytes_written = 0;
-
         // write metadata
         let num_nodes = self.layers.iter().map(|layer| layer.len()).sum();
         let num_layers = self.layers.len();
@@ -627,6 +625,11 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
     pub fn len(self: &Self) -> usize {
         self.elements.len()
+    }
+
+    // todo: remove
+    pub fn get_element(self: &Self, idx: usize) -> &T {
+        &self.elements[idx]
     }
 }
 

@@ -19,6 +19,22 @@ impl From<[f32; DIM]> for FloatElement {
     }
 }
 
+impl<'a> From<&'a [f32]> for FloatElement {
+    fn from(slice: &'a [f32]) -> FloatElement {
+        assert_eq!(DIM, slice.len());
+
+        let mut array = [0f32; DIM];
+        array.copy_from_slice(slice);
+
+        array.into()
+    }
+}
+
+impl From<Vec<f32>> for FloatElement {
+    fn from(vec: Vec<f32>) -> FloatElement {
+        vec.as_slice().into()
+    }
+}
 
 impl FloatElement {
     pub fn normalized(self: FloatElement) -> NormalizedFloatElement {
@@ -91,13 +107,30 @@ pub fn reference_dist(first: &FloatElement, second: &FloatElement) -> NotNaN<f32
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct Int8Element([i8; DIM]);
+pub struct Int8Element(pub [i8; DIM]);
 
 const INT8_ELEMENT_NORM: i32 = 100;
 
 impl From<[i8; DIM]> for Int8Element {
     fn from(array: [i8; DIM]) -> Int8Element {
         Int8Element(array)
+    }
+}
+
+impl<'a> From<&'a [i8]> for Int8Element {
+    fn from(slice: &'a [i8]) -> Int8Element {
+        assert_eq!(DIM, slice.len());
+
+        let mut array = [0i8; DIM];
+        array.copy_from_slice(slice);
+
+        array.into()
+    }
+}
+
+impl From<Vec<i8>> for Int8Element {
+    fn from(vec: Vec<i8>) -> Int8Element {
+        vec.as_slice().into()
     }
 }
 
@@ -216,5 +249,19 @@ mod tests {
 
             assert!(x.dist(&x).into_inner() < DIST_EPSILON);
         }
+    }
+
+    #[test]
+    fn into_int8_element() {
+        let vec: Vec<i8> = (-50..50).collect();
+        let mut array = [0i8; 100];
+        array.copy_from_slice(vec.as_slice());
+
+        let array_element: Int8Element = array.into();
+        let slice_element: Int8Element = vec.as_slice().into();
+        let vec_element: Int8Element = vec.into();
+
+        assert!(vec_element == array_element);
+        assert!(slice_element == array_element);
     }
 }
