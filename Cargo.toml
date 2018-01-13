@@ -1,7 +1,8 @@
 [package]
-name = "hnsw"
+name = "granne"
 version = "0.1.0"
 authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
+license = "MIT"
 
 [dependencies]
 arrayvec = "0.4.2"
