@@ -1,5 +1,7 @@
-/target/
+target/
 **/*.rs.bk
+*.so
+.DS_STORE
 *~
 #*
 *#

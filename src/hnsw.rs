@@ -1,13 +1,3 @@
-//
-// concurrent, little waiting (X)
-// mmap (X)
-// build layer by layer (X)
-// extenstible (X)
-// small size (X)
-// fast (X)
-// merge indexes?
-//
-
 use arrayvec::ArrayVec;
 use fnv::FnvHashSet;
 use ordered_float::NotNaN;
@@ -729,7 +719,7 @@ mod tests {
 
         let p1 = num_found as f32 / elements.len() as f32;
 
-        assert!(0.99 < p1);
+        assert!(0.95 < p1);
     }
 
     #[test]
@@ -870,7 +860,7 @@ mod tests {
 
         let config = Config {
             num_layers: 4,
-            max_search: 20,
+            max_search: 50,
             show_progress: false,
         };
 
@@ -882,9 +872,9 @@ mod tests {
         assert_eq!(4, builder.layers.len());
         assert_eq!(500, builder.layers[3].len());
 
-        let max_search = 10;
+        let max_search = 50;
 
-        // assert that one arbitrary element is findable (might fail)
+        // assert that one arbitrary element is findable
         {
             let index = builder.get_index();
 
@@ -901,7 +891,7 @@ mod tests {
         assert_eq!(1000, builder.layers[3].len());
 
         // assert that the same arbitrary element and a newly added one
-        // is findable (might fail)
+        // is findable
         {
             let index = builder.get_index();
 

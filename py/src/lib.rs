@@ -2,14 +2,14 @@
 extern crate cpython;
 
 extern crate memmap;
-extern crate hnsw;
+extern crate granne;
 
 use cpython::{PyObject, PyResult};
 use std::cell::RefCell;
 use std::fs::File;
 use memmap::Mmap;
 
-py_module_initializer!(hnsw, inithnsw, PyInit_hnsw, |py, m| {
+py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     try!(m.add(py, "__doc__", "This module is implemented in Rust."));
     try!(m.add_class::<HnswBuilder>(py));
 
@@ -18,20 +18,20 @@ py_module_initializer!(hnsw, inithnsw, PyInit_hnsw, |py, m| {
 
 
 py_class!(class HnswBuilder |py| {
-    data builder: RefCell<hnsw::HnswBuilder<hnsw::NormalizedFloatElement>>;
+    data builder: RefCell<granne::HnswBuilder<granne::NormalizedFloatElement>>;
 
     def __new__(_cls,
                 num_layers: usize,
                 max_search: usize = 50,
                 show_progress: bool = true) -> PyResult<HnswBuilder> {
 
-        let config = hnsw::Config {
+        let config = granne::Config {
             num_layers: num_layers,
             max_search: max_search,
             show_progress: show_progress
         };
 
-        let builder = hnsw::HnswBuilder::new(config);
+        let builder = granne::HnswBuilder::new(config);
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
@@ -39,15 +39,15 @@ py_class!(class HnswBuilder |py| {
     @classmethod def load(_cls, path: &str) -> PyResult<HnswBuilder> {
         let file = File::open(path).unwrap();
         let mmap = unsafe { Mmap::map(&file).unwrap() };
-        let index = hnsw::Hnsw::load(&mmap);
+        let index = granne::Hnsw::load(&mmap);
 
-        let config = hnsw::Config {
+        let config = granne::Config {
             num_layers: 1,
             max_search: 50,
             show_progress: true,
         };
 
-        let builder = hnsw::HnswBuilder::from_index(config, &index);
+        let builder = granne::HnswBuilder::from_index(config, &index);
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
@@ -88,11 +88,11 @@ py_class!(class HnswBuilder |py| {
 });
 
 
-fn convert_to_element(element: Vec<f32>) -> hnsw::NormalizedFloatElement {
-    assert_eq!(hnsw::DIM, element.len());
+fn convert_to_element(element: Vec<f32>) -> granne::NormalizedFloatElement {
+    assert_eq!(granne::DIM, element.len());
 
-    let mut data = [0.0f32; hnsw::DIM];
+    let mut data = [0.0f32; granne::DIM];
     data.copy_from_slice(element.as_slice());
 
-    hnsw::FloatElement::from(data).normalized()
+    granne::FloatElement::from(data).normalized()
 }

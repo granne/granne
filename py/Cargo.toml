@@ -1,10 +1,10 @@
 [package]
-name = "hnsw-py"
+name = "granne-py"
 version = "0.1.0"
 authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
 
 [lib]
-name = "hnsw"
+name = "granne"
 crate-type = ["cdylib"]
 
 [dependencies.cpython]
@@ -15,4 +15,4 @@ features = ["python27-sys", "nightly"]#, "extension-module-2-7"]
 
 [dependencies]
 memmap = "0.6.1"
-hnsw = { path = ".." }
+granne = { path = ".." }

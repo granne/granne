@@ -15,7 +15,7 @@ extern crate clap;
 extern crate serde_derive;
 extern crate toml;
 
-extern crate hnsw;
+extern crate granne;
 
 use std::collections::BinaryHeap;
 pub use ordered_float::NotNaN;
@@ -28,8 +28,8 @@ use rayon::prelude::*;
 
 use clap::{App, Arg};
 
-use hnsw::*;
-use hnsw::file_io;
+use granne::*;
+use granne::file_io;
 
 const MAX_NEIGHBORS: usize = 5;
 
@@ -67,7 +67,7 @@ struct Settings {
 
 
 fn main() {
-    let matches = App::new("Hnsw")
+    let matches = App::new("granne")
         .version(crate_version!())
         .about("Builds an index for ANN searching")
         .arg(
@@ -142,7 +142,7 @@ fn build_and_save(settings: Settings, input_file: &str) {
     thread_rng().shuffle(&mut vectors[..]);
 
 
-    let build_config = hnsw::Config {
+    let build_config = granne::Config {
         num_layers: settings.num_layers,
         max_search: settings.max_search,
         show_progress: true,
@@ -156,7 +156,7 @@ fn build_and_save(settings: Settings, input_file: &str) {
 
         println!("Building index...");
 
-        let mut builder = hnsw::HnswBuilder::new(build_config);
+        let mut builder = granne::HnswBuilder::new(build_config);
 
         builder.add(vectors);
         builder.build_index();
@@ -175,7 +175,7 @@ fn build_and_save(settings: Settings, input_file: &str) {
 
         println!("Building index...");
 
-        let mut builder = hnsw::HnswBuilder::new(build_config);
+        let mut builder = granne::HnswBuilder::new(build_config);
 
         builder.add(vectors);
         builder.build_index();
