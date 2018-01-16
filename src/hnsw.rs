@@ -15,7 +15,11 @@ use std::io::{Read, Write, Result};
 use rayon::prelude::*;
 use std::sync::{Mutex, RwLock};
 
-const MAX_NEIGHBORS: usize = 32;
+use time::PreciseTime;
+
+use std::marker::PhantomData;
+
+const MAX_NEIGHBORS: usize = 20;
 type NeighborType = u32;
 
 #[repr(C)]
@@ -32,20 +36,21 @@ pub struct Config {
 }
 
 
-pub struct HnswBuilder<T: HasDistance + Sync + Send> {
+pub struct HnswBuilder<T: ComparableTo<T> + Sync + Send> {
     layers: Vec<Vec<HnswNode>>,
     elements: Vec<T>,
     config: Config,
 }
 
 
-pub struct Hnsw<'a, T: HasDistance + 'a> {
+pub struct Hnsw<'a, T: ComparableTo<E> + 'a, E> {
     layers: Vec<&'a [HnswNode]>,
     elements: &'a [T],
+    phantom: PhantomData<E>,
 }
 
 
-impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
+impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
     pub fn new(config: Config) -> Self {
 
         HnswBuilder {
@@ -59,15 +64,11 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
         let mut file = File::create(path)?;
 
-        self.write(&mut file)?;
-
-        Ok(())
+        self.write(&mut file)
     }
 
 
-    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
-        let mut bytes_written = 0;
-
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
         // write metadata
         let num_nodes = self.layers.iter().map(|layer| layer.len()).sum();
         let num_layers = self.layers.len();
@@ -83,7 +84,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             )
         };
 
-        bytes_written += buffer.write(data)?;
+        buffer.write_all(data)?;
 
         // write graph
         for layer in &self.layers {
@@ -95,39 +96,25 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
                 )
             };
 
-            bytes_written += buffer.write(data)?;
+            buffer.write_all(data)?;
         }
 
-        // write elements
-        let data = unsafe {
-            ::std::slice::from_raw_parts(
-                self.elements.as_ptr() as *const u8,
-                self.elements.len() * ::std::mem::size_of::<T>(),
-            )
-        };
-
-        bytes_written += buffer.write(data)?;
-
-        Ok(bytes_written)
+        Ok(())
     }
 
-    pub fn read<B: Read>(reader: &mut B) -> Result<Self> {
+    pub fn read<I: Read, E: Read>(index_reader: &mut I, element_reader: &mut E) -> Result<Self> {
         use std::mem::size_of;
 
         // read metadata
         const BUFFER_SIZE: usize = 512;
         let mut buffer = [0u8; BUFFER_SIZE];
-        let n = reader.read(&mut buffer[..2 * size_of::<usize>()])?;
-
-        assert_eq!(2 * size_of::<usize>(), n);
+        index_reader.read_exact(&mut buffer[..2 * size_of::<usize>()])?;
 
         let num_nodes: usize = unsafe { *(&buffer[0] as *const u8 as *const usize) };
 
         let num_layers = unsafe { *(&buffer[1 * size_of::<usize>()] as *const u8 as *const usize) };
 
-        let n = reader.read(&mut buffer[..num_layers * size_of::<usize>()])?;
-
-        assert_eq!(num_layers * size_of::<usize>(), n);
+        index_reader.read_exact(&mut buffer[..num_layers * size_of::<usize>()])?;
 
         let mut layer_counts = Vec::new();
 
@@ -138,7 +125,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             layer_counts.push(count);
         }
 
-        assert_eq!(num_nodes, layer_counts.iter().sum());
+        assert_eq!(num_nodes, layer_counts.iter().sum::<usize>());
 
         // read graph
         let mut layers = Vec::new();
@@ -147,8 +134,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             layers.push(Vec::<HnswNode>::with_capacity(count));
 
             for _ in 0..count {
-                let n = reader.read(&mut buffer[..size_of::<HnswNode>()])?;
-                assert_eq!(size_of::<HnswNode>(), n);
+                index_reader.read_exact(&mut buffer[..size_of::<HnswNode>()])?;
 
                 layers.last_mut().unwrap().push(unsafe {
                     (*(&buffer[0] as *const u8 as *const HnswNode)).clone()
@@ -161,8 +147,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
         let mut elements: Vec<T> = Vec::with_capacity(num_elements);
 
         for _ in 0..num_elements {
-            let n = reader.read(&mut buffer[..size_of::<T>()])?;
-            assert_eq!(size_of::<T>(), n);
+            element_reader.read_exact(&mut buffer[..size_of::<T>()])?;
 
             elements.push(unsafe { (*(&buffer[0] as *const u8 as *const T)).clone() })
         }
@@ -173,23 +158,24 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
             show_progress: true,
         };
 
-        return Ok(Self {
+        Ok(Self {
             layers: layers,
             elements: elements,
             config: config,
-        });
+        })
     }
 
 
-    pub fn get_index<'a>(self: &'a Self) -> Hnsw<'a, T> {
+    pub fn get_index<'a>(self: &'a Self) -> Hnsw<'a, T, T> {
         Hnsw {
             layers: self.layers.iter().map(|layer| &layer[..]).collect(),
             elements: &self.elements[..],
+            phantom: PhantomData,
         }
     }
 
 
-    pub fn from_index(config: Config, index: &Hnsw<T>) -> Self {
+    pub fn from_index(config: Config, index: &Hnsw<T, T>) -> Self {
         let mut builder = Self::new(config);
 
         builder.elements = index.elements.to_vec();
@@ -255,7 +241,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
 
     pub fn add(&mut self, elements: Vec<T>) {
-        assert!(self.elements.len() + elements.len() < <NeighborType>::max_value() as usize);
+        assert!(self.elements.len() + elements.len() <= <NeighborType>::max_value() as usize);
 
         if self.elements.is_empty() {
             self.elements = elements;
@@ -268,7 +254,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     fn insert_elements(
         config: &Config,
         elements: &[T],
-        prev_layers: &Hnsw<T>,
+        prev_layers: &Hnsw<T,T>,
         layer: &mut Vec<HnswNode>,
     ) {
 
@@ -278,23 +264,27 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
         layer.resize(elements.len(), HnswNode::default());
 
+        assert_eq!(layer.len(), layer.capacity());
+
         // create RwLocks for underlying nodes
         let layer: Vec<RwLock<&mut HnswNode>> =
             layer.iter_mut().map(|node| RwLock::new(node)).collect();
 
+        assert_eq!(layer.len(), layer.capacity());
+
         // set up progress bar
         let step_size = cmp::max(100, elements.len() / 400);
-        let progress_bar = {
+        let (progress_bar, start_time) = {
             if config.show_progress {
                 let mut progress_bar = ProgressBar::new(elements.len() as u64);
                 let info_text = format!("Layer {}: ", prev_layers.layers.len());
                 progress_bar.message(&info_text);
                 progress_bar.set((step_size * (already_inserted / step_size)) as u64);
 
-                Some(Mutex::new(progress_bar))
+                (Some(Mutex::new(progress_bar)), Some(PreciseTime::now()))
 
             } else {
-                None
+                (None, None)
             }
         };
 
@@ -316,6 +306,11 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 
         if let Some(progress_bar) = progress_bar {
             progress_bar.lock().unwrap().finish_println("");
+
+            if let Some(start_time) = start_time {
+                let end_time = PreciseTime::now();
+                println!("Time: {} s", start_time.to(end_time).num_seconds());
+            }
         }
     }
 
@@ -323,7 +318,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     fn insert_element(
         config: &Config,
         elements: &[T],
-        prev_layers: &Hnsw<T>,
+        prev_layers: &Hnsw<T,T>,
         layer: &Vec<RwLock<&mut HnswNode>>,
         idx: usize,
     ) {
@@ -480,8 +475,8 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 }
 
 
-impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
-    pub fn load(buffer: &'a [u8]) -> Self {
+impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
+    pub fn load(buffer: &'a [u8], elements: &'a [T]) -> Self {
 
         let offset = 0 * ::std::mem::size_of::<usize>();
         let num_nodes = &buffer[offset] as *const u8 as *const usize;
@@ -504,6 +499,8 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
             )
         };
 
+        assert_eq!(nodes.len(), layer_counts.iter().sum::<usize>());
+
         let mut layers = Vec::new();
 
         let mut start = 0;
@@ -516,23 +513,20 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
         let offset = offset + nodes.len() * ::std::mem::size_of::<HnswNode>();
 
-        let elements: &[T] = unsafe {
-            ::std::slice::from_raw_parts(
-                &buffer[offset] as *const u8 as *const T,
-                layers.last().unwrap().len(),
-            )
-        };
+        assert_eq!(buffer.len(), offset);
+        assert_eq!(layers.last().unwrap().len(), elements.len());
 
         Self {
             layers: layers,
             elements: elements,
+            phantom: PhantomData,
         }
     }
 
 
     pub fn search(
         &self,
-        element: &T,
+        element: &E,
         num_neighbors: usize,
         max_search: usize,
     ) -> Vec<(usize, f32)> {
@@ -556,7 +550,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
     fn find_entrypoint(
         layers: &[&[HnswNode]],
-        element: &T,
+        element: &E,
         elements: &[T],
         max_search: usize,
     ) -> usize {
@@ -564,7 +558,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         let mut entrypoint = 0;
         for layer in layers {
             let res =
-                Self::search_for_neighbors(&layer, entrypoint, &elements, &element, max_search);
+                Self::search_for_neighbors(&layer, entrypoint, &elements, &element, 1);
 
             entrypoint = res[0].0;
         }
@@ -577,10 +571,9 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         layer: &[HnswNode],
         entrypoint: usize,
         elements: &[T],
-        goal: &T,
+        goal: &E,
         max_search: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
-
 
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
@@ -664,6 +657,7 @@ mod tests {
     use super::*;
     use std::mem;
     use types::example::*;
+    use file_io;
 
     #[test]
     fn hnsw_node_size() {
@@ -697,10 +691,10 @@ mod tests {
         assert_eq!(50, neighbors.len());
     }
 
-    fn build_and_search<T: HasDistance + Sync + Send + Clone>(elements: Vec<T>) {
+    fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) {
         let config = Config {
             num_layers: 5,
-            max_search: 20,
+            max_search: 50,
             show_progress: false,
         };
 
@@ -709,7 +703,7 @@ mod tests {
         builder.build_index();
         let index = builder.get_index();
 
-        let max_search = 10;
+        let max_search = 40;
         let mut num_found = 0;
         for (i, element) in elements.iter().enumerate() {
             if index.search(element, 1, max_search)[0].0 == i {
@@ -750,6 +744,14 @@ mod tests {
             22,
             HnswBuilder::<FloatElement>::compute_layer_multiplier(2000000000, 8)
         );
+        assert_eq!(
+            555,
+            HnswBuilder::<FloatElement>::compute_layer_multiplier(555, 2)
+        );
+        assert_eq!(
+            25,
+            HnswBuilder::<FloatElement>::compute_layer_multiplier(625, 3)
+        );
     }
 
     #[test]
@@ -763,22 +765,13 @@ mod tests {
         };
 
         let mut builder = HnswBuilder::new(config);
-        builder.add(elements);
+        builder.add(elements.clone());
         builder.build_index();
 
         let mut data = Vec::new();
-        let bytes = builder.write(&mut data).unwrap();
+        builder.write(&mut data).unwrap();
 
-        assert!(
-            builder
-                .layers
-                .iter()
-                .map(|layer| layer.len())
-                .sum::<usize>() * mem::size_of::<HnswNode>() +
-                builder.elements.len() * mem::size_of::<FloatElement>() <= bytes
-        );
-
-        let index = Hnsw::<FloatElement>::load(&data[..]);
+        let index = Hnsw::<FloatElement, FloatElement>::load(&data[..], &elements[..]);
 
         assert_eq!(builder.layers.len(), index.layers.len());
 
@@ -811,22 +804,16 @@ mod tests {
         };
 
         let mut original = HnswBuilder::new(config);
-        original.add(elements);
+        original.add(elements.clone());
         original.build_index();
 
         let mut data = Vec::new();
-        let bytes = original.write(&mut data).unwrap();
+        original.write(&mut data).unwrap();
 
-        assert!(
-            original
-                .layers
-                .iter()
-                .map(|layer| layer.len())
-                .sum::<usize>() * mem::size_of::<HnswNode>() +
-                original.elements.len() * mem::size_of::<Int8Element>() <= bytes
-        );
+        let mut elements_data = Vec::new();
+        file_io::write(&elements, &mut elements_data).unwrap();
 
-        let copy = HnswBuilder::<Int8Element>::read(&mut data.as_slice()).unwrap();
+        let copy = HnswBuilder::<Int8Element>::read(&mut data.as_slice(), &mut elements_data.as_slice()).unwrap();
 
         assert_eq!(original.layers.len(), copy.layers.len());
 

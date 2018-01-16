@@ -5,13 +5,13 @@ use rblas;
 pub const DIM: usize = 100;
 pub const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 
-pub trait HasDistance {
-    fn dist(self: &Self, other: &Self) -> NotNaN<f32>;
+pub trait ComparableTo<B> {
+    fn dist(self: &Self, other: &B) -> NotNaN<f32>;
 }
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct FloatElement([f32; DIM]);
+pub struct FloatElement(pub [f32; DIM]);
 
 impl From<[f32; DIM]> for FloatElement {
     fn from(array: [f32; DIM]) -> FloatElement {
@@ -19,20 +19,36 @@ impl From<[f32; DIM]> for FloatElement {
     }
 }
 
+impl<'a> From<&'a [f32]> for FloatElement {
+    fn from(slice: &'a [f32]) -> FloatElement {
+        assert_eq!(DIM, slice.len());
+
+        let mut array = [0f32; DIM];
+        array.copy_from_slice(slice);
+
+        array.into()
+    }
+}
+
+impl From<Vec<f32>> for FloatElement {
+    fn from(vec: Vec<f32>) -> FloatElement {
+        vec.as_slice().into()
+    }
+}
 
 impl FloatElement {
-    pub fn normalized(self: FloatElement) -> NormalizedFloatElement {
+    pub fn normalized(mut self: FloatElement) -> NormalizedFloatElement {
 
-        let FloatElement(mut unnormed) = self;
+        let FloatElement(ref mut unnormed) = self;
         let norm: f32 = rblas::Nrm2::nrm2(&unnormed[..]);
         rblas::Scal::scal(&(1.0 / norm), &mut unnormed[..]);
 
-        NormalizedFloatElement(unnormed)
+        NormalizedFloatElement(*unnormed)
     }
 }
 
 
-impl HasDistance for FloatElement {
+impl ComparableTo<FloatElement> for FloatElement {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         let &FloatElement(ref x) = self;
         let &FloatElement(ref y) = other;
@@ -50,7 +66,7 @@ impl HasDistance for FloatElement {
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct NormalizedFloatElement([f32; DIM]);
+pub struct NormalizedFloatElement(pub [f32; DIM]);
 
 impl From<[f32; DIM]> for NormalizedFloatElement {
     fn from(array: [f32; DIM]) -> NormalizedFloatElement {
@@ -58,7 +74,7 @@ impl From<[f32; DIM]> for NormalizedFloatElement {
     }
 }
 
-impl HasDistance for NormalizedFloatElement {
+impl ComparableTo<NormalizedFloatElement> for NormalizedFloatElement {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         let &NormalizedFloatElement(ref x) = self;
         let &NormalizedFloatElement(ref y) = other;
@@ -91,13 +107,30 @@ pub fn reference_dist(first: &FloatElement, second: &FloatElement) -> NotNaN<f32
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct Int8Element([i8; DIM]);
+pub struct Int8Element(pub [i8; DIM]);
 
 const INT8_ELEMENT_NORM: i32 = 100;
 
 impl From<[i8; DIM]> for Int8Element {
     fn from(array: [i8; DIM]) -> Int8Element {
         Int8Element(array)
+    }
+}
+
+impl<'a> From<&'a [i8]> for Int8Element {
+    fn from(slice: &'a [i8]) -> Int8Element {
+        assert_eq!(DIM, slice.len());
+
+        let mut array = [0i8; DIM];
+        array.copy_from_slice(slice);
+
+        array.into()
+    }
+}
+
+impl From<Vec<i8>> for Int8Element {
+    fn from(vec: Vec<i8>) -> Int8Element {
+        vec.as_slice().into()
     }
 }
 
@@ -113,7 +146,7 @@ impl PartialEq for Int8Element {
 
 impl From<NormalizedFloatElement> for Int8Element {
     fn from(element: NormalizedFloatElement) -> Int8Element {
-        let NormalizedFloatElement(element) = element;
+        let NormalizedFloatElement(ref element) = element;
 
         let mut array = [0i8; DIM];
         for i in 0..DIM {
@@ -125,7 +158,7 @@ impl From<NormalizedFloatElement> for Int8Element {
 }
 
 
-impl HasDistance for Int8Element {
+impl ComparableTo<Int8Element> for Int8Element {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         let &Int8Element(ref x) = self;
         let &Int8Element(ref y) = other;
@@ -216,5 +249,19 @@ mod tests {
 
             assert!(x.dist(&x).into_inner() < DIST_EPSILON);
         }
+    }
+
+    #[test]
+    fn into_int8_element() {
+        let vec: Vec<i8> = (-50..50).collect();
+        let mut array = [0i8; 100];
+        array.copy_from_slice(vec.as_slice());
+
+        let array_element: Int8Element = array.into();
+        let slice_element: Int8Element = vec.as_slice().into();
+        let vec_element: Int8Element = vec.into();
+
+        assert!(vec_element == array_element);
+        assert!(slice_element == array_element);
     }
 }

@@ -23,37 +23,14 @@ use std::fs::File;
 use std::io::prelude::*;
 use memmap::Mmap;
 use rand::{thread_rng, Rng};
-
-use rayon::prelude::*;
+use std::cmp;
 
 use clap::{App, Arg};
 
 use granne::*;
 use granne::file_io;
 
-const MAX_NEIGHBORS: usize = 5;
-
-fn brute_search<T: HasDistance + Sync + Send>(vectors: &[T], goal: &T) -> Vec<(usize, f32)> {
-    let mut res: BinaryHeap<(NotNaN<f32>, usize)> = BinaryHeap::new();
-
-    let dists: Vec<NotNaN<f32>> = vectors.par_iter().map(|v| v.dist(goal)).collect();
-
-    for (idx, d) in dists.into_iter().enumerate() {
-
-        if res.len() < MAX_NEIGHBORS || d < res.peek().unwrap().0 {
-            res.push((d, idx));
-        }
-
-        if res.len() > MAX_NEIGHBORS {
-            res.pop();
-        }
-    }
-
-    return res.into_sorted_vec()
-        .into_iter()
-        .map(|(d, idx)| (idx, d.into()))
-        .collect();
-}
+use std::fs::OpenOptions;
 
 #[derive(Debug, Deserialize)]
 struct Settings {
@@ -63,6 +40,7 @@ struct Settings {
     max_search: usize,
     max_number_of_vectors: usize,
     compress_vectors: bool,
+    scalar_input_type: String,
 }
 
 
@@ -114,7 +92,27 @@ fn main() {
             println!("Using settings from {}", config_file);
             println!("{:#?}", settings);
 
-            build_and_save(settings, &input_file);
+            if settings.scalar_input_type == "int8" {
+                let (vectors, _) = file_io::read_int(&input_file, settings.max_number_of_vectors)
+                    .expect(&format!("Could not open input file: \"{}\"", input_file));
+
+                build_and_save(settings, vectors);
+
+            } else {
+                let (vectors, _) = file_io::read(&input_file, settings.max_number_of_vectors)
+                    .expect(&format!("Could not open input file: \"{}\"", input_file));
+
+                let vectors: Vec<_> = vectors.into_iter().map(|v| v.normalized()).collect();
+
+                if settings.compress_vectors {
+                    let vectors: Vec<Int8Element> = vectors.into_iter().map(|v| v.into()).collect();
+
+                    build_and_save(settings, vectors);
+
+                } else {
+                    build_and_save(settings, vectors);
+                }
+            }
 
         } else {
             panic!("Malformed config file");
@@ -130,17 +128,8 @@ fn main() {
     return;
 }
 
-fn build_and_save(settings: Settings, input_file: &str) {
 
-    let (vectors, _) = file_io::read(&input_file, settings.max_number_of_vectors)
-        .expect(&format!("Could not open input file: \"{}\"", input_file));
-
-    println!("{} vectors read from {}", vectors.len(), input_file);
-
-    let mut vectors: Vec<_> = vectors.into_iter().map(|v| v.normalized()).collect();
-
-    thread_rng().shuffle(&mut vectors[..]);
-
+fn build_and_save<T: ComparableTo<T> + Sync + Send + Clone>(settings: Settings, vectors: Vec<T>) {
 
     let build_config = granne::Config {
         num_layers: settings.num_layers,
@@ -148,103 +137,19 @@ fn build_and_save(settings: Settings, input_file: &str) {
         show_progress: true,
     };
 
-    if settings.compress_vectors {
-        let vectors: Vec<Int8Element> = vectors.into_iter().map(|v| v.into()).collect();
+    println!("Saving vectors to {}", settings.vectors_output_file);
+    file_io::save_to_disk(&vectors[..], &settings.vectors_output_file);
 
-        println!("Saving vectors to {}", settings.vectors_output_file);
-        file_io::save_to_disk(&vectors[..], &settings.vectors_output_file);
+    println!("Building index...");
 
-        println!("Building index...");
+    let mut builder = granne::HnswBuilder::new(build_config);
 
-        let mut builder = granne::HnswBuilder::new(build_config);
+    builder.add(vectors);
+    builder.build_index();
 
-        builder.add(vectors);
-        builder.build_index();
+    println!("Index built.");
+    println!("Saving index to {}", settings.output_file);
 
-        println!("Index built.");
-        println!("Saving index to {}", settings.output_file);
-
-        builder.save_to_disk(&settings.output_file);
-
-        test_index::<Int8Element>();
-
-    } else {
-
-        println!("Saving vectors to {}", settings.vectors_output_file);
-        file_io::save_to_disk(&vectors[..], &settings.vectors_output_file);
-
-        println!("Building index...");
-
-        let mut builder = granne::HnswBuilder::new(build_config);
-
-        builder.add(vectors);
-        builder.build_index();
-
-        println!("Index built.");
-        println!("Saving index to {}", settings.output_file);
-
-        builder.save_to_disk(&settings.output_file);
-
-        test_index::<NormalizedFloatElement>();
-    }
-}
-
-
-fn test_index<T: HasDistance + Sync + Send + Clone>() {
-
-    let config_file = "default_settings.toml";
-
-    if let Ok(mut file) = File::open(config_file) {
-        let mut contents = String::new();
-        file.read_to_string(&mut contents);
-
-        if let Ok(mut settings) = toml::from_str::<Settings>(&contents) {
-
-            println!("Loading index...");
-
-            let file = File::open(settings.output_file).unwrap();
-            let mmap = unsafe { Mmap::map(&file).unwrap() };
-            let index = Hnsw::load(&mmap);
-            println!("Loaded");
-
-            println!("Loading vectors...");
-            let vectors: Vec<T> = file_io::load_from_disk(&settings.vectors_output_file).unwrap();
-
-            println!("Loaded");
-
-            let num_vectors = vectors.len();
-            assert_eq!(num_vectors, index.len());
-
-            let mut pcounts = [[0; MAX_NEIGHBORS]; MAX_NEIGHBORS];
-
-            let max_search = 20;
-            let num_queries = 2500;
-            let mut query_count = 0;
-            for idx in num_iter::range_step(0, num_vectors, num_vectors / num_queries) {
-                let res = index.search(&vectors[idx], MAX_NEIGHBORS, max_search);
-                let brute = brute_search(&vectors, &vectors[idx]);
-                query_count += 1;
-
-                for i in 0..MAX_NEIGHBORS {
-                    if let Some(pos) = res.iter().position(|&(x, _)| x == brute[i].0) {
-                        pcounts[i][pos] += 1;
-                    }
-                }
-            }
-
-            for i in 0..MAX_NEIGHBORS {
-                let mut sum = 0.0f32;
-
-                print!("{}:\t", i);
-                for j in 0..MAX_NEIGHBORS {
-                    sum += pcounts[i][j] as f32 / (query_count as f32);
-
-                    print!("{:.3}\t", sum);
-                }
-                println!();
-            }
-        }
-    }
-
-
+    builder.save_to_disk(&settings.output_file);
+    println!("Completed!");
 }
