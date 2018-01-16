@@ -17,6 +17,8 @@ use std::sync::{Mutex, RwLock};
 
 use time::PreciseTime;
 
+use std::marker::PhantomData;
+
 const MAX_NEIGHBORS: usize = 20;
 type NeighborType = u32;
 
@@ -34,20 +36,21 @@ pub struct Config {
 }
 
 
-pub struct HnswBuilder<T: HasDistance + Sync + Send> {
+pub struct HnswBuilder<T: ComparableTo<T> + Sync + Send> {
     layers: Vec<Vec<HnswNode>>,
     elements: Vec<T>,
     config: Config,
 }
 
 
-pub struct Hnsw<'a, T: HasDistance + 'a> {
+pub struct Hnsw<'a, T: ComparableTo<E> + 'a, E> {
     layers: Vec<&'a [HnswNode]>,
     elements: &'a [T],
+    phantom: PhantomData<E>,
 }
 
 
-impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
+impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
     pub fn new(config: Config) -> Self {
 
         HnswBuilder {
@@ -163,15 +166,16 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     }
 
 
-    pub fn get_index<'a>(self: &'a Self) -> Hnsw<'a, T> {
+    pub fn get_index<'a>(self: &'a Self) -> Hnsw<'a, T, T> {
         Hnsw {
             layers: self.layers.iter().map(|layer| &layer[..]).collect(),
             elements: &self.elements[..],
+            phantom: PhantomData,
         }
     }
 
 
-    pub fn from_index(config: Config, index: &Hnsw<T>) -> Self {
+    pub fn from_index(config: Config, index: &Hnsw<T, T>) -> Self {
         let mut builder = Self::new(config);
 
         builder.elements = index.elements.to_vec();
@@ -250,7 +254,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     fn insert_elements(
         config: &Config,
         elements: &[T],
-        prev_layers: &Hnsw<T>,
+        prev_layers: &Hnsw<T,T>,
         layer: &mut Vec<HnswNode>,
     ) {
 
@@ -314,7 +318,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
     fn insert_element(
         config: &Config,
         elements: &[T],
-        prev_layers: &Hnsw<T>,
+        prev_layers: &Hnsw<T,T>,
         layer: &Vec<RwLock<&mut HnswNode>>,
         idx: usize,
     ) {
@@ -471,7 +475,7 @@ impl<T: HasDistance + Sync + Send + Clone> HnswBuilder<T> {
 }
 
 
-impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
+impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
     pub fn load(buffer: &'a [u8], elements: &'a [T]) -> Self {
 
         let offset = 0 * ::std::mem::size_of::<usize>();
@@ -515,13 +519,14 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         Self {
             layers: layers,
             elements: elements,
+            phantom: PhantomData,
         }
     }
 
 
     pub fn search(
         &self,
-        element: &T,
+        element: &E,
         num_neighbors: usize,
         max_search: usize,
     ) -> Vec<(usize, f32)> {
@@ -545,7 +550,7 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
 
     fn find_entrypoint(
         layers: &[&[HnswNode]],
-        element: &T,
+        element: &E,
         elements: &[T],
         max_search: usize,
     ) -> usize {
@@ -566,10 +571,9 @@ impl<'a, T: HasDistance + 'a> Hnsw<'a, T> {
         layer: &[HnswNode],
         entrypoint: usize,
         elements: &[T],
-        goal: &T,
+        goal: &E,
         max_search: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
-
 
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
@@ -687,7 +691,7 @@ mod tests {
         assert_eq!(50, neighbors.len());
     }
 
-    fn build_and_search<T: HasDistance + Sync + Send + Clone>(elements: Vec<T>) {
+    fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) {
         let config = Config {
             num_layers: 5,
             max_search: 50,
@@ -767,7 +771,7 @@ mod tests {
         let mut data = Vec::new();
         builder.write(&mut data).unwrap();
 
-        let index = Hnsw::<FloatElement>::load(&data[..], &elements[..]);
+        let index = Hnsw::<FloatElement, FloatElement>::load(&data[..], &elements[..]);
 
         assert_eq!(builder.layers.len(), index.layers.len());
 

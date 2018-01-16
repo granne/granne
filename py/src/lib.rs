@@ -45,7 +45,7 @@ py_class!(class Hnsw |py| {
                num_elements: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let index = granne::Hnsw::<ElementType>::load(&self.index(py), granne::file_io::load(&self.elements(py)));
+        let index = granne::Hnsw::<ElementType, ElementType>::load(&self.index(py), granne::file_io::load(&self.elements(py)));
 
         Ok(index.search(
             &element.into(), num_elements, max_search))

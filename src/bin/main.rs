@@ -129,7 +129,7 @@ fn main() {
 }
 
 
-fn build_and_save<T: HasDistance + Sync + Send + Clone>(settings: Settings, vectors: Vec<T>) {
+fn build_and_save<T: ComparableTo<T> + Sync + Send + Clone>(settings: Settings, vectors: Vec<T>) {
 
     let build_config = granne::Config {
         num_layers: settings.num_layers,
