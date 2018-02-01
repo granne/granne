@@ -1,10 +1,31 @@
 use std::io::{BufRead, BufReader, Result, Write, Read};
 use std::fs::File;
+use std::str::FromStr;
 use std::path;
 use memmap::Mmap;
 use serde_json;
-use types::{FloatElement, Int8Element, DIM};
+use types::{FloatElement, Int8Element, DIM, AngularVector};
 use rayon::prelude::*;
+use std::iter::FromIterator;
+
+
+fn read_line_generic<T: FromIterator<F>, F: FromStr>(line: &str) -> (String, T) {
+    let mut iter = line.split_whitespace();
+
+    let word = String::from(iter.next().unwrap());
+
+    let element: T =
+        iter.map(|e| {
+            if let Ok(value) = e.parse::<F>() {
+                value
+            } else {
+                panic!("Could not convert to number");
+            }
+        })
+        .collect();
+
+    return (word, element);
+}
 
 fn read_line_glove(line: &str) -> (String, FloatElement) {
     let mut iter = line.split_whitespace();
