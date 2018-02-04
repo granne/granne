@@ -15,5 +15,4 @@ mod types;
 pub mod file_io;
 
 pub use hnsw::{Hnsw, HnswBuilder, Config};
-pub use types::{FloatElement, NormalizedFloatElement, Int8Element, ComparableTo, reference_dist,
-                example, DIM};
+pub use types::{AngularVector, AngularIntVector, ComparableTo, angular_reference_dist, example};

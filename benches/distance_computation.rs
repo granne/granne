@@ -16,34 +16,74 @@ mod types {
     use super::*;
 
     #[bench]
-    fn float_reference_dist(b: &mut Bencher) {
-        let x = granne::example::random_float_element();
-        let y = granne::example::random_float_element();
+    fn angular_100_reference_dist(b: &mut Bencher) {
+        for _ in 0..5 {
+            let x: AngularVector<[f32; 100]> =
+                granne::example::random_dense_element();
+            let y: AngularVector<[f32; 100]>
+                = granne::example::random_dense_element();
 
-        b.iter(|| granne::reference_dist(&x, &y));
+            b.iter(|| granne::angular_reference_dist(&x, &y));
+        }
     }
 
     #[bench]
-    fn float_dist(b: &mut Bencher) {
-        let x = granne::example::random_float_element();
-        let y = granne::example::random_float_element();
+    fn angular_int_vector_100_dist(b: &mut Bencher) {
+        for _ in 0..5 {
+            let x: AngularIntVector<[i8; 100]> =
+                granne::example::random_dense_element::<AngularVector<[f32; 100]>>().into();
+            let y: AngularIntVector<[i8; 100]> =
+                granne::example::random_dense_element::<AngularVector<[f32; 100]>>().into();
 
-        b.iter(|| x.dist(&y));
+            b.iter(|| x.dist(&y));
+        }
     }
 
     #[bench]
-    fn normalized_float_dist(b: &mut Bencher) {
-        let x = granne::example::random_float_element().normalized();
-        let y = granne::example::random_float_element().normalized();
+    fn angular_vector_300_dist(b: &mut Bencher) {
+        for _ in 0..5 {
+            let x: AngularVector<[f32; 300]> =
+                granne::example::random_dense_element();
+            let y: AngularVector<[f32; 300]> =
+                granne::example::random_dense_element();
 
-        b.iter(|| x.dist(&y));
+            b.iter(|| x.dist(&y));
+        }
     }
 
     #[bench]
-    fn int8_dist(b: &mut Bencher) {
-        let x = granne::example::random_int8_element();
-        let y = granne::example::random_int8_element();
+    fn angular_vector_100_dist(b: &mut Bencher) {
+        for _ in 0..5 {
+            let x: AngularVector<[f32; 100]> =
+                granne::example::random_dense_element();
+            let y: AngularVector<[f32; 100]> =
+                granne::example::random_dense_element();
 
-        b.iter(|| x.dist(&y));
+            b.iter(|| x.dist(&y));
+        }
+    }
+
+    #[bench]
+    fn angular_vector_50_dist(b: &mut Bencher) {
+        for _ in 0..5 {
+            let x: AngularVector<[f32; 50]> =
+                granne::example::random_dense_element();
+            let y: AngularVector<[f32; 50]> =
+                granne::example::random_dense_element();
+
+            b.iter(|| x.dist(&y));
+        }
+    }
+
+    #[bench]
+    fn angular_vector_3_dist(b: &mut Bencher) {
+        for _ in 0..5 {
+            let x: AngularVector<[f32; 3]> =
+                granne::example::random_dense_element();
+            let y: AngularVector<[f32; 3]> =
+                granne::example::random_dense_element();
+
+            b.iter(|| x.dist(&y));
+        }
     }
 }

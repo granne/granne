@@ -9,8 +9,9 @@ use std::cell::RefCell;
 use std::fs::File;
 use memmap::Mmap;
 
-type Scalar = i8;
-type ElementType = granne::Int8Element;
+const DIM: usize = 100;
+type Scalar = f32;
+type ElementType = granne::AngularVector<[Scalar; DIM]>;
 
 const DEFAULT_NUM_NEIGHBORS: usize = 5;
 const DEFAULT_MAX_SEARCH: usize = 50;
@@ -48,7 +49,7 @@ py_class!(class Hnsw |py| {
         let index = granne::Hnsw::<ElementType, ElementType>::load(&self.index(py), granne::file_io::load(&self.elements(py)));
 
         Ok(index.search(
-            &element.into(), num_elements, max_search))
+            &element.into_iter().collect(), num_elements, max_search))
     }
 
     def __getitem__(&self, idx: usize) -> PyResult<Vec<Scalar>> {
@@ -93,7 +94,7 @@ py_class!(class HnswBuilder |py| {
     }
 
     def add(&self, element: Vec<Scalar>) -> PyResult<PyObject> {
-        self.builder(py).borrow_mut().add(vec![element.into()]);
+        self.builder(py).borrow_mut().add(vec![element.into_iter().collect()]);
 
         Ok(py.None())
     }
@@ -122,7 +123,7 @@ py_class!(class HnswBuilder |py| {
         let search_index = builder.get_index();
 
         Ok(search_index.search(
-            &element.into(), num_neighbors, max_search))
+            &element.into_iter().collect(), num_neighbors, max_search))
     }
 
 });

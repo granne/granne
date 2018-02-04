@@ -2,12 +2,15 @@ use std::cmp;
 use ordered_float::NotNaN;
 use rblas;
 
-use super::{ComparableTo, DIM, NormalizedFloatElement};
+use super::{ComparableTo, NormalizedFloatElement, random_float_element};
+
+
 
 #[repr(C)]
 #[derive(Clone)]
 pub struct Int8Element(pub [i8; DIM]);
 
+const DIM: usize = 100;
 const INT8_ELEMENT_NORM: i32 = 100;
 
 
@@ -79,6 +82,12 @@ impl From<NormalizedFloatElement> for Int8Element {
     }
 }
 
+
+use rand;
+use rand::Rng;
+pub fn random_int8_element() -> Int8Element {
+    random_float_element().normalized().into()
+}
 
 #[cfg(test)]
 mod tests {

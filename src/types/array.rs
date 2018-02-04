@@ -8,10 +8,12 @@ pub trait Array<T> {
 macro_rules! impl_array(
     ($t:ty, $len:expr) => (
         impl Array<$t> for [$t; $len] {
+            #[inline(always)]
             fn as_slice(self: &Self) -> &[$t] {
                 &self[..]
             }
 
+            #[inline(always)]
             fn as_mut_slice(self: &mut Self) -> &mut [$t] {
                 &mut self[..]
             }
@@ -27,5 +29,5 @@ macro_rules! impl_arrays {
     )
 }
 
-impl_arrays!(f32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30, 32, 60, 64, 96, 100, 128, 200, 256, 300);
-impl_arrays!(i8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30, 32, 60, 64, 96, 100, 128, 200, 256, 300);
+impl_arrays!(f32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30, 32, 50, 60, 64, 96, 100, 128, 200, 256, 300);
+impl_arrays!(i8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30, 32, 50, 60, 64, 96, 100, 128, 200, 256, 300);

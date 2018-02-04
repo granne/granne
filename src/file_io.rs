@@ -3,13 +3,9 @@ use std::fs::File;
 use std::str::FromStr;
 use std::path;
 use memmap::Mmap;
-use serde_json;
-use types::{FloatElement, Int8Element, DIM, AngularVector};
-use rayon::prelude::*;
 use std::iter::FromIterator;
 
-
-fn read_line_generic<T: FromIterator<F>, F: FromStr>(line: &str) -> (String, T) {
+fn read_line<T: FromIterator<F>, F: FromStr>(line: &str) -> (String, T) {
     let mut iter = line.split_whitespace();
 
     let word = String::from(iter.next().unwrap());
@@ -27,54 +23,12 @@ fn read_line_generic<T: FromIterator<F>, F: FromStr>(line: &str) -> (String, T) 
     return (word, element);
 }
 
-fn read_line_glove(line: &str) -> (String, FloatElement) {
-    let mut iter = line.split_whitespace();
 
-    let word = String::from(iter.next().unwrap());
-
-    let mut v = [0.0f32; DIM];
-    for (i, e) in iter.enumerate() {
-        v[i] = e.parse::<f32>().unwrap();
-    }
-
-    return (word, v.into());
-}
-
-fn read_line(line: &str) -> (String, FloatElement) {
-    let mut parts = line.split('\t');
-
-    let id: String = parts.next().unwrap().into();
-
-    let mut va = [0.0f32; DIM];
-
-    if let Ok(v) = serde_json::from_str::<Vec<f32>>(parts.next().unwrap()) {
-        assert_eq!(DIM, v.len());
-
-        va.copy_from_slice(v.as_slice());
-    }
-
-    (id, va.into())
-}
-
-fn read_int_line(line: &str) -> (String, Int8Element) {
-    let mut parts = line.split('\t');
-
-    let id: String = parts.next().unwrap().into();
-
-    let mut va = [0i8; DIM];
-
-    if let Ok(v) = serde_json::from_str::<Vec<i8>>(parts.next().unwrap()) {
-        assert_eq!(DIM, v.len());
-
-        va.copy_from_slice(v.as_slice());
-    }
-
-    (id, va.into())
-}
-
-pub fn read<P>(path: P, number: usize) -> Result<(Vec<FloatElement>, Vec<String>)>
+pub fn read<P, T, F>(path: P, number: usize) -> Result<(Vec<T>, Vec<String>)>
 where
     P: AsRef<path::Path>,
+    T: FromIterator<F>,
+    F: FromStr
 {
     let file = File::open(path)?;
     let file = BufReader::new(file);
@@ -82,9 +36,10 @@ where
     let mut elements = Vec::new();
     let mut words = Vec::new();
 
-    for (word, element) in file.lines().map(|line| read_line_glove(&line.unwrap())).take(
-        number,
-    )
+    for (word, element) in file
+        .lines()
+        .map(|line| read_line::<T, F>(&line.unwrap()))
+        .take(number)
     {
         elements.push(element);
         words.push(word);
@@ -96,33 +51,6 @@ where
     return Ok((elements, words));
 }
 
-pub fn read_int<P>(path: P, number: usize) -> Result<(Vec<Int8Element>, Vec<String>)>
-where
-    P: AsRef<path::Path>,
-{
-    let file = File::open(path)?;
-    let file = BufReader::new(file);
-
-    let mut elements = Vec::new();
-    let mut words = Vec::new();
-
-    for (word, element) in file.lines().map(|line| read_int_line(&line.unwrap())).take(
-        number,
-    )
-    {
-        elements.push(element);
-        words.push(word);
-
-        if words.len() % 10_000_000 == 0 {
-            println!("Added {} vectors", words.len());
-        }
-    }
-
-    elements.shrink_to_fit();
-    words.shrink_to_fit();
-
-    return Ok((elements, words));
-}
 
 pub fn write<T, B: Write>(vectors: &[T], buffer: &mut B) -> Result<()> {
     let data = unsafe {
@@ -134,6 +62,7 @@ pub fn write<T, B: Write>(vectors: &[T], buffer: &mut B) -> Result<()> {
 
     buffer.write_all(data)
 }
+
 
 pub fn save_to_disk<T>(vectors: &[T], path: &str) -> Result<()> {
     let mut file = File::create(path)?;
@@ -182,6 +111,9 @@ pub fn read_elements<T : Clone, B: Read>(reader: &mut B) -> Result<Vec<T>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use types::{AngularVector, ComparableTo};
+
+    const DIM: usize = 100;
 
     #[test]
     fn read_file() {
@@ -189,6 +121,11 @@ mod tests {
 
         if let Ok((data, strings)) = data {
             assert_eq!(1000, data.len());
+
+            for i in 0..data.len() {
+                let v: &AngularVector<[f32; DIM]> = &data[i];
+                assert!(v.dist(v).into_inner() < 0.01f32);
+            }
         } else {
             panic!("Could not read file");
         }
@@ -197,6 +134,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn read_nonexistent_file() {
-        read("non_existent", 1000).unwrap();
+        let _: (Vec<AngularVector<[f32; DIM]>>, _) = read("non_existent", 1000).unwrap();
     }
 }

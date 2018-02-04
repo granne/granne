@@ -1,16 +1,14 @@
 use std::cmp;
 use ordered_float::NotNaN;
+use std::iter::FromIterator;
 
 mod array;
-mod float_element;
-mod int8_element;
 mod angular_vector;
 
-pub use self::float_element::*;
-pub use self::int8_element::*;
+pub use self::array::Array;
+
 pub use self::angular_vector::*;
 
-pub const DIM: usize = 100;
 pub const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 
 pub trait ComparableTo<B: ?Sized> {
@@ -18,7 +16,7 @@ pub trait ComparableTo<B: ?Sized> {
 }
 
 pub trait Dense {
-    fn dim(self: &Self) -> usize;
+    fn dim() -> usize;
 }
 
 pub mod example {
@@ -26,31 +24,17 @@ pub mod example {
     use rand;
     use rand::Rng;
 
-    pub fn random_angular_vector_element() -> AngularVector<[f32; DIM]> {
+    pub fn random_dense_element<T>() -> T
+        where T: Dense + FromIterator<f32>
+    {
         let mut rng = rand::thread_rng();
 
-        let mut data = [0.0f32; DIM];
+        let mut data: Vec<f32> = Vec::new();
 
-        for f in &mut data[..] {
-            *f = rng.gen();
+        for _ in 0..T::dim() {
+            data.push(rng.gen());
         }
 
-        data.into()
-    }
-
-    pub fn random_float_element() -> FloatElement {
-        let mut rng = rand::thread_rng();
-
-        let mut data = [0.0f32; DIM];
-
-        for f in &mut data[..] {
-            *f = rng.gen();
-        }
-
-        data.into()
-    }
-
-    pub fn random_int8_element() -> Int8Element {
-        random_float_element().normalized().into()
+        data.into_iter().collect()
     }
 }

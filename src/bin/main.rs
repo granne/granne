@@ -17,20 +17,13 @@ extern crate toml;
 
 extern crate granne;
 
-use std::collections::BinaryHeap;
-pub use ordered_float::NotNaN;
 use std::fs::File;
 use std::io::prelude::*;
-use memmap::Mmap;
-use rand::{thread_rng, Rng};
-use std::cmp;
 
 use clap::{App, Arg};
 
 use granne::*;
 use granne::file_io;
-
-use std::fs::OpenOptions;
 
 #[derive(Debug, Deserialize)]
 struct Settings {
@@ -82,7 +75,7 @@ fn main() {
 
     if let Ok(mut file) = File::open(config_file) {
         let mut contents = String::new();
-        file.read_to_string(&mut contents);
+        file.read_to_string(&mut contents).unwrap();
 
         if let Ok(mut settings) = toml::from_str::<Settings>(&contents) {
             if compress_vectors {
@@ -93,24 +86,26 @@ fn main() {
             println!("{:#?}", settings);
 
             if settings.scalar_input_type == "int8" {
-                let (vectors, _) = file_io::read_int(&input_file, settings.max_number_of_vectors)
+                let (vectors, _) = file_io::read(&input_file, settings.max_number_of_vectors)
                     .expect(&format!("Could not open input file: \"{}\"", input_file));
 
-                build_and_save(settings, vectors);
+                build_and_save::<AngularIntVector<[i8; 100]>>(settings, vectors);
 
             } else {
                 let (vectors, _) = file_io::read(&input_file, settings.max_number_of_vectors)
                     .expect(&format!("Could not open input file: \"{}\"", input_file));
 
-                let vectors: Vec<_> = vectors.into_iter().map(|v| v.normalized()).collect();
 
                 if settings.compress_vectors {
-                    let vectors: Vec<Int8Element> = vectors.into_iter().map(|v| v.into()).collect();
+                    let vectors = vectors
+                        .into_iter()
+                        .map(|v: AngularVector<_>| v.into())
+                        .collect();
 
-                    build_and_save(settings, vectors);
+                    build_and_save::<AngularIntVector<[i8; 100]>>(settings, vectors);
 
                 } else {
-                    build_and_save(settings, vectors);
+                    build_and_save::<AngularVector<[f32; 100]>>(settings, vectors);
                 }
             }
 
@@ -138,7 +133,7 @@ fn build_and_save<T: ComparableTo<T> + Sync + Send + Clone>(settings: Settings, 
     };
 
     println!("Saving vectors to {}", settings.vectors_output_file);
-    file_io::save_to_disk(&vectors[..], &settings.vectors_output_file);
+    file_io::save_to_disk(&vectors[..], &settings.vectors_output_file).unwrap();
 
     println!("Building index...");
 
@@ -150,6 +145,6 @@ fn build_and_save<T: ComparableTo<T> + Sync + Send + Clone>(settings: Settings, 
     println!("Index built.");
     println!("Saving index to {}", settings.output_file);
 
-    builder.save_to_disk(&settings.output_file);
+    builder.save_to_disk(&settings.output_file).unwrap();
     println!("Completed!");
 }

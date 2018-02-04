@@ -4,7 +4,7 @@ use ordered_float::NotNaN;
 use revord::RevOrd;
 use std::collections::BinaryHeap;
 use std::cmp;
-use types::*;
+use types::ComparableTo;
 use pbr::ProgressBar;
 
 // Write and read
@@ -191,7 +191,7 @@ impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
             self.layers.push(vec![HnswNode::default()]);
 
             let layer_multiplier =
-                Self::compute_layer_multiplier(self.elements.len(), self.config.num_layers);
+                compute_layer_multiplier(self.elements.len(), self.config.num_layers);
 
             let mut num_elements_in_layer = 1;
             for layer in 1..self.config.num_layers {
@@ -229,14 +229,6 @@ impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
 
             self.layers.push(layer);
         }
-    }
-
-    // Computes a layer multiplier m, s.t. the number of elements in layer i is
-    // equal to m^i
-    fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
-        (num_elements as f32)
-            .powf(1.0 / (num_layers - 1) as f32)
-            .ceil() as usize
     }
 
 
@@ -475,6 +467,15 @@ impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
 }
 
 
+// Computes a layer multiplier m, s.t. the number of elements in layer i is
+// equal to m^i
+fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
+    (num_elements as f32)
+        .powf(1.0 / (num_layers - 1) as f32)
+        .ceil() as usize
+}
+
+
 impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
     pub fn load(buffer: &'a [u8], elements: &'a [T]) -> Self {
 
@@ -657,6 +658,7 @@ mod tests {
     use super::*;
     use std::mem;
     use types::example::*;
+    use types::*;
     use file_io;
 
     #[test]
@@ -671,9 +673,9 @@ mod tests {
 
     #[test]
     fn select_neighbors() {
-        let element = random_float_element();
+        let element: AngularVector<[f32; 50]> = random_dense_element();
 
-        let other_elements: Vec<FloatElement> = (0..50).map(|_| random_float_element()).collect();
+        let other_elements: Vec<AngularVector<[f32; 50]>> = (0..50).map(|_| random_dense_element()).collect();
 
         let candidates: Vec<_> = other_elements
             .iter()
@@ -713,50 +715,54 @@ mod tests {
 
         let p1 = num_found as f32 / elements.len() as f32;
 
+        println!("p1: {}", p1);
         assert!(0.95 < p1);
     }
 
     #[test]
     fn build_and_search_float() {
-        let elements: Vec<FloatElement> = (0..1500).map(|_| random_float_element()).collect();
+        let elements: Vec<_> = (0..1500).map(|_| random_dense_element::<AngularVector<[f32; 128]>>()).collect();
 
         build_and_search(elements);
     }
 
     #[test]
     fn build_and_search_int8() {
-        let elements: Vec<Int8Element> = (0..500).map(|_| random_int8_element()).collect();
+        let elements: Vec<AngularIntVector<[i8; 32]>> =
+            (0..500)
+            .map(|_| random_dense_element::<AngularVector<[f32; 32]>>().into())
+            .collect();
 
         build_and_search(elements);
     }
 
     #[test]
-    fn compute_layer_multiplier() {
+    fn test_layer_multiplier() {
         assert_eq!(
             2,
-            HnswBuilder::<FloatElement>::compute_layer_multiplier(10, 5)
+            compute_layer_multiplier(10, 5)
         );
         assert_eq!(
             14,
-            HnswBuilder::<FloatElement>::compute_layer_multiplier(400000, 6)
+            compute_layer_multiplier(400000, 6)
         );
         assert_eq!(
             22,
-            HnswBuilder::<FloatElement>::compute_layer_multiplier(2000000000, 8)
+            compute_layer_multiplier(2000000000, 8)
         );
         assert_eq!(
             555,
-            HnswBuilder::<FloatElement>::compute_layer_multiplier(555, 2)
+            compute_layer_multiplier(555, 2)
         );
         assert_eq!(
             25,
-            HnswBuilder::<FloatElement>::compute_layer_multiplier(625, 3)
+            compute_layer_multiplier(625, 3)
         );
     }
 
     #[test]
     fn write_and_load() {
-        let elements: Vec<FloatElement> = (0..100).map(|_| random_float_element()).collect();
+        let elements: Vec<AngularVector<[f32; 50]>> = (0..100).map(|_| random_dense_element()).collect();
 
         let config = Config {
             num_layers: 4,
@@ -771,7 +777,7 @@ mod tests {
         let mut data = Vec::new();
         builder.write(&mut data).unwrap();
 
-        let index = Hnsw::<FloatElement, FloatElement>::load(&data[..], &elements[..]);
+        let index = Hnsw::<AngularVector<[f32; 50]>, AngularVector<[f32; 50]>>::load(&data[..], &elements[..]);
 
         assert_eq!(builder.layers.len(), index.layers.len());
 
@@ -795,7 +801,12 @@ mod tests {
 
     #[test]
     fn write_and_read() {
-        let elements: Vec<_> = (0..100).map(|_| random_int8_element()).collect();
+        const DIM: usize = 64;
+
+        let elements: Vec<AngularIntVector<[i8; DIM]>> =
+            (0..100)
+            .map(|_| random_dense_element::<AngularVector<[f32; DIM]>>().into())
+            .collect();
 
         let config = Config {
             num_layers: 4,
@@ -813,7 +824,7 @@ mod tests {
         let mut elements_data = Vec::new();
         file_io::write(&elements, &mut elements_data).unwrap();
 
-        let copy = HnswBuilder::<Int8Element>::read(&mut data.as_slice(), &mut elements_data.as_slice()).unwrap();
+        let copy = HnswBuilder::<AngularIntVector<[i8; DIM]>>::read(&mut data.as_slice(), &mut elements_data.as_slice()).unwrap();
 
         assert_eq!(original.layers.len(), copy.layers.len());
 
@@ -832,7 +843,8 @@ mod tests {
 
         for i in 0..original.elements.len() {
             assert!(
-                original.elements[i] == copy.elements[i],
+                original.elements[i].0.as_slice().iter().zip(
+                    copy.elements[i].0.as_slice().iter()).all(|(x,y)| x == y),
                 "Elements with index {} differ",
                 i
             );
@@ -841,8 +853,8 @@ mod tests {
 
     #[test]
     fn append_elements() {
-        let elements: Vec<NormalizedFloatElement> = (0..1000)
-            .map(|_| random_float_element().normalized())
+        let elements: Vec<_> = (0..1000)
+            .map(|_| random_dense_element::<AngularVector<[f32; 50]>>())
             .collect();
 
         let config = Config {

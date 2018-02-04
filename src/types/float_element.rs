@@ -2,7 +2,9 @@ use std::cmp;
 use ordered_float::NotNaN;
 use rblas;
 
-use super::{ComparableTo, DIM};
+use super::ComparableTo;
+
+const DIM: usize = 100;
 
 #[repr(C)]
 #[derive(Clone)]
@@ -104,6 +106,21 @@ pub fn reference_dist(first: &FloatElement, second: &FloatElement) -> NotNaN<f32
 
     cmp::max(NotNaN::new(0.0f32).unwrap(), d)
 }
+
+use rand;
+use rand::Rng;
+
+pub fn random_float_element() -> FloatElement {
+    let mut rng = rand::thread_rng();
+    let mut data = [0.0f32; DIM];
+
+    for f in &mut data[..] {
+        *f = rng.gen();
+    }
+    data.into()
+}
+
+
 
 
 #[cfg(test)]
