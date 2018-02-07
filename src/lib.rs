@@ -15,4 +15,4 @@ mod types;
 pub mod file_io;
 
 pub use hnsw::{Hnsw, HnswBuilder, Config};
-pub use types::{AngularVector, AngularIntVector, ComparableTo, angular_reference_dist, example};
+pub use types::{AngularVector, AngularIntVector, ComparableTo, angular_reference_dist, example, Array, Dense};

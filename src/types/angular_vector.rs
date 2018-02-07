@@ -52,19 +52,27 @@ impl<D> ComparableTo<Self> for AngularVector<D>
 }
 
 
-impl<D> Dense for AngularVector<D>
+impl<D> Dense<f32> for AngularVector<D>
     where D: Array<f32>
 {
     fn dim() -> usize {
         ::std::mem::size_of::<D>() / ::std::mem::size_of::<f32>()
     }
+
+    fn as_slice(self: &Self) -> &[f32] {
+        self.0.as_slice()
+    }
 }
 
-impl<D> Dense for AngularIntVector<D>
+impl<D> Dense<i8> for AngularIntVector<D>
     where D: Array<i8>
 {
     fn dim() -> usize {
         ::std::mem::size_of::<D>() / ::std::mem::size_of::<i8>()
+    }
+
+    fn as_slice(self: &Self) -> &[i8] {
+        self.0.as_slice()
     }
 }
 
