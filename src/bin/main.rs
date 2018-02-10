@@ -36,6 +36,7 @@ struct Settings {
     scalar_input_type: String,
 }
 
+const DIM: usize = 50;
 
 fn main() {
     let matches = App::new("granne")
@@ -89,7 +90,7 @@ fn main() {
                 let (vectors, _) = file_io::read(&input_file, settings.max_number_of_vectors)
                     .expect(&format!("Could not open input file: \"{}\"", input_file));
 
-                build_and_save::<AngularIntVector<[i8; 100]>>(settings, vectors);
+                build_and_save::<AngularIntVector<[i8; DIM]>>(settings, vectors);
 
             } else {
                 let (vectors, _) = file_io::read(&input_file, settings.max_number_of_vectors)
@@ -102,10 +103,10 @@ fn main() {
                         .map(|v: AngularVector<_>| v.into())
                         .collect();
 
-                    build_and_save::<AngularIntVector<[i8; 100]>>(settings, vectors);
+                    build_and_save::<AngularIntVector<[i8; DIM]>>(settings, vectors);
 
                 } else {
-                    build_and_save::<AngularVector<[f32; 100]>>(settings, vectors);
+                    build_and_save::<AngularVector<[f32; DIM]>>(settings, vectors);
                 }
             }
 

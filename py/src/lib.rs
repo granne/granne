@@ -9,10 +9,7 @@ use std::cell::RefCell;
 use std::fs::File;
 use memmap::Mmap;
 use std::iter::FromIterator;
-
-const DIM: usize = 100;
-type Scalar = f32;
-type ElementType = granne::AngularVector<[Scalar; DIM]>;
+use std::io;
 
 const DEFAULT_NUM_NEIGHBORS: usize = 5;
 const DEFAULT_MAX_SEARCH: usize = 50;
@@ -143,10 +140,91 @@ impl<'a, T> SearchIndex for PyHnsw<'a, T>
 }
 
 
+trait IndexBuilder {
+    fn add(self: &mut Self, element: Vec<f32>);
+    fn build(self: &mut Self);
+    fn save_to_disk(self: &Self, path: &str) -> io::Result<()>;
+    fn search(self: &Self,
+              element: Vec<f32>,
+              num_elements: usize,
+              max_search: usize) -> Vec<(usize, f32)>;
+    fn len(self: &Self) -> usize;
+}
+
+struct PyHnswBuilder<T: granne::ComparableTo<T> + Sync + Send> {
+    builder: granne::HnswBuilder<T>,
+}
+
+impl<T> PyHnswBuilder<T>
+    where T: granne::ComparableTo<T> + Sync + Send + Clone
+{
+    fn new(config: granne::Config) -> Self {
+        Self {
+            builder: granne::HnswBuilder::new(config),
+        }
+    }
+}
+
+impl<T> IndexBuilder for PyHnswBuilder<T>
+    where T: granne::ComparableTo<T> + granne::Dense<f32> + FromIterator<f32> + Sync + Send + Clone
+{
+    fn add(self: &mut Self, element: Vec<f32>) {
+        self.builder.add(vec![element.into_iter().collect()]);
+    }
+
+    fn build(self: &mut Self) {
+        self.builder.build_index();
+    }
+
+    fn save_to_disk(self: &Self, path: &str) -> io::Result<()> {
+        self.builder.save_to_disk(path)
+    }
+
+    fn search(self: &Self,
+              element: Vec<f32>,
+              num_elements: usize,
+              max_search: usize) -> Vec<(usize, f32)>
+    {
+        self.builder.get_index().search(
+            &element.into_iter().collect(),
+            num_elements,
+            max_search)
+    }
+
+    fn len(self: &Self) -> usize {
+        self.builder.get_index().len()
+    }
+}
+
+macro_rules! match_dimension_and_get_builder {
+    ($config:expr, $dim:expr, $($dims:expr),+) => {
+        {
+            match $dim {
+                $($dims => {
+                    Box::new(PyHnswBuilder::<granne::AngularVector<[f32; $dims]>>::new(
+                        $config
+                    ))
+                },)+
+                _ => panic!("Unsupported dimension"),
+            }
+        }
+    };
+}
+
+macro_rules! boxed_builder {
+    ($config:expr, $dim:expr) => {
+        match_dimension_and_get_builder!(
+            $config, $dim,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30,
+            32, 50, 60, 64, 96, 100, 128, 200, 256, 300)
+    };
+}
+
 py_class!(class HnswBuilder |py| {
-    data builder: RefCell<granne::HnswBuilder<ElementType>>;
+    data builder: RefCell<Box<IndexBuilder + Send>>;
 
     def __new__(_cls,
+                dimension: usize,
                 num_layers: usize,
                 max_search: usize = DEFAULT_MAX_SEARCH,
                 show_progress: bool = true) -> PyResult<HnswBuilder> {
@@ -157,11 +235,13 @@ py_class!(class HnswBuilder |py| {
             show_progress: show_progress
         };
 
-        let builder = granne::HnswBuilder::new(config);
+        let builder: Box<IndexBuilder + Send> = boxed_builder!(
+            config, dimension
+        );
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
-
+/*
     @classmethod def load(_cls, path: &str, element_path: &str) -> PyResult<HnswBuilder> {
         let mut file = File::open(path).unwrap();
         let mut element_file = File::open(element_path).unwrap();
@@ -170,19 +250,20 @@ py_class!(class HnswBuilder |py| {
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
+*/
 
-    def add(&self, element: Vec<Scalar>) -> PyResult<PyObject> {
-        self.builder(py).borrow_mut().add(vec![element.into_iter().collect()]);
+    def add(&self, element: Vec<f32>) -> PyResult<PyObject> {
+        self.builder(py).borrow_mut().add(element);
 
         Ok(py.None())
     }
 
     def __len__(&self) -> PyResult<usize> {
-        Ok(self.builder(py).borrow().get_index().len())
+        Ok(self.builder(py).borrow().len())
     }
 
     def build(&self) -> PyResult<PyObject> {
-        self.builder(py).borrow_mut().build_index();
+        self.builder(py).borrow_mut().build();
 
         Ok(py.None())
     }
@@ -193,15 +274,12 @@ py_class!(class HnswBuilder |py| {
         Ok(py.None())
     }
 
-    def search(&self, element: Vec<Scalar>,
+    def search(&self, element: Vec<f32>,
                num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let builder = self.builder(py).borrow();
-        let search_index = builder.get_index();
-
-        Ok(search_index.search(
-            &element.into_iter().collect(), num_neighbors, max_search))
+        Ok(self.builder(py).borrow().search(element, num_neighbors, max_search))
     }
+
 
 });
