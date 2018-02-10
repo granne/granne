@@ -14,5 +14,5 @@ mod hnsw;
 mod types;
 pub mod file_io;
 
-pub use hnsw::{Hnsw, HnswBuilder, Config};
+pub use hnsw::{Hnsw, HnswBuilder, Config, SearchIndex, IndexBuilder, boxed_index, boxed_index_builder};
 pub use types::{AngularVector, AngularIntVector, ComparableTo, angular_reference_dist, example, Array, Dense};

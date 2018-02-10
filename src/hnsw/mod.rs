@@ -20,6 +20,9 @@ use time::PreciseTime;
 use std::marker::PhantomData;
 
 mod tests;
+mod generic;
+
+pub use self::generic::{SearchIndex, IndexBuilder, boxed_index, boxed_index_builder};
 
 const MAX_NEIGHBORS: usize = 20;
 type NeighborType = u32;
