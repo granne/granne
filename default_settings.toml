@@ -1,7 +1,8 @@
-output_file = "index.hnsw"
-vectors_output_file = "index.vectors"
-num_layers = 8
+output_file = "index.granne"
+vectors_output_file = "vectors.bin"
+dimension = 100
+scalar = "f32"
+num_layers = 5
 max_search = 200
-max_number_of_vectors = 2147483647
-compress_vectors = true
-scalar_input_type = "int8"
+max_number_of_vectors = 429467295
+compress_vectors = false

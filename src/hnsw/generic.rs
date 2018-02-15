@@ -19,7 +19,8 @@ pub trait SearchIndex {
 pub trait IndexBuilder {
     fn add(self: &mut Self, element: Vec<f32>);
     fn build(self: &mut Self);
-    fn save_to_disk(self: &Self, path: &str) -> io::Result<()>;
+    fn save_index_to_disk(self: &Self, path: &str) -> io::Result<()>;
+    fn save_elements_to_disk(self: &Self, path: &str) -> io::Result<()>;
     fn get_index<'a>(self: &'a Self) -> Box<SearchIndex + 'a>;
 }
 
@@ -40,7 +41,7 @@ impl<'a, T: 'a + ComparableTo<E> + Dense<f32>, E: FromIterator<f32>> SearchIndex
     }
 }
 
-impl<T: ComparableTo<T> + Dense<f32> + FromIterator<f32> + Clone + Send + Sync> IndexBuilder for HnswBuilder<T> 
+impl<'a, T: 'a + ComparableTo<T> + Dense<f32> + FromIterator<f32> + Clone + Send + Sync> IndexBuilder for HnswBuilder<'a, T>
 {
     fn add(self: &mut Self, element: Vec<f32>) {
         self.add(vec![element.into_iter().collect()]);
@@ -50,11 +51,15 @@ impl<T: ComparableTo<T> + Dense<f32> + FromIterator<f32> + Clone + Send + Sync> 
         self.build_index();
     }
 
-    fn save_to_disk(self: &Self, path: &str) -> io::Result<()> {
-        self.save_to_disk(path)
+    fn save_elements_to_disk(self: &Self, path: &str) -> io::Result<()> {
+        self.save_elements_to_disk(path)
     }
 
-    fn get_index<'a>(self: &'a Self) -> Box<SearchIndex + 'a> {
+    fn save_index_to_disk(self: &Self, path: &str) -> io::Result<()> {
+        self.save_index_to_disk(path)
+    }
+
+    fn get_index<'b>(self: &'b Self) -> Box<SearchIndex + 'b> {
         Box::new(self.get_index())
     }
 }
@@ -66,7 +71,7 @@ macro_rules! match_dimension_and_get_index {
                 $($dims => {
                     Box::new(
                         Hnsw::<
-                            AngularVector<[f32; $dims]>, 
+                            AngularVector<[f32; $dims]>,
                             AngularVector<[f32; $dims]>
                         >::load(
                             $index,
@@ -88,44 +93,53 @@ macro_rules! boxed_index {
     };
 }
 
-pub fn boxed_index<'a>(index: &'a [u8], 
-                       elements: &'a [u8], 
-                       dim: usize) -> Box<SearchIndex + 'a> 
+pub fn boxed_index<'a>(index: &'a [u8],
+                       elements: &'a [u8],
+                       dim: usize) -> Box<SearchIndex + 'a>
 {
     boxed_index!(index, elements, dim)
 }
 
 
 macro_rules! match_dimension_and_get_index_builder {
-    ($config:expr, $dim:expr, $($dims:expr),+) => {
+    ($scalar_type:expr, $config:expr, $elements:expr, $dim:expr, $($dims:expr),+) => {
         {
-            match $dim {
-                $($dims => {
-                    Box::new(
-                        HnswBuilder::<
-                            AngularVector<[f32; $dims]>
-                        >::new($config)
-                    )
-                },)+
-                _ => panic!("Unsupported dimension"),
+            match ($scalar_type, $dim, $elements) {
+                $(
+                    ("f32", $dims, None) => {
+                        Box::new(
+                            HnswBuilder::<
+                                AngularVector<[f32; $dims]>
+                                >::new($config)
+                        )
+                    },
+                    ("f32", $dims, Some(elements)) => {
+                        Box::new(
+                            HnswBuilder::<
+                                AngularVector<[f32; $dims]>
+                                >::with_elements($config, file_io::load(elements))
+                        )
+                    },
+                )+
+                 _ => panic!("Unsupported scalar-dimension pair"),
             }
         }
     };
 }
 
 macro_rules! boxed_index_builder {
-    ($config:expr, $dim:expr) => {
+    ($scalar_type:expr, $config:expr, $elements:expr, $dim:expr) => {
         match_dimension_and_get_index_builder!(
-            $config, $dim,
+            $scalar_type, $config, $elements, $dim,
             2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30,
             32, 50, 60, 64, 96, 100, 128, 200, 256, 300)
     };
 }
 
-pub fn boxed_index_builder(config: Config, 
-                           dim: usize) -> Box<IndexBuilder + Send> 
+pub fn boxed_index_builder<'a>(scalar: &str,
+                               dim: usize,
+                               config: Config,
+                               elements: Option<&'a [u8]>) -> Box<IndexBuilder + Send + 'a>
 {
-    boxed_index_builder!(config, dim)
+    boxed_index_builder!(scalar, config, elements, dim)
 }
-
-

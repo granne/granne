@@ -13,7 +13,7 @@ const DEFAULT_NUM_NEIGHBORS: usize = 5;
 const DEFAULT_MAX_SEARCH: usize = 50;
 
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
-    try!(m.add(py, "__doc__", "This module is implemented in Rust."));
+    try!(m.add(py, "__doc__", "granne - Graph-based Retrieval of Approximate Nearest Neighbors"));
     try!(m.add_class::<Hnsw>(py));
     try!(m.add_class::<HnswBuilder>(py));
 
@@ -85,19 +85,34 @@ py_class!(class HnswBuilder |py| {
         };
 
         let builder: Box<granne::IndexBuilder + Send> = granne::boxed_index_builder(
-            config, dimension
+            "f32", dimension, config, None
         );
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
     }
 /*
-    @classmethod def load(_cls, path: &str, element_path: &str) -> PyResult<HnswBuilder> {
-        let mut file = File::open(path).unwrap();
-        let mut element_file = File::open(element_path).unwrap();
+    @classmethod
+    def with_elements(_cls,
+                      elements_path: &str,
+                      dimension: usize,
+                      num_layers: usize,
+                      max_search: usize = DEFAULT_MAX_SEARCH,
+                      show_progress: bool = true) -> PyResult<HnswBuilder> {
 
-        let builder = granne::HnswBuilder::read(&mut file, &mut element_file).unwrap();
+        let elements = File::open(elements_path).unwrap();
+        let elements = unsafe { Mmap::map(&elements).unwrap() };
 
-        HnswBuilder::create_instance(py, RefCell::new(builder))
+        let config = granne::Config {
+            num_layers: num_layers,
+            max_search: max_search,
+            show_progress: show_progress
+        };
+
+        let builder: Box<granne::IndexBuilder + Send> = granne::boxed_index_builder(
+            "f32", dimension, config, Some(&elements[..])
+        );
+
+        HnswBuilder::create_instance(py, RefCell::new(builder), Some(elements))
     }
 */
 
@@ -126,8 +141,14 @@ py_class!(class HnswBuilder |py| {
         Ok(py.None())
     }
 
-    def save(&self, path: &str) -> PyResult<PyObject> {
-        self.builder(py).borrow().save_to_disk(path).unwrap();
+    def save_index(&self, path: &str) -> PyResult<PyObject> {
+        self.builder(py).borrow().save_index_to_disk(path).unwrap();
+
+        Ok(py.None())
+    }
+
+    def save_elements(&self, path: &str) -> PyResult<PyObject> {
+        self.builder(py).borrow().save_elements_to_disk(path).unwrap();
 
         Ok(py.None())
     }

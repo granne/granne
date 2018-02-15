@@ -19,6 +19,10 @@ use time::PreciseTime;
 
 use std::marker::PhantomData;
 
+use std::borrow::Cow;
+
+use file_io;
+
 mod tests;
 mod generic;
 
@@ -40,10 +44,9 @@ pub struct Config {
     pub show_progress: bool,
 }
 
-
-pub struct HnswBuilder<T: ComparableTo<T> + Sync + Send> {
+pub struct HnswBuilder<'a, T: 'a + ComparableTo<T> + Clone + Sync + Send> {
     layers: Vec<Vec<HnswNode>>,
-    elements: Vec<T>,
+    elements: Cow<'a, [T]>,
     config: Config,
 }
 
@@ -55,17 +58,29 @@ pub struct Hnsw<'a, T: ComparableTo<E> + 'a, E> {
 }
 
 
-impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
+impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
     pub fn new(config: Config) -> Self {
-
         HnswBuilder {
             layers: Vec::new(),
-            elements: Vec::new(),
+            elements: Cow::from(Vec::new()),
             config: config,
         }
     }
 
-    pub fn save_to_disk(self: &Self, path: &str) -> Result<()> {
+    pub fn with_elements(config: Config, elements: &'a [T]) -> Self {
+        HnswBuilder {
+            layers: Vec::new(),
+            elements: Cow::from(elements),
+            config: config,
+        }
+    }
+
+    pub fn save_elements_to_disk(self: &Self, path: &str) -> Result<()> {
+
+        file_io::save_to_disk(&self.elements[..], &path)
+    }
+
+    pub fn save_index_to_disk(self: &Self, path: &str) -> Result<()> {
 
         let mut file = File::create(path)?;
 
@@ -165,13 +180,13 @@ impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
 
         Ok(Self {
             layers: layers,
-            elements: elements,
+            elements: Cow::from(elements),
             config: config,
         })
     }
 
 
-    pub fn get_index<'a>(self: &'a Self) -> Hnsw<'a, T, T> {
+    pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, T, T> {
         Hnsw {
             layers: self.layers.iter().map(|layer| &layer[..]).collect(),
             elements: &self.elements[..],
@@ -183,7 +198,7 @@ impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
     pub fn from_index(config: Config, index: &Hnsw<T, T>) -> Self {
         let mut builder = Self::new(config);
 
-        builder.elements = index.elements.to_vec();
+        builder.elements = Cow::from(index.elements.to_vec());
         builder.layers = index.layers.iter().map(|layer| layer.to_vec()).collect();
 
         builder
@@ -237,16 +252,15 @@ impl<T: ComparableTo<T> + Sync + Send + Clone> HnswBuilder<T> {
     }
 
 
-    pub fn add(&mut self, elements: Vec<T>) {
+    pub fn add(self: &mut Self, elements: Vec<T>) {
         assert!(self.elements.len() + elements.len() <= <NeighborType>::max_value() as usize);
 
         if self.elements.is_empty() {
-            self.elements = elements;
+            self.elements = Cow::from(elements);
         } else {
-            self.elements.extend_from_slice(elements.as_slice());
+            self.elements.to_mut().extend_from_slice(elements.as_slice());
         }
     }
-
 
     fn insert_elements(
         config: &Config,
