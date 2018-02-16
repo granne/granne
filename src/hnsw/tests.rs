@@ -48,18 +48,66 @@ fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) 
     builder.build_index();
     let index = builder.get_index();
 
+    verify_search(&index, 0.95);
+}
+
+fn verify_search<T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<T,T>, precision: f32) {
     let max_search = 40;
     let mut num_found = 0;
-    for (i, element) in elements.iter().enumerate() {
+    for (i, element) in index.elements.iter().enumerate() {
         if index.search(element, 1, max_search)[0].0 == i {
             num_found += 1;
         }
     }
 
-    let p1 = num_found as f32 / elements.len() as f32;
+    let p1 = num_found as f32 / index.len() as f32;
 
     println!("p1: {}", p1);
-    assert!(0.95 < p1);
+    assert!(precision < p1);
+}
+
+#[test]
+fn with_elements() {
+    let config = Config {
+        num_layers: 5,
+        max_search: 50,
+        show_progress: false
+    };
+
+    let elements: Vec<_> = (0..500).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+
+    let mut builder = HnswBuilder::with_elements(config, &elements);
+
+    assert_eq!(elements.len(), builder.elements.len());
+    builder.build_index();
+    let index = builder.get_index();
+
+    assert_eq!(index.len(), elements.len());
+
+    verify_search(&index, 0.95);
+}
+
+#[test]
+fn with_elements_and_add() {
+    let config = Config {
+        num_layers: 5,
+        max_search: 50,
+        show_progress: false
+    };
+
+    let elements: Vec<_> = (0..600).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+
+    let mut builder = HnswBuilder::with_elements(config, &elements[..500]);
+
+    assert_eq!(500, builder.elements.len());
+
+    builder.add(elements[500..].to_vec());
+
+    assert_eq!(600, builder.elements.len());
+
+    builder.build_index();
+
+    verify_search(&builder.get_index(), 0.95);
 }
 
 #[test]
