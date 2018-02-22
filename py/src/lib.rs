@@ -85,7 +85,7 @@ py_class!(class HnswBuilder |py| {
         };
 
         let builder: Box<granne::IndexBuilder + Send> = granne::boxed_index_builder(
-            "f32", dimension, config, None
+            dimension, config, None
         );
 
         HnswBuilder::create_instance(py, RefCell::new(builder))
@@ -109,7 +109,7 @@ py_class!(class HnswBuilder |py| {
         };
 
         let builder: Box<granne::IndexBuilder + Send> = granne::boxed_index_builder(
-            "f32", dimension, config, Some(&elements[..])
+            dimension, config, Some(&elements[..])
         );
 
         HnswBuilder::create_instance(py, RefCell::new(builder), Some(elements))
