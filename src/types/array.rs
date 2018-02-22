@@ -1,7 +1,6 @@
 
 pub trait Array<T> {
     fn as_slice(self: &Self) -> &[T];
-
     fn as_mut_slice(self: &mut Self) -> &mut [T];
 }
 

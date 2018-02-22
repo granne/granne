@@ -64,32 +64,83 @@ impl<'a, T: 'a + ComparableTo<T> + Dense<f32> + FromIterator<f32> + Clone + Send
     }
 }
 
-macro_rules! match_dimension_and_get_index {
-    ($index:expr, $elements:expr, $dim:expr, $($dims:expr),+) => {
+
+///
+/// The macro match_dimension expands to a big match statement where each match arm corresponds to
+/// one valid dimension (currently specified inside the macro itself). Note:
+/// - The matched expression needs to be wrapped in parentheses.
+/// - All match arms (need to be blocks {...} and must return compatible types, i.e., it is not possible
+/// to return Hnsw objects with different element types.
+///
+/// Example usage for getting a boxed SearchIndex where the underlying Hnsw object can have varying
+/// dimension:
+///
+/// match_dimension!((dim) {
+///     DIM => {
+///         Box::new(
+///             Hnsw::<AngularVector<[f32; DIM]>, AngularVector<[f32; DIM]>>::load(
+///                 index, file_io::load(elements)
+///             )
+///         )
+///     }
+/// })
+///
+/// The example will expand to something similar to this:
+///
+/// match dim {
+///     2 => {
+///         const DIM: usize = 2;
+///         {
+///             Box::new(
+///                 Hnsw::<AngularVector<[f32; DIM]>, AngularVector<[f32; DIM]>>::load(
+///                     index, file_io::load(elements)
+///                 )
+///             )
+///         }
+///     },
+///     3 => {
+///         const DIM: usize = 3;
+///         {
+///             Box::new(
+///                 Hnsw::<AngularVector<[f32; DIM]>, AngularVector<[f32; DIM]>>::load(
+///                     index, file_io::load(elements)
+///                 )
+///             )
+///         }
+///     },
+///     ...
+///
+///     300 => {
+///         const DIM: usize = 300;
+///         {
+///             Box::new(
+///                 Hnsw::<AngularVector<[f32; DIM]>, AngularVector<[f32; DIM]>>::load(
+///                     index, file_io::load(elements)
+///                 )
+///             )
+///         }
+///     },
+///     _ => panic!("Unsupported dimension")
+/// }
+///
+
+macro_rules! match_dimension {
+    (($dim:expr) { $DIM:ident => $body:block }) => {
+        match_dimension!(
+            $body, $dim, $DIM,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30,
+            32, 50, 60, 64, 96, 100, 128, 200, 256, 300)
+    };
+    ($body:block, $dim:expr, $DIM:ident, $($dims:expr),+) => {
         {
             match $dim {
                 $($dims => {
-                    Box::new(
-                        Hnsw::<
-                            AngularVector<[f32; $dims]>,
-                            AngularVector<[f32; $dims]>
-                        >::load(
-                            $index,
-                            file_io::load($elements)
-                    ))
+                    const $DIM: usize = $dims;
+                    $body
                 },)+
-                _ => panic!("Unsupported dimension"),
+                    _ => panic!("Unsupported dimension"),
             }
         }
-    };
-}
-
-macro_rules! boxed_index {
-    ($index:expr, $elements:expr, $dim:expr) => {
-        match_dimension_and_get_index!(
-            $index, $elements, $dim,
-            2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30,
-            32, 50, 60, 64, 96, 100, 128, 200, 256, 300)
     };
 }
 
@@ -97,49 +148,49 @@ pub fn boxed_index<'a>(index: &'a [u8],
                        elements: &'a [u8],
                        dim: usize) -> Box<SearchIndex + 'a>
 {
-    boxed_index!(index, elements, dim)
-}
-
-
-macro_rules! match_dimension_and_get_index_builder {
-    ($scalar_type:expr, $config:expr, $elements:expr, $dim:expr, $($dims:expr),+) => {
-        {
-            match ($scalar_type, $dim, $elements) {
-                $(
-                    ("f32", $dims, None) => {
-                        Box::new(
-                            HnswBuilder::<
-                                AngularVector<[f32; $dims]>
-                                >::new($config)
-                        )
-                    },
-                    ("f32", $dims, Some(elements)) => {
-                        Box::new(
-                            HnswBuilder::<
-                                AngularVector<[f32; $dims]>
-                                >::with_elements($config, file_io::load(elements))
-                        )
-                    },
-                )+
-                 _ => panic!("Unsupported scalar-dimension pair"),
-            }
+    match_dimension!((dim) {
+        DIM => {
+            Box::new(
+                Hnsw::<AngularVector<[f32; DIM]>, AngularVector<[f32; DIM]>>::load(
+                    index, file_io::load(elements)
+                )
+            )
         }
-    };
+    })
 }
 
-macro_rules! boxed_index_builder {
-    ($scalar_type:expr, $config:expr, $elements:expr, $dim:expr) => {
-        match_dimension_and_get_index_builder!(
-            $scalar_type, $config, $elements, $dim,
-            2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 20, 25, 30,
-            32, 50, 60, 64, 96, 100, 128, 200, 256, 300)
-    };
-}
 
-pub fn boxed_index_builder<'a>(scalar: &str,
-                               dim: usize,
+pub fn boxed_index_builder<'a>(dim: usize,
                                config: Config,
                                elements: Option<&'a [u8]>) -> Box<IndexBuilder + Send + 'a>
 {
-    boxed_index_builder!(scalar, config, elements, dim)
+    if let Some(elements) = elements {
+        match_dimension!((dim) {
+            DIM => {
+                Box::new(
+                    HnswBuilder::<AngularVector<[f32; DIM]>>::with_elements(
+                        config, file_io::load(elements))
+                )
+            }
+        })
+    } else {
+        match_dimension!((dim) {
+            DIM => {
+                Box::new(
+                    HnswBuilder::<AngularVector<[f32; DIM]>>::new(config)
+                )
+            }
+        })
+    }
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn match_dimension() {
+        for &i in &[2,3,4,5,10,15,25,30,64,256,300] {
+            assert_eq!(2 * i, match_dimension!((i) { DIMENSION =>  { 2 * DIMENSION } }));
+        }
+    }
 }

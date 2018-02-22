@@ -105,7 +105,7 @@ fn main() {
                 mmapped_elements.as_ref().map(|v| &v[..]);
 
             let mut builder = granne::boxed_index_builder(
-                &settings.scalar, settings.dimension, build_config, mmapped_elements);
+                settings.dimension, build_config, mmapped_elements);
 
             if mmapped_elements.is_none() {
                 println!("Reading elements from {}", &input_file);
