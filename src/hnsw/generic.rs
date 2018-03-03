@@ -184,9 +184,8 @@ pub fn boxed_index_builder<'a>(dim: usize,
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn match_dimension() {
         for &i in &[2,3,4,5,10,15,25,30,64,256,300] {

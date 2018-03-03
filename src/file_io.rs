@@ -119,7 +119,7 @@ mod tests {
     fn read_file() {
         let data = read("example_data/glove.1K.100d.txt", 1000);
 
-        if let Ok((data, strings)) = data {
+        if let Ok((data, _strings)) = data {
             assert_eq!(1000, data.len());
 
             for i in 0..data.len() {

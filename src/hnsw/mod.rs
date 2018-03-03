@@ -23,6 +23,7 @@ use std::borrow::Cow;
 
 use file_io;
 
+#[cfg(test)]
 mod tests;
 mod generic;
 
@@ -553,7 +554,7 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
 
         let (bottom_layer, top_layers) = self.layers.split_last().unwrap();
 
-        let entrypoint = Self::find_entrypoint(&top_layers, element, &self.elements, max_search);
+        let entrypoint = Self::find_entrypoint(&top_layers, element, &self.elements);
 
         Self::search_for_neighbors(
             &bottom_layer,
@@ -571,8 +572,7 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
     fn find_entrypoint(
         layers: &[&[HnswNode]],
         element: &E,
-        elements: &[T],
-        max_search: usize,
+        elements: &[T]
     ) -> usize {
 
         let mut entrypoint = 0;

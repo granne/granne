@@ -1,4 +1,3 @@
-use std::cmp;
 use ordered_float::NotNaN;
 use std::iter::FromIterator;
 
@@ -9,6 +8,7 @@ pub use self::array::Array;
 
 pub use self::angular_vector::*;
 
+#[cfg(test)]
 pub const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 
 pub trait ComparableTo<B: ?Sized> {

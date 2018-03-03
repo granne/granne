@@ -1,7 +1,6 @@
 use std::cmp;
 use ordered_float::NotNaN;
 use rblas;
-use std::ops::Deref;
 
 use std::iter::FromIterator;
 
