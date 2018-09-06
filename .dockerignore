@@ -1,0 +1,13 @@
+target/*
+**/*.rs.bk
+**/*~
+**/#*
+**/*#
+output/*
+example_data/*
+**/.*
+**/*.granne
+**/*.hnsw
+**/*.bin
+**/*.index
+terraform/*

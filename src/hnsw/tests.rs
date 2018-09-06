@@ -2,16 +2,35 @@ use super::*;
 use std::mem;
 use types::example::*;
 use types::*;
-use file_io;
 
 #[test]
 fn hnsw_node_size() {
-    assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborType>() <= mem::size_of::<HnswNode>());
+    assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborId>() <= mem::size_of::<HnswNode>());
 
     assert!(
         mem::size_of::<HnswNode>() <=
-            MAX_NEIGHBORS * mem::size_of::<NeighborType>() + mem::size_of::<usize>()
+            MAX_NEIGHBORS * mem::size_of::<NeighborId>() + mem::size_of::<usize>()
     );
+}
+
+#[test]
+fn neighbor_id_conversions() {
+    for &integer in &[0usize, 1usize, 2usize, 3usize, 1234567usize, NeighborId::max_value()-1, NeighborId::max_value()] {
+        let neighbor_id: NeighborId = integer.into();
+        let into_integer: usize = neighbor_id.into();
+        assert_eq!(integer, into_integer);
+    }
+}
+
+#[test]
+fn neighbor_id_cast() {
+    let integer: usize = 3301010345;
+    let neighbor_id: NeighborId = integer.into();
+
+    let reinterpreted = &neighbor_id.0[0] as *const u8 as *const u32;
+    let reinterpreted = unsafe { *reinterpreted };
+
+    assert_eq!(integer, reinterpreted as usize);
 }
 
 #[test]
@@ -51,11 +70,11 @@ fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) 
     verify_search(&index, 0.95);
 }
 
-fn verify_search<T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<T,T>, precision: f32) {
+fn verify_search<T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<[T],T>, precision: f32) {
     let max_search = 40;
     let mut num_found = 0;
-    for (i, element) in index.elements.iter().enumerate() {
-        if index.search(element, 1, max_search)[0].0 == i {
+    for i in 0..index.len() {
+        if index.search(&index.get_element(i), 1, max_search)[0].0 == i {
             num_found += 1;
         }
     }
@@ -67,7 +86,7 @@ fn verify_search<T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<T,T>, pr
 }
 
 #[test]
-fn with_elements() {
+fn with_borrowed_elements() {
     let config = Config {
         num_layers: 5,
         max_search: 50,
@@ -76,7 +95,7 @@ fn with_elements() {
 
     let elements: Vec<_> = (0..500).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
 
-    let mut builder = HnswBuilder::with_elements(config, &elements);
+    let mut builder = HnswBuilder::with_borrowed_elements(config, elements.as_slice());
 
     assert_eq!(elements.len(), builder.elements.len());
     builder.build_index();
@@ -97,7 +116,7 @@ fn with_elements_and_add() {
 
     let elements: Vec<_> = (0..600).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
 
-    let mut builder = HnswBuilder::with_elements(config, &elements[..500]);
+    let mut builder = HnswBuilder::with_borrowed_elements(config, &elements[..500]);
 
     assert_eq!(500, builder.elements.len());
 
@@ -125,6 +144,171 @@ fn build_and_search_int8() {
         .collect();
 
     build_and_search(elements);
+}
+
+#[test]
+fn incremental_build_0() {
+    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+
+    let config = Config {
+        num_layers: 4,
+        max_search: 50,
+        show_progress: false
+    };
+
+    let layer_multiplier = compute_layer_multiplier(elements.len(), config.num_layers);
+
+    let mut builder = HnswBuilder::with_borrowed_elements(config, elements.as_slice());
+
+    builder.build_index_part(layer_multiplier + 2);
+
+    assert_eq!(3, builder.layers.len());
+    assert_eq!(layer_multiplier.pow(0), builder.layers[0].len());
+    assert_eq!(layer_multiplier.pow(1), builder.layers[1].len());
+    assert_eq!(layer_multiplier + 2, builder.layers[2].len());
+
+    builder.build_index_part(layer_multiplier.pow(2) + 2);
+
+    assert_eq!(4, builder.layers.len());
+    assert_eq!(layer_multiplier.pow(0), builder.layers[0].len());
+    assert_eq!(layer_multiplier.pow(1), builder.layers[1].len());
+    assert_eq!(layer_multiplier.pow(2), builder.layers[2].len());
+    assert_eq!(layer_multiplier.pow(2) + 2, builder.layers[3].len());
+
+    builder.build_index_part(elements.len());
+
+    assert_eq!(4, builder.layers.len());
+    assert_eq!(layer_multiplier.pow(0), builder.layers[0].len());
+    assert_eq!(layer_multiplier.pow(1), builder.layers[1].len());
+    assert_eq!(layer_multiplier.pow(2), builder.layers[2].len());
+    assert_eq!(elements.len(), builder.layers[3].len());
+
+    verify_search(&builder.get_index(), 0.95);
+}
+
+#[test]
+fn incremental_build_1() {
+    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+
+    let config = Config {
+        num_layers: 4,
+        max_search: 50,
+        show_progress: false
+    };
+
+    let mut builder = HnswBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
+
+    let num_chunks = 10;
+    let chunk_size = elements.len() / num_chunks;
+    assert_eq!(elements.len(), num_chunks * chunk_size);
+
+    for i in 1..(num_chunks+1) {
+        builder.build_index_part(i * chunk_size);
+
+        assert_eq!(i * chunk_size, builder.indexed_elements());
+    }
+
+    assert_eq!(config.num_layers, builder.layers.len());
+    assert_eq!(elements.len(), builder.indexed_elements());
+
+    verify_search(&builder.get_index(), 0.95);
+}
+
+
+#[test]
+fn incremental_build_with_write_and_read() {
+    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+
+    let config = Config {
+        num_layers: 4,
+        max_search: 50,
+        show_progress: false
+    };
+
+    let num_chunks = 10;
+    let chunk_size = elements.len() / num_chunks;
+    assert_eq!(elements.len(), num_chunks * chunk_size);
+
+    let mut data = Vec::new();
+    {
+        let builder = HnswBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
+        builder.write(&mut data).unwrap();
+    }
+
+    for i in 0..num_chunks {
+        let mut builder = HnswBuilder::read_index_with_borrowed_elements(config.clone(), &mut data.as_slice(), elements.as_slice()).unwrap();
+        assert_eq!(i * chunk_size, builder.indexed_elements());
+
+        builder.build_index_part((i + 1) * chunk_size);
+
+        assert_eq!((i + 1) * chunk_size, builder.indexed_elements());
+
+        data.clear();
+        builder.write(&mut data).unwrap();
+    }
+
+    let index = Hnsw::<[AngularVector<[f32; 25]>], AngularVector<[f32; 25]>>::load(data.as_slice(), elements.as_slice());
+    assert_eq!(config.num_layers, index.layers.len());
+    assert_eq!(elements.len(), index.len());
+
+    verify_search(&index, 0.95);
+}
+
+#[test]
+fn read_index_with_owned_elements() {
+    let num_elements = 1000;
+    type Element = AngularVector<[f32; 25]>;
+
+    let mut owning_builder = {
+
+        let elements: Vec<Element> = (0..num_elements).map(|_| random_dense_element::<Element, _>()).collect();
+
+        let config = Config {
+            num_layers: 4,
+            max_search: 50,
+            show_progress: false
+        };
+
+        let mut builder = HnswBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
+        builder.build_index_part(num_elements / 2);
+        let mut data = Vec::new();
+        builder.write(&mut data).unwrap();
+
+        let mut owning_builder: HnswBuilder<[Element], Element> =
+            HnswBuilder::read_index_with_owned_elements(config.clone(), &mut data.as_slice(), elements.clone()).unwrap();
+
+        assert_eq!(num_elements / 2, builder.indexed_elements());
+        assert_eq!(num_elements / 2, owning_builder.indexed_elements());
+        assert_eq!(num_elements, builder.len());
+        assert_eq!(num_elements, owning_builder.len());
+
+        assert_eq!(builder.layers.len(), owning_builder.layers.len());
+
+        owning_builder
+    };
+
+    // owning_builder still alive after elements go out of scope
+    assert_eq!(num_elements / 2, owning_builder.indexed_elements());
+
+    owning_builder.build_index();
+
+    assert_eq!(num_elements, owning_builder.indexed_elements());
+    assert_eq!(num_elements, owning_builder.len());
+}
+
+#[test]
+fn empty_build() {
+    let elements: Vec<_> = (0..100).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+
+    let config = Config {
+        num_layers: 4,
+        max_search: 50,
+        show_progress: false
+    };
+
+    let mut builder = HnswBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
+
+    builder.build_index_part(0);
 }
 
 #[test]
@@ -168,7 +352,7 @@ fn write_and_load() {
     let mut data = Vec::new();
     builder.write(&mut data).unwrap();
 
-    let index = Hnsw::<AngularVector<[f32; 50]>, AngularVector<[f32; 50]>>::load(&data[..], &elements[..]);
+    let index = Hnsw::<[AngularVector<[f32; 50]>], AngularVector<[f32; 50]>>::load(&data[..], &elements[..]);
 
     assert_eq!(builder.layers.len(), index.layers.len());
 
@@ -183,10 +367,10 @@ fn write_and_load() {
         }
     }
 
-    assert_eq!(builder.elements.len(), index.elements.len());
+    assert_eq!(builder.elements.len(), index.len());
 
     for i in 0..builder.elements.len() {
-        assert!(builder.elements[i].dist(&index.elements[i]).into_inner() < DIST_EPSILON);
+        assert!(builder.elements[i].dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
     }
 }
 
@@ -205,17 +389,15 @@ fn write_and_read() {
         show_progress: false,
     };
 
-    let mut original = HnswBuilder::new(config);
+    let mut original = HnswBuilder::new(config.clone());
     original.add(elements.clone());
     original.build_index();
 
     let mut data = Vec::new();
     original.write(&mut data).unwrap();
 
-    let mut elements_data = Vec::new();
-    file_io::write(&elements, &mut elements_data).unwrap();
-
-    let copy = HnswBuilder::<AngularIntVector<[i8; DIM]>>::read(&mut data.as_slice(), &mut elements_data.as_slice()).unwrap();
+    let copy = HnswBuilder::<[AngularIntVector<[i8; DIM]>], AngularIntVector<[i8; DIM]>>::read_index_with_borrowed_elements(
+        config, &mut data.as_slice(), &elements).unwrap();
 
     assert_eq!(original.layers.len(), copy.layers.len());
 
@@ -231,15 +413,6 @@ fn write_and_read() {
     }
 
     assert_eq!(original.elements.len(), copy.elements.len());
-
-    for i in 0..original.elements.len() {
-        assert!(
-            original.elements[i].0.as_slice().iter().zip(
-                copy.elements[i].0.as_slice().iter()).all(|(x,y)| x == y),
-            "Elements with index {} differ",
-            i
-        );
-    }
 }
 
 #[test]

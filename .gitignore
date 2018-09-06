@@ -1,9 +1,14 @@
 target/
 build/
-**/*.rs.bk
+**/*.bk
+**/*.bak
 *.so
 .DS_STORE
 *~
 #*
 *#
 *.so
+terraform
+*.pyc
+/wheels/
+/wheelhouse/

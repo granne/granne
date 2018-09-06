@@ -13,27 +13,42 @@ granne\*
 
 ## Installation
 
-The `rblas` crate has `blas` (e.g. `libopenblas-dev` on Debian/Ubuntu) as dependency. See https://www.crates.io/crates/rblas for details.
+#### Requirements
+
+`granne` is dependent on `BLAS` (https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms) for some computations. This applies both to the rust and python versions. On Debian/Ubuntu both `libblas-dev` and `libopenblas-dev` should work, with the latter being significantly faster.
 
 #### Rust
 
 ```
 # build
-cargo build
+cargo build --release
 
 # test
 cargo test
 
-# bench (requires nightly rust)
-cargo bench
+# bench
+cargo +nightly bench
 ```
 
 #### Python
+
+To quickly install:
 
 ```
 pip install setuptools_rust
 pip install .
 ```
+
+To build python wheels for python 2.7, 3.4, 3.5 and 3.6 (requires docker).
+```
+docker build -t granne_manylinux docker/manylinux/
+docker run -v $(pwd):/granne/ granne_manylinux /opt/build_wheels.sh
+```
+The output is written to `wheels/` and can be installed by
+```
+pip install granne --no-index -f wheels/
+```
+
 
 ## Index Creation
 ...
