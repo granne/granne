@@ -24,7 +24,7 @@ fn read_line<T: FromIterator<F>, F: FromStr>(line: &str) -> (String, T) {
 }
 
 
-pub fn read<P, T, F>(path: P, number: usize) -> Result<(Vec<T>, Vec<String>)>
+pub fn read<P, T, F>(path: P) -> Result<(Vec<T>, Vec<String>)>
 where
     P: AsRef<path::Path>,
     T: FromIterator<F>,
@@ -39,7 +39,6 @@ where
     for (word, element) in file
         .lines()
         .map(|line| read_line::<T, F>(&line.unwrap()))
-        .take(number)
     {
         elements.push(element);
         words.push(word);
@@ -50,7 +49,6 @@ where
 
     return Ok((elements, words));
 }
-
 
 pub fn write<T, B: Write>(vectors: &[T], buffer: &mut B) -> Result<()> {
     let data = unsafe {
@@ -92,7 +90,7 @@ pub fn load<T>(buffer: &[u8]) -> &[T] {
     vectors
 }
 
-pub fn read_elements<T : Clone, B: Read>(reader: &mut B) -> Result<Vec<T>> {
+pub fn read_elements<T : Clone, B: Read>(reader: &mut B, max_number_of_elements: usize) -> Result<Vec<T>> {
     use std::mem::size_of;
 
     const BUFFER_SIZE: usize = 512;
@@ -100,13 +98,57 @@ pub fn read_elements<T : Clone, B: Read>(reader: &mut B) -> Result<Vec<T>> {
 
     let mut elements: Vec<T> = Vec::new();
 
-    while reader.read_exact(&mut buffer[..size_of::<T>()]).is_ok() {
+    while reader.read_exact(&mut buffer[..size_of::<T>()]).is_ok() && elements.len() < max_number_of_elements {
 
         elements.push(unsafe { (*(&buffer[0] as *const u8 as *const T)).clone() })
     }
 
+    elements.shrink_to_fit();
+
     return Ok(elements)
 }
+
+pub fn read_f32<P: AsRef<path::Path>>(path: P) -> Result<(Vec<f32>, Vec<String>)>
+{
+    let file = File::open(path)?;
+    let file = BufReader::new(file);
+
+    let mut words = Vec::new();
+    let mut element_data = Vec::new();
+    let mut dimension = 0;
+
+    for (word, components) in file
+        .lines()
+        .map(|line| {
+            let line = line.unwrap();
+            let mut iter = line.split_whitespace();
+            let word = String::from(iter.next().unwrap());
+
+            let components: Vec<f32> =
+                iter.map(|e| {
+                    if let Ok(value) = e.parse::<f32>() {
+                        value
+                    } else {
+                        panic!("Could not convert to number");
+                    }
+                }).collect();
+
+            if dimension == 0 {
+                dimension = components.len();
+            } else {
+                assert_eq!(dimension, components.len());
+            }
+
+            (word, components)
+        })
+    {
+        element_data.extend(components);
+        words.push(word);
+    }
+
+    return Ok((element_data, words));
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -117,7 +159,7 @@ mod tests {
 
     #[test]
     fn read_file() {
-        let data = read("example_data/glove.1K.100d.txt", 1000);
+        let data = read("example_data/test.1K.100d.txt");
 
         if let Ok((data, _strings)) = data {
             assert_eq!(1000, data.len());
@@ -134,6 +176,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn read_nonexistent_file() {
-        let _: (Vec<AngularVector<[f32; DIM]>>, _) = read("non_existent", 1000).unwrap();
+        let _: (Vec<AngularVector<[f32; DIM]>>, _) = read("non_existent").unwrap();
     }
 }

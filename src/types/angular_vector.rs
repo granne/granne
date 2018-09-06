@@ -1,6 +1,6 @@
 use std::cmp;
 use ordered_float::NotNaN;
-use rblas;
+use blas;
 
 use std::iter::FromIterator;
 
@@ -18,8 +18,12 @@ impl<D> From<D> for AngularVector<D>
 {
     fn from(data: D) -> Self {
         let mut data = data;
-        let norm: f32 = rblas::Nrm2::nrm2(data.as_slice());
-        rblas::Scal::scal(&(1.0 / norm), data.as_mut_slice());
+
+        let n = data.as_slice().len() as i32;
+        let norm = unsafe { blas::snrm2(n, data.as_slice(), 1) };
+        if norm > 0.0 {
+            unsafe { blas::sscal(n, 1.0 / norm, data.as_mut_slice(), 1) };
+        }
 
         AngularVector::<D>(data)
     }
@@ -154,7 +158,7 @@ impl<D> ComparableTo<Self> for AngularIntVector<D>
 
 #[inline(always)]
 fn compute_distance(x: &[f32], y: &[f32]) -> NotNaN<f32> {
-    let r: f32 = rblas::Dot::dot(x, y);
+    let r: f32 = unsafe { blas::sdot(x.len() as i32, x, 1, y, 1) };
 
     let d = NotNaN::new(1.0f32 - r).unwrap();
 

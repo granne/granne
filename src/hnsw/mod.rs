@@ -9,15 +9,13 @@ use pbr::ProgressBar;
 
 // Write and read
 use std::fs::File;
-use std::io::{Read, Write, Result};
+use std::io::{BufWriter, Read, Write, Result};
 
 // Threading
 use rayon::prelude::*;
-use std::sync::{Mutex, RwLock};
+use parking_lot::{Mutex, RwLock};
 
 use time::PreciseTime;
-
-use std::marker::PhantomData;
 
 use std::borrow::Cow;
 
@@ -26,16 +24,30 @@ use file_io;
 #[cfg(test)]
 mod tests;
 mod generic;
+mod sharded_hnsw;
+mod bloomfilter;
+mod neighborid;
 
-pub use self::generic::{SearchIndex, IndexBuilder, boxed_index, boxed_index_builder};
+pub use self::generic::{
+    SearchIndex,
+    IndexBuilder,
+    boxed_index,
+    boxed_sharded_index,
+    boxed_builder,
+    boxed_borrowing_builder,
+    boxed_owning_builder,
+    boxed_mmap_builder,
+};
 
+pub use self::sharded_hnsw::ShardedHnsw;
+
+use self::neighborid::NeighborId;
 const MAX_NEIGHBORS: usize = 20;
-type NeighborType = u32;
 
 #[repr(C)]
 #[derive(Clone, Default, Debug)]
 struct HnswNode {
-    neighbors: ArrayVec<[NeighborType; MAX_NEIGHBORS]>,
+    neighbors: ArrayVec<[NeighborId; MAX_NEIGHBORS]>,
 }
 
 #[derive(Clone)]
@@ -45,85 +57,113 @@ pub struct Config {
     pub show_progress: bool,
 }
 
-pub struct HnswBuilder<'a, T: 'a + ComparableTo<T> + Clone + Sync + Send> {
+pub struct HnswBuilder<'a, Elements, Element>
+    where Elements: 'a + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
+          Element: 'a + ComparableTo<Element> + Sync + Send
+{
     layers: Vec<Vec<HnswNode>>,
-    elements: Cow<'a, [T]>,
+    elements: Cow<'a, Elements>,
     config: Config,
 }
 
+/// The At trait is similar to std::ops::Index. The latter however always returns a reference which makes it impossible
+/// to implement it for containers where the elements are stored compressed and the Output is only temporarily created.
+pub trait At {
+    type Output;
+    fn at(self: &Self, index: usize) -> Self::Output;
+    fn len(self: &Self) -> usize;
+}
 
-pub struct Hnsw<'a, T: ComparableTo<E> + 'a, E> {
+// Implement At for all slices of cloneable objects. Using this instead of normal indexing (std::ops::Index) is associated
+// with a small performance penalty (since each element needs to be cloned on access).
+impl<T: Clone> At for [T] {
+    type Output=T;
+
+    fn at(self: &Self, index: usize) -> Self::Output {
+        self[index].clone()
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
+pub trait Writeable {
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()>;
+}
+
+impl<T> Writeable for [T] {
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
+        file_io::write(self, buffer)
+    }
+}
+
+pub struct Hnsw<'a, Elements, Element>
+    where Elements: 'a + At<Output=Element> + ?Sized,
+          Element: 'a + ComparableTo<Element>
+{
     layers: Vec<&'a [HnswNode]>,
-    elements: &'a [T],
-    phantom: PhantomData<E>,
+    elements: &'a Elements,
 }
 
 
-impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
-    pub fn new(config: Config) -> Self {
+impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
+    where Elements: 'a + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
+          Element: 'a + ComparableTo<Element> + Sync + Send + Clone
+{
+    pub fn with_borrowed_elements(config: Config, elements: &'a Elements) -> Self {
         HnswBuilder {
             layers: Vec::new(),
-            elements: Cow::from(Vec::new()),
-            config: config,
+            elements: Cow::Borrowed(elements),
+            config: config
         }
     }
 
-    pub fn with_elements(config: Config, elements: &'a [T]) -> Self {
+
+    pub fn with_owned_elements(config: Config, elements: Elements::Owned) -> Self {
         HnswBuilder {
             layers: Vec::new(),
-            elements: Cow::from(elements),
-            config: config,
+            elements: Cow::Owned(elements),
+            config: config
         }
     }
 
-    pub fn save_elements_to_disk(self: &Self, path: &str) -> Result<()> {
 
-        file_io::save_to_disk(&self.elements[..], &path)
-    }
+    pub fn read_index_with_owned_elements<I: Read>(config: Config, index_reader: &mut I, elements: Elements::Owned) -> Result<Self>
+    {
+        let layers = Self::read_layers(index_reader)?;
 
-    pub fn save_index_to_disk(self: &Self, path: &str) -> Result<()> {
+        let elements: Cow<Elements> = Cow::Owned(elements);
 
-        let mut file = File::create(path)?;
-
-        self.write(&mut file)
-    }
-
-
-    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        // write metadata
-        let num_nodes = self.layers.iter().map(|layer| layer.len()).sum();
-        let num_layers = self.layers.len();
-        let layer_counts = self.layers.iter().map(|layer| layer.len());
-
-        let mut usize_data = vec![num_nodes, num_layers];
-        usize_data.extend(layer_counts);
-
-        let data = unsafe {
-            ::std::slice::from_raw_parts(
-                usize_data.as_ptr() as *const u8,
-                usize_data.len() * ::std::mem::size_of::<usize>(),
-            )
-        };
-
-        buffer.write_all(data)?;
-
-        // write graph
-        for layer in &self.layers {
-
-            let data = unsafe {
-                ::std::slice::from_raw_parts(
-                    layer.as_ptr() as *const u8,
-                    layer.len() * ::std::mem::size_of::<HnswNode>(),
-                )
-            };
-
-            buffer.write_all(data)?;
+        if let Some(ref last_layer) = layers.last() {
+            assert!(last_layer.len() <= elements.len());
         }
 
-        Ok(())
+        Ok(Self {
+            layers: layers,
+            elements: elements,
+            config: config
+        })
     }
 
-    pub fn read<I: Read, E: Read>(index_reader: &mut I, element_reader: &mut E) -> Result<Self> {
+
+    pub fn read_index_with_borrowed_elements<I: Read>(config: Config, index_reader: &mut I, elements: &'a Elements) -> Result<Self>
+    {
+        let layers = Self::read_layers(index_reader)?;
+
+        if let Some(ref last_layer) = layers.last() {
+            assert!(last_layer.len() <= elements.len());
+        }
+
+        Ok(Self {
+            layers: layers,
+            elements: Cow::Borrowed(elements),
+            config: config
+        })
+    }
+
+
+    fn read_layers<I: Read>(index_reader: &mut I) -> Result<Vec<Vec<HnswNode>>>{
         use std::mem::size_of;
 
         // read metadata
@@ -163,135 +203,175 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
             }
         }
 
-        // read elements
-        let num_elements = layers.last().unwrap().len();
-        let mut elements: Vec<T> = Vec::with_capacity(num_elements);
+        Ok(layers)
+    }
 
-        for _ in 0..num_elements {
-            element_reader.read_exact(&mut buffer[..size_of::<T>()])?;
 
-            elements.push(unsafe { (*(&buffer[0] as *const u8 as *const T)).clone() })
+    pub fn len(self: &Self) -> usize {
+        self.elements.len()
+    }
+
+
+    pub fn indexed_elements(self: &Self) -> usize {
+        if let Some(layer) = self.layers.last() {
+            layer.len()
+        } else {
+            0
         }
+    }
 
-        let config = Config {
-            num_layers: layers.len(),
-            max_search: 200,
-            show_progress: true,
+
+    pub fn save_index_to_disk(self: &Self, path: &str) -> Result<()> {
+        let file = File::create(path)?;
+        let mut file = BufWriter::new(file);
+        self.write(&mut file)
+    }
+
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
+        // write metadata
+        let num_nodes = self.layers.iter().map(|layer| layer.len()).sum();
+        let num_layers = self.layers.len();
+        let layer_counts = self.layers.iter().map(|layer| layer.len());
+
+        let mut usize_data = vec![num_nodes, num_layers];
+        usize_data.extend(layer_counts);
+
+        let data = unsafe {
+            ::std::slice::from_raw_parts(
+                usize_data.as_ptr() as *const u8,
+                usize_data.len() * ::std::mem::size_of::<usize>(),
+            )
         };
 
-        Ok(Self {
-            layers: layers,
-            elements: Cow::from(elements),
-            config: config,
-        })
+        buffer.write_all(data)?;
+
+        // write graph
+        for layer in &self.layers {
+
+            let data = unsafe {
+                ::std::slice::from_raw_parts(
+                    layer.as_ptr() as *const u8,
+                    layer.len() * ::std::mem::size_of::<HnswNode>(),
+                )
+            };
+
+            buffer.write_all(data)?;
+        }
+
+        Ok(())
     }
 
 
-    pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, T, T> {
+    pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, Elements, Element> {
         Hnsw {
             layers: self.layers.iter().map(|layer| &layer[..]).collect(),
-            elements: &self.elements[..],
-            phantom: PhantomData,
+            elements: self.elements.as_ref(),
         }
     }
 
 
-    pub fn from_index(config: Config, index: &Hnsw<T, T>) -> Self {
-        let mut builder = Self::new(config);
-
-        builder.elements = Cow::from(index.elements.to_vec());
-        builder.layers = index.layers.iter().map(|layer| layer.to_vec()).collect();
-
-        builder
+    /// Builds the search index for all elements
+    pub fn build_index(&mut self) {
+        let num_elements = self.elements.len();
+        self.build_index_part(num_elements);
     }
 
+    /// Builds the search index for the first num_elements elements
+    /// Can be used for long-running jobs where intermediate steps needs to be stored
+    ///
+    /// Note: already indexed elements are not reindexed
+    pub fn build_index_part(&mut self, num_elements: usize) {
+        if num_elements == 0 {
+            return;
+        }
 
-    pub fn build_index(&mut self) {
-        // unbuilt index
+        assert!(num_elements >= self.layers.last().map_or(0, |layer| layer.len()),
+                "Cannot index fewer elements than already in index.");
+        assert!(num_elements <= self.elements.len(),
+                "Cannot index more elements than exist.");
+
+        // fresh index build => initialize first layer
         if self.layers.is_empty() {
             self.layers.push(vec![HnswNode::default()]);
-
-            let layer_multiplier =
-                compute_layer_multiplier(self.elements.len(), self.config.num_layers);
-
-            let mut num_elements_in_layer = 1;
-            for layer in 1..self.config.num_layers {
-                num_elements_in_layer *= layer_multiplier;
-
-                if num_elements_in_layer > self.elements.len() ||
-                    layer == self.config.num_layers - 1
-                {
-                    num_elements_in_layer = self.elements.len();
-                }
-
-                // copy layer above
-                let mut new_layer = Vec::with_capacity(num_elements_in_layer);
-                new_layer.extend_from_slice(self.layers.last().unwrap());
-
-                Self::insert_elements(
-                    &self.config,
-                    &self.elements[..num_elements_in_layer],
-                    &self.get_index(),
-                    &mut new_layer,
-                );
-
-                self.layers.push(new_layer);
-
-                if num_elements_in_layer == self.elements.len() {
-                    break;
-                }
-            }
         }
-        // inserting recently added elements only
         else {
-            let mut layer = self.layers.pop().unwrap();
+            // make sure the current last layer is full (no-op if already full)
+            self.index_elements_in_last_layer(num_elements);
+        }
 
-            Self::insert_elements(&self.config, &self.elements, &self.get_index(), &mut layer);
+        // push new layers
+        for _layer in self.layers.len()..self.config.num_layers {
+            if num_elements == self.indexed_elements() {
+                // already done
+                break;
+            }
 
-            self.layers.push(layer);
+            // create a new layer by copying the current last one
+            let new_layer = self.layers.last().unwrap().clone();
+            self.layers.push(new_layer);
+
+            self.index_elements_in_last_layer(num_elements);
         }
     }
 
 
-    pub fn add(self: &mut Self, elements: Vec<T>) {
-        assert!(self.elements.len() + elements.len() <= <NeighborType>::max_value() as usize);
+    fn index_elements_in_last_layer(&mut self, max_num_elements: usize) {
+        let layer_multiplier =
+            compute_layer_multiplier(self.elements.len(), self.config.num_layers);
 
-        if self.elements.is_empty() {
-            self.elements = Cow::from(elements);
-        } else {
-            self.elements.to_mut().extend_from_slice(elements.as_slice());
+        let layer = self.layers.len()-1;
+        let ideal_num_elements_in_layer = cmp::min(layer_multiplier.pow(layer as u32), self.elements.len());
+        let mut num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
+
+        // if last layer index all elements
+        if layer == self.config.num_layers - 1 {
+            num_elements_in_layer = max_num_elements;
         }
+
+        let mut layer = self.layers.pop().unwrap();
+
+        let additional = ideal_num_elements_in_layer - layer.len();
+        layer.reserve_exact(additional);
+
+        Self::index_elements(&self.config, &self.elements, num_elements_in_layer, &self.get_index(), &mut layer);
+
+        self.layers.push(layer);
     }
 
-    fn insert_elements(
+
+    fn index_elements(
         config: &Config,
-        elements: &[T],
-        prev_layers: &Hnsw<T,T>,
+        elements: &Elements,
+        num_elements: usize,
+        prev_layers: &Hnsw<Elements,Element>,
         layer: &mut Vec<HnswNode>,
     ) {
 
-        assert!(layer.len() <= elements.len());
+        assert!(layer.len() <= num_elements);
 
-        let already_inserted = layer.len();
+        let already_indexed = layer.len();
 
-        layer.resize(elements.len(), HnswNode::default());
-
-        assert_eq!(layer.len(), layer.capacity());
+        layer.resize(num_elements, HnswNode::default());
 
         // create RwLocks for underlying nodes
         let layer: Vec<RwLock<&mut HnswNode>> =
-            layer.iter_mut().map(|node| RwLock::new(node)).collect();
-
-        assert_eq!(layer.len(), layer.capacity());
+                layer.iter_mut().map(|node| RwLock::new(node)).collect();
 
         // set up progress bar
-        let step_size = cmp::max(100, elements.len() / 400);
+        let step_size = cmp::max(100, num_elements / 400);
         let (progress_bar, start_time) = {
             if config.show_progress {
                 let mut progress_bar = ProgressBar::new(elements.len() as u64);
                 let info_text = format!("Layer {}: ", prev_layers.layers.len());
                 progress_bar.message(&info_text);
-                progress_bar.set((step_size * (already_inserted / step_size)) as u64);
+                progress_bar.set((step_size * (already_indexed / step_size)) as u64);
+
+                // if too many elements were already indexed, the shown speed
+                // is misrepresenting and not of much help
+                if already_indexed > num_elements / 3 {
+                    progress_bar.show_speed = false;
+                    progress_bar.show_time_left = false;
+                }
 
                 (Some(Mutex::new(progress_bar)), Some(PreciseTime::now()))
 
@@ -300,24 +380,24 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
             }
         };
 
-        // insert elements, skipping already inserted
-        elements
+        // index elements, skipping already indexed
+        layer
             .par_iter()
             .enumerate()
-            .skip(already_inserted)
+            .skip(already_indexed)
             .for_each(|(idx, _)| {
-                Self::insert_element(config, elements, prev_layers, &layer, idx);
+                Self::index_element(config, elements, prev_layers, &layer, idx);
 
                 // This only shows approximate progress because of par_iter
                 if idx % step_size == 0 {
                     if let Some(ref progress_bar) = progress_bar {
-                        progress_bar.lock().unwrap().add(step_size as u64);
+                        progress_bar.lock().add(step_size as u64);
                     }
                 }
             });
 
         if let Some(progress_bar) = progress_bar {
-            progress_bar.lock().unwrap().finish_println("");
+            progress_bar.lock().set(layer.len() as u64);
 
             if let Some(start_time) = start_time {
                 let end_time = PreciseTime::now();
@@ -327,23 +407,23 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
     }
 
 
-    fn insert_element(
+    fn index_element(
         config: &Config,
-        elements: &[T],
-        prev_layers: &Hnsw<T,T>,
-        layer: &Vec<RwLock<&mut HnswNode>>,
+        elements: &Elements,
+        prev_layers: &Hnsw<Elements, Element>,
+        layer: &[RwLock<&mut HnswNode>],
         idx: usize,
     ) {
 
-        let element = &elements[idx];
+        let element: Element = elements.at(idx);
 
-        let (entrypoint, _) = prev_layers.search(element, 1, 1)[0];
+        let (entrypoint, _) = prev_layers.search(&element, 1, 1)[0];
 
         let neighbors = Self::search_for_neighbors_index(
             elements,
-            &layer[..],
+            layer,
             entrypoint,
-            element,
+            &element,
             config.max_search,
         );
 
@@ -358,21 +438,23 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
 
 
     // Similar to Hnsw::search_for_neighbors but with RwLocks for
-    // parallel insertion
+    // parallel indexing (and bloomfilter for visited set)
     fn search_for_neighbors_index(
-        elements: &[T],
+        elements: &Elements,
         layer: &[RwLock<&mut HnswNode>],
         entrypoint: usize,
-        goal: &T,
+        goal: &Element,
         max_search: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
 
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
-        let mut visited =
-            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS, Default::default());
 
-        pq.push(RevOrd((elements[entrypoint].dist(&goal), entrypoint)));
+        // A bloomfilter is fine since we mostly want to avoid revisiting nodes
+        // and it's faster than FnvHashSet.
+        let mut visited = bloomfilter::BloomFilter::new(max_search * MAX_NEIGHBORS, 0.01);
+
+        pq.push(RevOrd((elements.at(entrypoint).dist(goal), entrypoint)));
 
         visited.insert(entrypoint);
 
@@ -383,11 +465,11 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
 
             res.push((d, idx));
 
-            let node = layer[idx].read().unwrap();
+            let node = layer[idx].read();
 
-            for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
+            for neighbor_idx in node.neighbors.iter().map(|&n| n.into()) {
                 if visited.insert(neighbor_idx) {
-                    let distance = elements[neighbor_idx].dist(&goal);
+                    let distance = elements.at(neighbor_idx).dist(goal);
 
                     if !res.is_full() || distance < res.peek().unwrap().0 {
                         pq.push(RevOrd((distance, neighbor_idx)));
@@ -405,7 +487,7 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
 
 
     fn select_neighbors(
-        elements: &[T],
+        elements: &Elements,
         candidates: Vec<(usize, NotNaN<f32>)>,
         max_neighbors: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
@@ -414,7 +496,7 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
             return candidates;
         }
 
-        let mut neighbors = Vec::new();
+        let mut neighbors: Vec<(usize, NotNaN<f32>, Element)> = Vec::new();
         let mut pruned = Vec::new();
 
         // candidates are sorted on distance from idx
@@ -423,17 +505,20 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
                 break;
             }
 
+            let element: Element = elements.at(j);
+
             // add j to neighbors if j is closer to idx,
             // than to all previously added neighbors
             if neighbors.iter().all(
-                |&(k, _)| d < elements[j].dist(&elements[k]),
-            )
-            {
-                neighbors.push((j, d));
+                |&(_, _, ref neighbor)| d < neighbor.dist(&element)
+            ) {
+                neighbors.push((j, d, element));
             } else {
                 pruned.push((j, d));
             }
         }
+
+        let mut neighbors: Vec<_> = neighbors.into_iter().map(|(j, d, _)| (j,d)).collect();
 
         let remaining = max_neighbors - neighbors.len();
         neighbors.extend(pruned.into_iter().take(remaining));
@@ -444,34 +529,37 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
 
     fn initialize_node(node: &RwLock<&mut HnswNode>, neighbors: &[(usize, NotNaN<f32>)]) {
         // Write Lock!
-        let mut node = node.write().unwrap();
+        let mut node = node.write();
 
         debug_assert!(node.neighbors.len() == 0);
         let num_to_add = node.neighbors.capacity() - node.neighbors.len();
 
         for &(idx, _) in neighbors.iter().take(num_to_add) {
-            node.neighbors.push(idx as NeighborType);
+            node.neighbors.push(idx.into());
         }
     }
 
 
     fn connect_nodes(
-        elements: &[T],
+        elements: &Elements,
         node: &RwLock<&mut HnswNode>,
         i: usize,
         j: usize,
         d: NotNaN<f32>,
     ) {
         // Write Lock!
-        let mut node = node.write().unwrap();
+        let mut node = node.write();
 
         if node.neighbors.len() < MAX_NEIGHBORS {
-            node.neighbors.push(j as NeighborType);
+            node.neighbors.push(j.into());
         } else {
-
+            let element: Element = elements.at(i);
             let mut candidates: Vec<_> = node.neighbors
                 .iter()
-                .map(|&k| (k as usize, elements[i].dist(&elements[k as usize])))
+                .map(|&k| {
+                    let k: usize = k.into();
+                    (k, elements.at(k).dist(&element))
+                })
                 .collect();
 
             candidates.push((j as usize, d));
@@ -480,8 +568,45 @@ impl<'a, T: 'a + ComparableTo<T> + Sync + Send + Clone> HnswBuilder<'a, T> {
             let neighbors = Self::select_neighbors(elements, candidates, MAX_NEIGHBORS);
 
             for (k, (n, _)) in neighbors.into_iter().enumerate() {
-                node.neighbors[k] = n as NeighborType;
+                node.neighbors[k] = n.into();
             }
+        }
+    }
+}
+
+impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
+    where Elements: 'a + Writeable + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
+          Element: 'a + ComparableTo<Element> + Sync + Send
+{
+    pub fn save_elements_to_disk(self: &Self, path: &str) -> Result<()> {
+        let file = File::create(path)?;
+        let mut file = BufWriter::new(file);
+
+        self.elements.write(&mut file)
+    }
+}
+
+
+// Methods only implemented for slices
+impl<'a, Element> HnswBuilder<'a, [Element], Element>
+    where Element: 'a + ComparableTo<Element> + Sync + Send + Clone
+{
+    pub fn new(config: Config) -> Self {
+        HnswBuilder {
+            layers: Vec::new(),
+            elements: Cow::Owned(Vec::new()),
+            config: config
+        }
+    }
+
+
+    pub fn add(self: &mut Self, elements: Vec<Element>) {
+        assert!(self.elements.len() + elements.len() <= <NeighborId>::max_value() as usize);
+
+        if self.elements.len() == 0 {
+            self.elements = Cow::Owned(elements);
+        } else {
+            self.elements.to_mut().extend_from_slice(elements.as_slice());
         }
     }
 }
@@ -496,8 +621,11 @@ fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
 }
 
 
-impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
-    pub fn load(buffer: &'a [u8], elements: &'a [T]) -> Self {
+impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
+    where Elements: 'a + At<Output=Element> + ?Sized,
+          Element: 'a + ComparableTo<Element>
+{
+    pub fn load(buffer: &'a [u8], elements: &'a Elements) -> Self {
 
         let offset = 0 * ::std::mem::size_of::<usize>();
         let num_nodes = &buffer[offset] as *const u8 as *const usize;
@@ -540,14 +668,12 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
         Self {
             layers: layers,
             elements: elements,
-            phantom: PhantomData,
         }
     }
 
-
     pub fn search(
         &self,
-        element: &E,
+        element: &Element,
         num_neighbors: usize,
         max_search: usize,
     ) -> Vec<(usize, f32)> {
@@ -571,14 +697,13 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
 
     fn find_entrypoint(
         layers: &[&[HnswNode]],
-        element: &E,
-        elements: &[T]
-    ) -> usize {
+        element: &Element,
+        elements: &Elements) -> usize {
 
         let mut entrypoint = 0;
         for layer in layers {
             let res =
-                Self::search_for_neighbors(&layer, entrypoint, &elements, &element, 1);
+                Self::search_for_neighbors(&layer, entrypoint, elements, &element, 1);
 
             entrypoint = res[0].0;
         }
@@ -590,8 +715,8 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
     fn search_for_neighbors(
         layer: &[HnswNode],
         entrypoint: usize,
-        elements: &[T],
-        goal: &E,
+        elements: &Elements,
+        goal: &Element,
         max_search: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
 
@@ -600,7 +725,9 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
         let mut visited =
             FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS, Default::default());
 
-        pq.push(RevOrd((elements[entrypoint].dist(&goal), entrypoint)));
+        let distance = elements.at(entrypoint).dist(&goal);
+
+        pq.push(RevOrd((distance, entrypoint)));
 
         visited.insert(entrypoint);
 
@@ -613,9 +740,9 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
 
             let node = &layer[idx];
 
-            for neighbor_idx in node.neighbors.iter().map(|&n| n as usize) {
+            for neighbor_idx in node.neighbors.iter().map(|&n| n.into()) {
                 if visited.insert(neighbor_idx) {
-                    let distance = elements[neighbor_idx].dist(&goal);
+                    let distance = elements.at(neighbor_idx).dist(&goal);
 
                     if !res.is_full() || distance < res.peek().unwrap().0 {
                         pq.push(RevOrd((distance, neighbor_idx)));
@@ -633,6 +760,10 @@ impl<'a, T: ComparableTo<E> + 'a, E> Hnsw<'a, T, E> {
 
     pub fn len(self: &Self) -> usize {
         self.elements.len()
+    }
+
+    pub fn get_element(self: &Self, index: usize) -> Element {
+        self.elements.at(index)
     }
 }
 

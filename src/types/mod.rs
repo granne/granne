@@ -34,7 +34,7 @@ pub mod example {
         let mut data: Vec<f32> = Vec::new();
 
         for _ in 0..T::dim() {
-            data.push(rng.gen());
+            data.push(rng.gen::<f32>() - 0.5);
         }
 
         data.into_iter().collect()
