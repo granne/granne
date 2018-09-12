@@ -161,7 +161,7 @@ fn main() {
 
                 let query_embeddings = QueryEmbeddings::load(&word_embeddings, mmapped_elements.unwrap());
 
-                let mut builder: granne::HnswBuilder<QueryEmbeddings, granne::AngularVector<[f32; DIM]>>;
+                let mut builder: granne::HnswBuilder<QueryEmbeddings, granne::AngularVector>;
 
                 if let Some(mut index_file) = existing_index {
                     builder = granne::HnswBuilder::read_index_with_borrowed_elements(
@@ -178,32 +178,35 @@ fn main() {
 
                 if let Some(mmapped_elements) = mmapped_elements
                 {
-                    let mut builder = granne::boxed_borrowing_builder(
-                        settings.dimension, build_config, mmapped_elements, existing_index);
+//                    let mut builder = granne::boxed_borrowing_builder(
+//                        settings.dimension, build_config, mmapped_elements, existing_index);
 
-                    build_and_save(&mut *builder, settings);
-                } else
-                {
+                    let elements = granne::AngularVectors::load(settings.dimension, mmapped_elements);
+                    
+                    let mut builder = if let Some(mut existing_index) = existing_index {
+                        granne::HnswBuilder::read_index_with_borrowed_elements(build_config, &mut existing_index, &elements).expect("Could not read index")
+                    } else {
+                        granne::HnswBuilder::with_borrowed_elements(build_config, &elements)
+                    };
+                    
+                    build_and_save(&mut builder, settings);
+                } else {
                     let mut builder = {
                         println!("Reading elements from {}", &input_file);
 
                         let (vector_data, _) = file_io::read_f32(&input_file).unwrap();
 
-                        let bytes: &[u8] = unsafe {
-                            ::std::slice::from_raw_parts(
-                                vector_data.as_ptr() as *const u8,
-                                vector_data.len() * ::std::mem::size_of::<f32>(),
-                            )
-                        };
+                        let elements = granne::AngularVectors::from_vec(settings.dimension, vector_data);
 
-                        granne::boxed_owning_builder(
-                            settings.dimension, build_config, bytes, None)
+                        granne::HnswBuilder::<granne::AngularVectors, granne::AngularVector>::with_owned_elements(build_config, elements)
                     };
 
                     println!("Saving vectors to {}", settings.output_file);
                     builder.save_elements_to_disk(&settings.vectors_output_file).unwrap();
 
-                    build_and_save(&mut *builder, settings);
+//                    granne::file_io::save_to_disk(&
+                    
+                    build_and_save(&mut builder, settings);
                 }
             };
 
@@ -224,8 +227,9 @@ fn main() {
 }
 
 
-fn build_and_save<Builder>(builder: &mut Builder, settings: Settings)
-    where Builder: granne::IndexBuilder + ?Sized
+fn build_and_save<E, T>(builder: &mut granne::HnswBuilder<E, T>, settings: Settings)
+    where E: granne::At<Output=T> + Clone + Send + Sync,
+          T: granne::ComparableTo<T> + Send + Sync + Clone
 {
     if settings.num_build_chunks == 1 {
         builder.build_index();

@@ -16,7 +16,7 @@ pub trait ComparableTo<B: ?Sized> {
 }
 
 pub trait Dense<T> {
-    fn dim() -> usize;
+    fn dim(self: &Self) -> usize;
 
     fn as_slice(self: &Self) -> &[T];
 }
@@ -26,14 +26,14 @@ pub mod example {
     use rand;
     use rand::Rng;
 
-    pub fn random_dense_element<T, K>() -> T
-        where T: Dense<K> + FromIterator<f32>
+    pub fn random_dense_element<T>(dim: usize) -> T
+        where T: Dense<f32> + FromIterator<f32>
     {
         let mut rng = rand::thread_rng();
 
         let mut data: Vec<f32> = Vec::new();
 
-        for _ in 0..T::dim() {
+        for _ in 0..dim {
             data.push(rng.gen::<f32>() - 0.5);
         }
 

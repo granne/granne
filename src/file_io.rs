@@ -165,7 +165,7 @@ mod tests {
             assert_eq!(1000, data.len());
 
             for i in 0..data.len() {
-                let v: &AngularVector<[f32; DIM]> = &data[i];
+                let v: &AngularVector = &data[i];
                 assert!(v.dist(v).into_inner() < 0.01f32);
             }
         } else {
@@ -176,6 +176,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn read_nonexistent_file() {
-        let _: (Vec<AngularVector<[f32; DIM]>>, _) = read("non_existent").unwrap();
+        let _: (Vec<AngularVector>, _) = read("non_existent").unwrap();
     }
 }

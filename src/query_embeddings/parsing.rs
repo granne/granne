@@ -56,7 +56,7 @@ pub fn compute_query_vectors_and_save_to_disk(queries_path: &Path, word_embeddin
     let chunk_size = (queries.len() + num_chunks - 1) / num_chunks;
     for i in 0..num_chunks {
         let chunk = (i*chunk_size..cmp::min((i+1)*chunk_size, queries.len())).collect::<Vec<_>>();
-        let query_vectors: Vec<AngularVector<[f32; DIM]>> = chunk
+        let query_vectors: Vec<AngularVector<'static>> = chunk
             .par_iter()
             .map(|&i| queries.at(i)).collect();
 

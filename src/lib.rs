@@ -27,21 +27,23 @@ pub use hnsw::{
     Config,
     Hnsw,
     HnswBuilder,
-    IndexBuilder,
-    SearchIndex,
+//    IndexBuilder,
+//    SearchIndex,
     ShardedHnsw,
     Writeable,
-    boxed_borrowing_builder,
+/*    boxed_borrowing_builder,
     boxed_builder,
     boxed_index,
     boxed_mmap_builder,
     boxed_owning_builder,
     boxed_sharded_index,
+*/
 };
 
 pub use types::{
     AngularIntVector,
     AngularVector,
+    AngularVectors,
     Array,
     ComparableTo,
     Dense,

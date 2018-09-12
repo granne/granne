@@ -23,12 +23,12 @@ use file_io;
 
 #[cfg(test)]
 mod tests;
-mod generic;
+//mod generic;
 mod sharded_hnsw;
 mod bloomfilter;
 mod neighborid;
 
-pub use self::generic::{
+/*pub use self::generic::{
     SearchIndex,
     IndexBuilder,
     boxed_index,
@@ -37,7 +37,7 @@ pub use self::generic::{
     boxed_borrowing_builder,
     boxed_owning_builder,
     boxed_mmap_builder,
-};
+};*/
 
 pub use self::sharded_hnsw::ShardedHnsw;
 

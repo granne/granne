@@ -2,7 +2,11 @@ use crossbeam;
 use ordered_float::NotNaN;
 use std::iter::FromIterator;
 
-use super::{Hnsw, SearchIndex, At};
+use super::{
+    Hnsw,
+    //SearchIndex,
+    At
+};
 use types::{ComparableTo, Dense};
 
 pub struct ShardedHnsw<'a, Elements, Element>
@@ -103,6 +107,7 @@ impl<'a, Elements, Element> ShardedHnsw<'a, Elements, Element>
     }
 }
 
+/*
 impl<'a, Elements, Element> SearchIndex for ShardedHnsw<'a, Elements, Element>
     where Elements: 'a + At<Output=Element> + Sync + ?Sized,
           Element: 'a + ComparableTo<Element> + Dense<f32> + FromIterator<f32> + Sync
@@ -122,7 +127,7 @@ impl<'a, Elements, Element> SearchIndex for ShardedHnsw<'a, Elements, Element>
         self.len()
     }
 }
-
+*/
 
 #[cfg(test)]
 mod tests {
@@ -132,12 +137,12 @@ mod tests {
     use hnsw::*;
 
     const DIM: usize = 25;
-    type ElementType = AngularVector<[f32; DIM]>;
+    type ElementType = AngularVector<'static>;
 
     fn get_shards(num_shards: usize, num_elements: usize) -> Vec<(Vec<u8>, Vec<ElementType>)>
     {
         assert!(num_elements % num_shards == 0);
-        let elements: Vec<_> = (0..num_elements).map(|_| random_dense_element()).collect();
+        let elements: Vec<_> = (0..num_elements).map(|_| random_dense_element(DIM)).collect();
         let shards: Vec<_> = elements.chunks(num_elements / num_shards).map(|chunk| {
             let mut builder = HnswBuilder::new(Config {
                 num_layers: 5,
