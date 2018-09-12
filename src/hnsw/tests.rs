@@ -141,7 +141,7 @@ fn build_and_search_float() {
 fn build_and_search_int8() {
     const DIM: usize = 32;
     
-    let elements: Vec<AngularIntVector<[i8; DIM]>> =
+    let elements: Vec<AngularIntVector> =
         (0..500)
         .map(|_| random_dense_element::<AngularVector>(DIM).into())
         .collect();
@@ -384,7 +384,7 @@ fn write_and_load() {
 fn write_and_read() {
     const DIM: usize = 64;
 
-    let elements: Vec<AngularIntVector<[i8; DIM]>> =
+    let elements: AngularIntVectors =
         (0..100)
         .map(|_| random_dense_element::<AngularVector>(DIM).into())
         .collect();
@@ -395,14 +395,13 @@ fn write_and_read() {
         show_progress: false,
     };
 
-    let mut original = HnswBuilder::new(config.clone());
-    original.add(elements.clone());
+    let mut original = HnswBuilder::with_borrowed_elements(config.clone(), &elements);
     original.build_index();
 
     let mut data = Vec::new();
     original.write(&mut data).unwrap();
 
-    let copy = HnswBuilder::<[AngularIntVector<[i8; DIM]>], AngularIntVector<[i8; DIM]>>::read_index_with_borrowed_elements(
+    let copy = HnswBuilder::<AngularIntVectors, AngularIntVector>::read_index_with_borrowed_elements(
         config, &mut data.as_slice(), &elements).unwrap();
 
     assert_eq!(original.layers.len(), copy.layers.len());

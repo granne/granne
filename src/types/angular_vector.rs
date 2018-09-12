@@ -3,7 +3,6 @@ use hnsw::{At,Writeable};
 use ordered_float::NotNaN;
 use blas;
 
-
 use std::borrow::{ToOwned, Cow};
 use std::iter::FromIterator;
 use std::io::{BufWriter, Read, Write, Result};
@@ -13,100 +12,27 @@ use super::array::Array;
 use file_io;
 
 #[derive(Clone)]
-pub struct AngularVector<'a>(Cow<'a, [f32]>);
+pub struct AngularVectorT<'a, T: Copy + 'static>(Cow<'a, [T]>);
 
-#[derive(Clone)]
-pub struct AngularVectors<'a> {
-    data: Cow<'a, [f32]>,
-    dim: usize
-}
-
-impl<'a> AngularVectors<'a> {
-    pub fn new() -> Self {
-        Self {
-            data: Vec::new().into(),
-            dim: 0
-        }
-    }
-
-    pub fn load(dim: usize, buffer: &'a [u8]) -> Self {
-        let data: &[f32] = file_io::load(buffer);
-
-        assert_eq!(0, data.len() % dim);
-
-        Self {
-            data: data.into(),
-            dim: dim
-        }
-    }
-
-    pub fn from_vec(dim: usize, vec: Vec<f32>) -> Self {
-        assert_eq!(0, vec.len() % dim);
-
-        Self {
-            data: vec.into(),
-            dim: dim
-        }
-    }
-    
-    pub fn push(self: &mut Self, vec: &[f32]) {
-        if self.dim == 0 {
-            self.dim = vec.len();
-        }
-
-        assert_eq!(self.dim, vec.len());
-
-        self.data.to_mut().extend_from_slice(vec);
-    }
-
-    pub fn len(self: &Self) -> usize {
-        if self.dim > 0 {
-            self.data.len() / self.dim
-        } else {
-            0
-        }
-    }
-}
-
-
-impl<'a> FromIterator<AngularVector<'a>> for AngularVectors<'static>
-{
-    fn from_iter<T: IntoIterator<Item = AngularVector<'a>>>(iter: T) -> Self {
-        let mut vecs = AngularVectors::new();
-        for vec in iter {
-            vecs.push(&vec.0[..]);
-        }
-        
-        vecs
-    }
-}
-
-
-// TODO: fix
-impl<'a> At for AngularVectors<'a> {
-    type Output=AngularVector<'static>;
-
-    fn at(self: &Self, index: usize) -> Self::Output {
-        self.data[index*self.dim..(index+1)*self.dim].to_vec().into()
-    }
-
-    fn len(self: &Self) -> usize {
-        self.len()
-    }
-}
-
-impl<'a> Writeable for AngularVectors<'a> {
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        file_io::write(&self.data[..], buffer)
-    }
-}
-
-impl<'a> AngularVector<'a> {
+impl<'a, T: Copy> AngularVectorT<'a, T> {
     fn len(self: &Self) -> usize {
         self.0.len()
     }
-    
 }
+
+impl<T> FromIterator<f32> for AngularVectorT<'static, T>
+    where T: Copy,
+          AngularVectorT<'static, T>: From<Vec<f32>>
+{
+    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
+        let vec: Vec<f32> = iter.into_iter().collect();
+        vec.into()
+    }
+}
+
+pub type AngularVector<'a> = AngularVectorT<'a, f32>;
+pub type AngularIntVector<'a> = AngularVectorT<'a, i8>;
+
 
 impl From<Vec<f32>> for AngularVector<'static> {
     fn from(vec: Vec<f32>) -> Self {
@@ -117,23 +43,23 @@ impl From<Vec<f32>> for AngularVector<'static> {
             unsafe { blas::sscal(n, 1.0 / norm, vec.as_mut_slice(), 1) };
         }
 
-        AngularVector(vec.into())
+        AngularVectorT(vec.into())
     }
 }
-
-impl FromIterator<f32> for AngularVector<'static>
-{
-    fn from_iter<T: IntoIterator<Item = f32>>(iter: T) -> Self {
-        let vec: Vec<f32> = iter.into_iter().collect();
-        vec.into()
-    }
-}
-
 
 impl<'a> ComparableTo<Self> for AngularVector<'a>
 {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
-        compute_distance(&self.0, &other.0)
+        assert_eq!(self.len(), other.len());
+
+        let &AngularVectorT(ref x) = self;
+        let &AngularVectorT(ref y) = other;
+
+        let r: f32 = unsafe { blas::sdot(x.len() as i32, x, 1, y, 1) };
+
+        let d = NotNaN::new(1.0f32 - r).unwrap();
+
+        cmp::max(0f32.into(), d)
     }
 }
 
@@ -149,107 +75,145 @@ impl<'a> Dense<f32> for AngularVector<'a>
     }
 }
 
-impl<D> Dense<i8> for AngularIntVector<D>
-    where D: Array<i8>
-{
-    fn dim(self: &Self) -> usize {
-        ::std::mem::size_of::<D>() / ::std::mem::size_of::<i8>()
-    }
 
-    fn as_slice(self: &Self) -> &[i8] {
-        self.0.as_slice()
-    }
-}
-
-
-#[repr(C)]
 #[derive(Clone)]
-pub struct AngularIntVector<D>(pub D)
-    where D: Array<i8>;
-
-const INT8_ELEMENT_NORM: i32 = 100;
-
-impl<D> From<D> for AngularIntVector<D>
-    where D: Array<i8>
-{
-    fn from(data: D) -> Self {
-        AngularIntVector::<D>(data)
-    }
+pub struct AngularVectorsT<'a, T: Copy + 'static> {
+    data: Cow<'a, [T]>,
+    dim: usize
 }
 
+pub type AngularVectors<'a> = AngularVectorsT<'a, f32>;
+pub type AngularIntVectors<'a> = AngularVectorsT<'a, i8>;
 
-impl<D> FromIterator<i32> for AngularIntVector<D>
-    where D: Array<i8>
-{
-    fn from_iter<T: IntoIterator<Item = i32>>(iter: T) -> Self {
-        let mut data: D = unsafe { ::std::mem::uninitialized() };
-        let mut iter = iter.into_iter();
-        for x in data.as_mut_slice() {
-            *x = iter.next().expect("Too few elements") as i8;
+impl<'a, T: Copy> AngularVectorsT<'a, T> {
+    pub fn new() -> Self {
+        Self {
+            data: Vec::new().into(),
+            dim: 0
         }
-        assert_eq!(0, iter.count(), "Too many elements");
-
-        data.into()
     }
-}
 
+    pub fn load(dim: usize, buffer: &'a [u8]) -> Self {
+        let data: &[T] = file_io::load(buffer);
 
-impl<D> From<AngularVector<'static>> for AngularIntVector<D>
-    where D: Array<i8>
-{
-    fn from(element: AngularVector<'static>) -> AngularIntVector<D> {
-        let AngularVector(ref element) = element;
-        let element = &element[..];
-        let mut array: D = unsafe { ::std::mem::uninitialized() };
-        {
-            let array = array.as_mut_slice();
+        assert_eq!(0, data.len() % dim);
 
-            assert_eq!(array.len(), element.len());
+        Self {
+            data: data.into(),
+            dim: dim
+        }
+    }
 
-            for i in 0..array.len() {
-                array[i] = (element[i] * INT8_ELEMENT_NORM as f32).round() as i8;
-            }
+    pub fn from_vec(dim: usize, vec: Vec<T>) -> Self {
+        assert_eq!(0, vec.len() % dim);
+
+        Self {
+            data: vec.into(),
+            dim: dim
+        }
+    }
+
+    pub fn push(self: &mut Self, vec: &AngularVectorT<T>) {
+        if self.dim == 0 {
+            self.dim = vec.len();
         }
 
-        array.into()
+        assert_eq!(self.dim, vec.len());
+
+        self.data.to_mut().extend_from_slice(&vec.0[..]);
+    }
+
+    pub fn len(self: &Self) -> usize {
+        if self.dim > 0 {
+            self.data.len() / self.dim
+        } else {
+            0
+        }
     }
 }
 
 
-impl<D> ComparableTo<Self> for AngularIntVector<D>
-    where D: Array<i8>
+impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'static, T>
+{
+    fn from_iter<I: IntoIterator<Item = AngularVectorT<'a, T>>>(iter: I) -> Self {
+        let mut vecs = AngularVectorsT::new();
+        for vec in iter {
+            vecs.push(&vec);
+        }
+
+        vecs
+    }
+}
+
+
+// TODO: fix
+impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T>
+{
+    type Output=AngularVectorT<'static, T>;
+
+    fn at(self: &Self, index: usize) -> Self::Output {
+        AngularVectorT(self.data[index*self.dim..(index+1)*self.dim].to_vec().into())
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
+impl<'a> Writeable for AngularVectors<'a> {
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
+        file_io::write(&self.data[..], buffer)
+    }
+}
+
+
+const MAX_QVALUE: usize = 127;
+
+impl From<Vec<f32>> for AngularIntVector<'static> {
+    fn from(vec: Vec<f32>) -> Self {
+        let n = vec.len() as i32;
+        let max_ind = unsafe { blas::isamax(n as i32, vec.as_slice(), 1)-1 };
+        let max_value: f32 = vec[max_ind].abs();
+
+        let mut vec = vec;
+        if max_value > 0.0 {
+            unsafe { blas::sscal(n, MAX_QVALUE as f32 / max_value, vec.as_mut_slice(), 1) };
+        }
+
+        AngularVectorT(vec.into_iter().map(|x| x as i8).collect::<Vec<i8>>().into())
+    }
+}
+
+impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
+    fn from(vec: AngularVector<'a>) -> Self {
+        vec.0.into_owned().into()
+    }
+}
+
+impl<'a> ComparableTo<Self> for AngularIntVector<'a>
 {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
-        let &AngularIntVector(ref x) = self;
-        let &AngularIntVector(ref y) = other;
+        let &AngularVectorT(ref x) = self;
+        let &AngularVectorT(ref y) = other;
 
-        let r: i32 = x.as_slice().iter()
-            .zip(y.as_slice().iter())
+        let r = x.iter()
+            .zip(y.iter())
             .map(|(&xi, &yi)| xi as i32 * yi as i32)
-            .sum();
+            .sum::<i32>() as f32;
 
-        const INT8_ELEMENT_NORM_SQUARED: f32 = (INT8_ELEMENT_NORM * INT8_ELEMENT_NORM) as f32;
+        let dx = x.iter().map(|&xi| xi as i32 * xi as i32).sum::<i32>() as f32;
+        let dy = y.iter().map(|&yi| yi as i32 * yi as i32).sum::<i32>() as f32;
 
-        let d = NotNaN::new(1.0f32 - (r as f32 / INT8_ELEMENT_NORM_SQUARED)).unwrap();
+        let d = NotNaN::new(1.0f32 - (r / (dx.sqrt() * dy.sqrt()))).unwrap();
 
         cmp::max(NotNaN::new(0.0f32).unwrap(), d)
     }
 }
 
 
-#[inline(always)]
-fn compute_distance(x: &[f32], y: &[f32]) -> NotNaN<f32> {
-    let r: f32 = unsafe { blas::sdot(x.len() as i32, x, 1, y, 1) };
-
-    let d = NotNaN::new(1.0f32 - r).unwrap();
-
-    cmp::max(0f32.into(), d)
-}
-
-
 pub fn angular_reference_dist(first: &AngularVector, second: &AngularVector) -> NotNaN<f32> {
-    let &AngularVector(ref x) = first;
-    let &AngularVector(ref y) = second;
+    let &AngularVectorT(ref x) = first;
+    let &AngularVectorT(ref y) = second;
 
     let r: f32 = x.iter()
         .zip(y.iter())
