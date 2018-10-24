@@ -1,10 +1,7 @@
 use ordered_float::NotNaN;
 use std::iter::FromIterator;
 
-mod array;
 mod angular_vector;
-
-pub use self::array::Array;
 
 pub use self::angular_vector::*;
 

@@ -155,8 +155,6 @@ mod tests {
     use super::*;
     use types::{AngularVector, ComparableTo};
 
-    const DIM: usize = 100;
-
     #[test]
     fn read_file() {
         let data = read("example_data/test.1K.100d.txt");

@@ -1,13 +1,11 @@
 use crossbeam;
 use ordered_float::NotNaN;
-use std::iter::FromIterator;
 
 use super::{
     Hnsw,
-    //SearchIndex,
     At
 };
-use types::{ComparableTo, Dense};
+use types::ComparableTo;
 
 pub struct ShardedHnsw<'a, Elements, Element>
     where Elements: 'a + At<Output=Element> + Sync + ?Sized,
@@ -107,27 +105,6 @@ impl<'a, Elements, Element> ShardedHnsw<'a, Elements, Element>
     }
 }
 
-/*
-impl<'a, Elements, Element> SearchIndex for ShardedHnsw<'a, Elements, Element>
-    where Elements: 'a + At<Output=Element> + Sync + ?Sized,
-          Element: 'a + ComparableTo<Element> + Dense<f32> + FromIterator<f32> + Sync
-{
-    fn search(self: &Self,
-              element: Vec<f32>,
-              num_elements: usize,
-              max_search: usize) -> Vec<(usize, f32)> {
-        self.search(&element.into_iter().collect(), num_elements, max_search)
-    }
-
-    fn get_element(self: &Self, idx: usize) -> Vec<f32> {
-        self.get_element(idx).as_slice().to_vec()
-    }
-
-    fn len(self: &Self) -> usize {
-        self.len()
-    }
-}
-*/
 
 #[cfg(test)]
 mod tests {
@@ -136,21 +113,22 @@ mod tests {
     use types::AngularVector;
     use hnsw::*;
 
-    const DIM: usize = 25;
     type ElementType = AngularVector<'static>;
 
     fn get_shards(num_shards: usize, num_elements: usize) -> Vec<(Vec<u8>, Vec<ElementType>)>
     {
         assert!(num_elements % num_shards == 0);
-        let elements: Vec<_> = (0..num_elements).map(|_| random_dense_element(DIM)).collect();
+        let elements: Vec<_> = (0..num_elements).map(|_| random_dense_element(25)).collect();
         let shards: Vec<_> = elements.chunks(num_elements / num_shards).map(|chunk| {
-            let mut builder = HnswBuilder::new(Config {
-                num_layers: 5,
-                max_search: 50,
-                show_progress: false,
-            });
+            let mut builder = HnswBuilder::<[ElementType], ElementType>::with_owned_elements(
+                Config {
+                    num_layers: 5,
+                    max_search: 50,
+                    show_progress: false,
+                },
+                chunk.to_vec()
+            );
 
-            builder.add(chunk.to_vec());
             builder.build_index();
             let mut data = Vec::new();
             builder.write(&mut data).unwrap();

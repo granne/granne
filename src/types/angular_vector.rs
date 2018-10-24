@@ -3,12 +3,11 @@ use hnsw::{At,Writeable};
 use ordered_float::NotNaN;
 use blas;
 
-use std::borrow::{ToOwned, Cow};
+use std::borrow::Cow;
 use std::iter::FromIterator;
-use std::io::{BufWriter, Read, Write, Result};
+use std::io::{Write, Result};
 
 use super::{ComparableTo, Dense};
-use super::array::Array;
 use file_io;
 
 #[derive(Clone)]
@@ -47,6 +46,12 @@ impl From<Vec<f32>> for AngularVector<'static> {
     }
 }
 
+impl<'a> Into<Vec<f32>> for AngularVector<'a> {
+    fn into(self: Self) -> Vec<f32> {
+        self.0.into_owned()
+    }
+}
+
 impl<'a> ComparableTo<Self> for AngularVector<'a>
 {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
@@ -79,17 +84,17 @@ impl<'a> Dense<f32> for AngularVector<'a>
 #[derive(Clone)]
 pub struct AngularVectorsT<'a, T: Copy + 'static> {
     data: Cow<'a, [T]>,
-    dim: usize
+    pub dim: usize
 }
 
 pub type AngularVectors<'a> = AngularVectorsT<'a, f32>;
 pub type AngularIntVectors<'a> = AngularVectorsT<'a, i8>;
 
 impl<'a, T: Copy> AngularVectorsT<'a, T> {
-    pub fn new() -> Self {
+    pub fn new(dimension: usize) -> Self {
         Self {
             data: Vec::new().into(),
-            dim: 0
+            dim: dimension
         }
     }
 
@@ -113,6 +118,12 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
         }
     }
 
+    pub fn extend(self: &mut Self, vec: AngularVectorsT<T>) {
+        assert_eq!(self.dim, vec.dim);
+
+        self.data.to_mut().extend_from_slice(&vec.data[..]);
+    }
+
     pub fn push(self: &mut Self, vec: &AngularVectorT<T>) {
         if self.dim == 0 {
             self.dim = vec.len();
@@ -130,13 +141,21 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
             0
         }
     }
+
+    pub fn get_element(self: &'a Self, index: usize) -> AngularVectorT<'a, T> {
+        AngularVectorT(Cow::Borrowed(&self.data[index*self.dim..(index+1)*self.dim]))
+    }
+
+    pub fn data(self: &'a Self) -> &'a [T] {
+        &self.data[..]
+    }
 }
 
 
 impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'static, T>
 {
     fn from_iter<I: IntoIterator<Item = AngularVectorT<'a, T>>>(iter: I) -> Self {
-        let mut vecs = AngularVectorsT::new();
+        let mut vecs = AngularVectorsT::new(0);
         for vec in iter {
             vecs.push(&vec);
         }
@@ -146,7 +165,8 @@ impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'stati
 }
 
 
-// TODO: fix
+// TODO: fix whenever HKT arrive
+// See https://github.com/rust-lang/rfcs/blob/master/text/0235-collections-conventions.md#lack-of-iterator-methods
 impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T>
 {
     type Output=AngularVectorT<'static, T>;

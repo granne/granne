@@ -36,6 +36,7 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     ));
     try!(m.add(py, "compute_query_vectors_and_save_to_disk",
                py_fn!(py, py_compute_query_vectors_and_save_to_disk(
+                   dimension: usize,
                    queries_path: String,
                    word_embeddings_path: String,
                    output_path: String,
@@ -64,8 +65,12 @@ py_class!(class Hnsw |py| {
         let elements = File::open(elements_path).unwrap();
         let elements = unsafe { Mmap::map(&elements).unwrap() };
 
-        let _: Box<granne::SearchIndex> = granne::boxed_index(
-            &index, &elements, dimension);
+        {
+            let elements = granne::AngularVectors::load(dimension, &elements[..]);
+            let _: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
+                &index[..], &elements
+            );
+        }
 
         Hnsw::create_instance(py, index, elements, dimension)
     }
@@ -75,22 +80,28 @@ py_class!(class Hnsw |py| {
                num_elements: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let index: Box<granne::SearchIndex> = granne::boxed_index(
-            self.index(py), self.elements(py), *self.dimension(py));
+        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
+        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
+            self.index(py), &elements
+        );
 
-        Ok(index.search(element, num_elements, max_search))
+        Ok(index.search(&element.into(), num_elements, max_search))
     }
 
     def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-        let index: Box<granne::SearchIndex> = granne::boxed_index(
-            self.index(py), self.elements(py), *self.dimension(py));
+        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
+        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
+            self.index(py), &elements
+        );
 
-        Ok(index.get_element(idx))
+        Ok(index.get_element(idx).into())
     }
 
     def __len__(&self) -> PyResult<usize> {
-        let index: Box<granne::SearchIndex> = granne::boxed_index(
-            self.index(py), self.elements(py), *self.dimension(py));
+        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
+        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
+            self.index(py), &elements
+        );
 
         Ok(index.len())
     }
@@ -124,22 +135,30 @@ py_class!(class ShardedHnsw |py| {
                num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-
-        let index = granne::boxed_sharded_index(&self.shards(py).iter().map(|&(ref a, ref b)| (&a[..], &b[..])).collect::<Vec<_>>(), 100);
+        let index_elements = self.shards(py).iter().map(|&(ref a, ref b)| (a, granne::AngularVectors::load(100, &b[..]))).collect::<Vec<_>>();
+        let index: granne::ShardedHnsw<granne::AngularVectors, granne::AngularVector> = granne::ShardedHnsw::new(
+            &index_elements.iter().map(|&(ref a, ref b)| (&a[..], b)).collect::<Vec<_>>()[..]
+        );
 
         Ok(index.search(
-            element, num_neighbors, max_search))
+            &element.into(), num_neighbors, max_search))
     }
 
     def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
 
-        let index = granne::boxed_sharded_index(&self.shards(py).iter().map(|&(ref a, ref b)| (&a[..], &b[..])).collect::<Vec<_>>(), 100);
+        let index_elements = self.shards(py).iter().map(|&(ref a, ref b)| (a, granne::AngularVectors::load(100, &b[..]))).collect::<Vec<_>>();
+        let index: granne::ShardedHnsw<granne::AngularVectors, granne::AngularVector> = granne::ShardedHnsw::new(
+            &index_elements.iter().map(|&(ref a, ref b)| (&a[..], b)).collect::<Vec<_>>()[..]
+        );
 
-        Ok(index.get_element(idx))
+        Ok(index.get_element(idx).into())
     }
 
     def __len__(&self) -> PyResult<usize> {
-        let index = granne::boxed_sharded_index(&self.shards(py).iter().map(|&(ref a, ref b)| (&a[..], &b[..])).collect::<Vec<_>>(), 100);
+        let index_elements = self.shards(py).iter().map(|&(ref a, ref b)| (a, granne::AngularVectors::load(100, &b[..]))).collect::<Vec<_>>();
+        let index: granne::ShardedHnsw<granne::AngularVectors, granne::AngularVector> = granne::ShardedHnsw::new(
+            &index_elements.iter().map(|&(ref a, ref b)| (&a[..], b)).collect::<Vec<_>>()[..]
+        );
 
         Ok(index.len())
     }
@@ -148,10 +167,7 @@ py_class!(class ShardedHnsw |py| {
 
 
 py_class!(class HnswBuilder |py| {
-    data builder: RefCell<Box<granne::IndexBuilder + Send>>;
-    data dimension: usize;
-    data elements: RefCell<Option<Vec<f32>>>;
-    data config: granne::Config;
+    data builder: RefCell<granne::HnswBuilder<'static, granne::AngularVectors<'static>, granne::AngularVector<'static>>>;
 
     def __new__(_cls,
                 dimension: usize,
@@ -165,11 +181,9 @@ py_class!(class HnswBuilder |py| {
             show_progress: show_progress
         };
 
-        let builder = granne::boxed_builder(
-            dimension, config.clone()
-        );
+        let builder = granne::HnswBuilder::new(dimension, config);
 
-        HnswBuilder::create_instance(py, RefCell::new(builder), dimension, RefCell::new(Some(Vec::new())), config)
+        HnswBuilder::create_instance(py, RefCell::new(builder))
     }
 
     @classmethod
@@ -184,6 +198,7 @@ py_class!(class HnswBuilder |py| {
     {
         let elements = File::open(elements_path).expect("Could not open elements file");
         let elements = unsafe { Mmap::map(&elements).unwrap() };
+        let elements = granne::AngularVectors::from_vec(dimension, granne::file_io::load(&elements).to_vec());
 
         let config = granne::Config {
             num_layers: num_layers,
@@ -191,22 +206,24 @@ py_class!(class HnswBuilder |py| {
             show_progress: show_progress
         };
 
-        let index = if let Some(index_path) = index_path {
+        let builder = if let Some(index_path) = index_path {
             let index_file = File::open(index_path).expect("Could not open index file");
-            let index_file = BufReader::new(index_file);
+            let mut index_file = BufReader::new(index_file);
 
-            Some(index_file)
+            granne::HnswBuilder::read_index_with_owned_elements(
+                config.clone(),
+                &mut index_file,
+                elements).expect("Could not read index")
 
         } else {
-            None
+            granne::HnswBuilder::with_owned_elements(
+                config.clone(),
+                elements)
         };
 
-        let builder = granne::boxed_owning_builder(
-            dimension, config.clone(), &elements[..], index);
-
-        HnswBuilder::create_instance(py, RefCell::new(builder), dimension, RefCell::new(None), config)
+        HnswBuilder::create_instance(py, RefCell::new(builder))
     }
-
+/*
     @classmethod
     def with_mmapped_elements(
         _cls,
@@ -239,30 +256,24 @@ py_class!(class HnswBuilder |py| {
 
         HnswBuilder::create_instance(py, RefCell::new(builder), dimension, RefCell::new(None), config)
     }
-
+*/
 
     def add(&self, element: Vec<f32>) -> PyResult<PyObject> {
-        assert_eq!(*self.dimension(py), element.len());
 
-        if let Some(ref mut elements) = *self.elements(py).borrow_mut() {
-            elements.extend(element);
+        let mut elements = granne::AngularVectors::new(0);
+        elements.push(&element.into());
 
-            return Ok(py.None())
+        let mut builder = self.builder(py).borrow_mut();
 
-        } else {
-            panic!("Cannot add (more) elements to this builder!");
-        }
+        builder.add(elements);
+
+        Ok(py.None())
     }
 
     def __len__(&self) -> PyResult<usize> {
-        if let Some(ref elements) = *self.elements(py).borrow() {
-            Ok(elements.len() / self.dimension(py))
+        let builder = self.builder(py).borrow();
 
-        } else {
-            let builder = self.builder(py).borrow();
-
-            Ok(builder.len())
-        }
+        Ok(builder.len())
     }
 
     def indexed_elements(&self) -> PyResult<usize> {
@@ -272,40 +283,14 @@ py_class!(class HnswBuilder |py| {
     }
 
     def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-        if let Some(elements) = self.elements(py).replace(None) {
-            let bytes: &[u8] = unsafe {
-                ::std::slice::from_raw_parts(
-                    elements.as_ptr() as *const u8,
-                    elements.len() * ::std::mem::size_of::<f32>(),
-                )
-            };
-
-            let mut builder = granne::boxed_owning_builder(*self.dimension(py), self.config(py).clone(), bytes, None);
-
-            self.builder(py).replace(builder);
-        }
-
         let builder = self.builder(py).borrow();
         let index = builder.get_index();
 
-        return Ok(index.get_element(idx))
+        Ok(index.get_element(idx).into())
     }
 
 
     def build_index(&self, num_elements: usize = <usize>::max_value()) -> PyResult<PyObject> {
-        if let Some(elements) = self.elements(py).replace(None) {
-            let bytes: &[u8] = unsafe {
-                ::std::slice::from_raw_parts(
-                    elements.as_ptr() as *const u8,
-                    elements.len() * ::std::mem::size_of::<f32>(),
-                )
-            };
-
-            let mut builder = granne::boxed_owning_builder(*self.dimension(py), self.config(py).clone(), bytes, None);
-
-            self.builder(py).replace(builder);
-        }
-
         let mut builder = self.builder(py).borrow_mut();
         if num_elements == <usize>::max_value() {
             builder.build_index();
@@ -318,30 +303,14 @@ py_class!(class HnswBuilder |py| {
 
 
     def save_index(&self, path: &str) -> PyResult<PyObject> {
-        if self.elements(py).borrow().is_none() {
-            let builder = self.builder(py).borrow();
-            builder.save_index_to_disk(path).expect("Could not save index to disk");
 
-            return Ok(py.None())
-        } else {
-            panic!("Cannot save an unbuilt index!");
-        }
+        let builder = self.builder(py).borrow();
+        builder.save_index_to_disk(path).expect("Could not save index to disk");
+
+        Ok(py.None())
     }
 
     def save_elements(&self, path: &str) -> PyResult<PyObject> {
-        if let Some(elements) = self.elements(py).replace(None) {
-            let bytes: &[u8] = unsafe {
-                ::std::slice::from_raw_parts(
-                    elements.as_ptr() as *const u8,
-                    elements.len() * ::std::mem::size_of::<f32>(),
-                )
-            };
-
-            let mut builder = granne::boxed_owning_builder(*self.dimension(py), self.config(py).clone(), bytes, None);
-
-            self.builder(py).replace(builder);
-        }
-
         let builder = self.builder(py).borrow();
 
         builder.save_elements_to_disk(path).expect("Could not save elements to disk");
@@ -353,14 +322,10 @@ py_class!(class HnswBuilder |py| {
                num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        if self.elements(py).borrow().is_none() {
-            let builder = self.builder(py).borrow();
-            let index = builder.get_index();
+        let builder = self.builder(py).borrow();
+        let index = builder.get_index();
 
-            return Ok(index.search(element, num_neighbors, max_search))
-        } else {
-            panic!("Cannot search an unbuilt index!");
-        }
+        Ok(index.search(&element.into(), num_neighbors, max_search))
     }
 
 });

@@ -63,8 +63,7 @@ fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) 
         show_progress: false,
     };
 
-    let mut builder = HnswBuilder::new(config);
-    builder.add(elements.clone());
+    let mut builder = HnswBuilder::<[T], T>::with_owned_elements(config, elements);
     builder.build_index();
     let index = builder.get_index();
 
@@ -115,13 +114,14 @@ fn with_elements_and_add() {
         show_progress: false
     };
 
-    let elements: Vec<_> = (0..600).map(|_| random_dense_element::<AngularVector>(25)).collect();
+    let elements: AngularVectors = (0..500).map(|_| random_dense_element::<AngularVector>(25)).collect();
+    let additional_elements: AngularVectors = (0..100).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
-    let mut builder = HnswBuilder::with_borrowed_elements(config, &elements[..500]);
+    let mut builder: HnswBuilder<AngularVectors, AngularVector> = HnswBuilder::with_owned_elements(config, elements);
 
     assert_eq!(500, builder.elements.len());
 
-    builder.add(elements[500..].to_vec());
+    builder.add(additional_elements);
 
     assert_eq!(600, builder.elements.len());
 
@@ -140,7 +140,7 @@ fn build_and_search_float() {
 #[test]
 fn build_and_search_int8() {
     const DIM: usize = 32;
-    
+
     let elements: Vec<AngularIntVector> =
         (0..500)
         .map(|_| random_dense_element::<AngularVector>(DIM).into())
@@ -221,7 +221,7 @@ fn incremental_build_1() {
 #[test]
 fn incremental_build_with_write_and_read() {
     const DIM: usize = 25;
-    
+
     let elements: AngularVectors = (0..1000).map(|_| random_dense_element::<AngularVector>(DIM)).collect();
 
     let config = Config {
@@ -422,7 +422,11 @@ fn write_and_read() {
 
 #[test]
 fn append_elements() {
-    let elements: Vec<AngularVector> = (0..1000)
+    let elements: AngularVectors = (0..500)
+        .map(|_| random_dense_element::<AngularVector>(50))
+        .collect();
+
+    let additional_elements: AngularVectors = (0..500)
         .map(|_| random_dense_element::<AngularVector>(50))
         .collect();
 
@@ -433,8 +437,8 @@ fn append_elements() {
     };
 
     // insert half of the elements
-    let mut builder = HnswBuilder::new(config);
-    builder.add(elements[..500].to_vec());
+    let mut builder = HnswBuilder::new(50, config);
+    builder.add(elements.clone());
     builder.build_index();
 
     assert_eq!(4, builder.layers.len());
@@ -446,13 +450,13 @@ fn append_elements() {
     {
         let index = builder.get_index();
 
-        assert!(index.search(&elements[123], 1, max_search).iter().any(
+        assert!(index.search(&elements.at(123), 1, max_search).iter().any(
             |&(idx, _)| 123 == idx,
         ));
     }
 
     // insert rest of the elements
-    builder.add(elements[500..].to_vec());
+    builder.add(additional_elements.clone());
     builder.build_index();
 
     assert_eq!(4, builder.layers.len());
@@ -463,12 +467,12 @@ fn append_elements() {
     {
         let index = builder.get_index();
 
-        assert!(index.search(&elements[123], 1, max_search).iter().any(
+        assert!(index.search(&elements.at(123), 1, max_search).iter().any(
             |&(idx, _)| 123 == idx,
         ));
 
-        assert!(index.search(&elements[789], 1, max_search).iter().any(
-            |&(idx, _)| 789 == idx,
+        assert!(index.search(&additional_elements.at(123), 1, max_search).iter().any(
+            |&(idx, _)| elements.len() + 123 == idx,
         ));
     }
 }

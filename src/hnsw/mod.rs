@@ -5,6 +5,7 @@ use revord::RevOrd;
 use std::collections::BinaryHeap;
 use std::cmp;
 use types::ComparableTo;
+use types;
 use pbr::ProgressBar;
 
 // Write and read
@@ -23,21 +24,9 @@ use file_io;
 
 #[cfg(test)]
 mod tests;
-//mod generic;
 mod sharded_hnsw;
 mod bloomfilter;
 mod neighborid;
-
-/*pub use self::generic::{
-    SearchIndex,
-    IndexBuilder,
-    boxed_index,
-    boxed_sharded_index,
-    boxed_builder,
-    boxed_borrowing_builder,
-    boxed_owning_builder,
-    boxed_mmap_builder,
-};*/
 
 pub use self::sharded_hnsw::ShardedHnsw;
 
@@ -587,26 +576,25 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 }
 
 
-// Methods only implemented for slices
-impl<'a, Element> HnswBuilder<'a, [Element], Element>
-    where Element: 'a + ComparableTo<Element> + Sync + Send + Clone
+// Methods only implemented for AngularVectors
+impl<'a> HnswBuilder<'a, types::AngularVectors<'static>, types::AngularVector<'static>>
 {
-    pub fn new(config: Config) -> Self {
+    pub fn new(dimension: usize, config: Config) -> Self {
         HnswBuilder {
             layers: Vec::new(),
-            elements: Cow::Owned(Vec::new()),
+            elements: Cow::Owned(types::AngularVectors::new(dimension)),
             config: config
         }
     }
 
 
-    pub fn add(self: &mut Self, elements: Vec<Element>) {
-        assert!(self.elements.len() + elements.len() <= <NeighborId>::max_value() as usize);
+    pub fn add(self: &mut Self, elements: types::AngularVectors<'static>) {
+        assert!(self.elements.len() + (elements.len() / self.elements.dim) <= <NeighborId>::max_value() as usize);
 
         if self.elements.len() == 0 {
             self.elements = Cow::Owned(elements);
         } else {
-            self.elements.to_mut().extend_from_slice(elements.as_slice());
+            self.elements.to_mut().extend(elements);
         }
     }
 }

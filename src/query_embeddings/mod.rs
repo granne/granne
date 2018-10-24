@@ -4,12 +4,15 @@ use hnsw::{At, Writeable};
 use std::borrow::Cow;
 use std::io::{Result, Write};
 use types;
+use types::Dense;
+use types::AngularVector;
 use rand::Rng;
 use rand;
+use blas;
 
 pub mod parsing;
 
-pub const DIM: usize = 100;
+pub const DIM: usize = 300;
 
 #[derive(Clone)]
 pub struct QueryEmbeddings<'a> {
@@ -34,10 +37,11 @@ impl<'a> QueryEmbeddings<'a> {
         }
     }
 
-    pub fn load(word_embeddings: &'a [u8],
+    pub fn load(dimension:usize,
+                word_embeddings: &'a [u8],
                 query_buffer: &'a [u8]) -> Self
     {
-        let word_embeddings = WordEmbeddings::load(word_embeddings);
+        let word_embeddings = WordEmbeddings::load(dimension, word_embeddings);
         let queries = QueryVec::load(query_buffer);
 
         Self::from(word_embeddings, queries)
@@ -84,18 +88,15 @@ impl<'a> Writeable for QueryEmbeddings<'a> {
 
 #[derive(Clone)]
 pub struct WordEmbeddings<'a> {
-    embeddings: &'a [WordEmbedding]
+    embeddings: types::AngularVectors<'a>
 }
 
 impl<'a> WordEmbeddings<'a> {
-    pub fn new(embeddings: &'a [WordEmbedding]) -> Self {
-        Self { embeddings }
-    }
 
-    pub fn load(data: &'a [u8]) -> Self {
-        assert_eq!(0, data.len() % ::std::mem::size_of::<WordEmbedding>());
+    pub fn load(dimension: usize, data: &'a [u8]) -> Self {
+        assert_eq!(0, data.len() % (dimension * ::std::mem::size_of::<f32>()));
 
-        let embeddings = file_io::load::<WordEmbedding>(data);
+        let embeddings = types::AngularVectors::load(dimension, data);
 
         Self { embeddings }
     }
@@ -108,32 +109,26 @@ impl<'a> WordEmbeddings<'a> {
     fn get_embedding_internal(self: &Self, word_ids: &[WordId]) -> types::AngularVector<'static>
     {
         if word_ids.is_empty() {
-            return vec![0.0f32; DIM].into()
+            return vec![0.0f32; self.embeddings.dim].into()
         }
 
         let w: usize = word_ids[0].into();
-        let WordEmbedding(mut data) = self.embeddings[w];
+        let mut data: Vec<f32> = self.embeddings.at(w).into();
 
         for &w in word_ids.iter().skip(1) {
             let w: usize = w.into();
-            let WordEmbedding(ref embedding) = self.embeddings[w];
+            let embedding = self.embeddings.get_element(w);
 
-            for i in 0..DIM {
-                data[i] += embedding[i];
-            }
+            unsafe { blas::saxpy(embedding.dim() as i32, 1f32, embedding.as_slice(), 1, data.as_mut_slice(), 1) };
         }
 
-        data.to_vec().into()
+        data.into()
     }
 
     pub fn len(self: &Self) -> usize {
         self.embeddings.len()
     }
 }
-
-#[repr(C)]
-pub struct WordEmbedding([f32; DIM]);
-
 
 const BYTES_PER_OFFSET: usize = 5;
 #[repr(C,packed)]
@@ -275,18 +270,19 @@ impl<'a> QueryVec<'a> {
 
 
 
-pub fn get_random_word_embeddings(num: usize) -> Vec<WordEmbedding>
+pub fn get_random_word_embeddings(dimension: usize, num: usize) -> WordEmbeddings<'static>
 {
     let mut rng = rand::thread_rng();
 
-    (0..num).map(|_| {
-        let mut embedding = [0.0f32; DIM];
-        for f in &mut embedding[..] {
-            *f = rng.gen();
-        }
+    let embeddings: types::AngularVectors = (0..num).map(|_| {
+        let element: AngularVector = (0..dimension).map(|_| rng.gen::<f32>() - 0.5).collect();
 
-        WordEmbedding(embedding)
-    }).collect()
+        element
+    }).collect();
+
+    WordEmbeddings {
+        embeddings
+    }
 }
 
 #[cfg(test)]
@@ -402,19 +398,10 @@ mod tests {
     fn test_word_embeddings_write_load() {
         let mut buffer: Vec<u8> = Vec::new();
         let num_word_embeddings = 3;
-        buffer.resize(::std::mem::size_of::<WordEmbedding>() * num_word_embeddings, 0u8);
 
-        let word_embeddings = get_random_word_embeddings(num_word_embeddings);
+        let word_embeddings = get_random_word_embeddings(DIM, num_word_embeddings);
 
-        // reinterpret as [u8] in order to write to buffer
-        buffer.copy_from_slice(
-            unsafe {
-                ::std::slice::from_raw_parts(
-                    word_embeddings.as_ptr() as * const u8,
-                    word_embeddings.len() * ::std::mem::size_of::<WordEmbedding>()
-                )
-            }
-        );
+        word_embeddings.embeddings.write(&mut buffer).unwrap();
 
         let mut temp_file = temp_dir();
         temp_file.push("test_get_word_embeddings");
@@ -427,8 +414,9 @@ mod tests {
         let file = File::open(&temp_file).unwrap();
         let word_embeddings = unsafe { memmap::Mmap::map(&file).unwrap() };
 
-        let we = WordEmbeddings::load(&word_embeddings);
+        let we = WordEmbeddings::load(DIM, &word_embeddings);
 
         assert_eq!(num_word_embeddings, we.embeddings.len());
     }
+
 }

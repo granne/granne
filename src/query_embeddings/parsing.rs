@@ -33,14 +33,14 @@ pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, ou
 }
 
 
-pub fn compute_query_vectors_and_save_to_disk(queries_path: &Path, word_embeddings_path: &Path, output_path: &Path, show_progress: bool) {
+pub fn compute_query_vectors_and_save_to_disk(dimension: usize, queries_path: &Path, word_embeddings_path: &Path, output_path: &Path, show_progress: bool) {
     let word_embeddings = File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
 
     let queries = File::open(&queries_path).expect("Could not open queries file");
     let queries = unsafe { memmap::Mmap::map(&queries).unwrap() };
 
-    let queries = QueryEmbeddings::load(&word_embeddings, &queries);
+    let queries = QueryEmbeddings::load(dimension, &word_embeddings, &queries);
 
     let file = File::create(&output_path).expect("Could not create output file");
     let mut file = BufWriter::new(file);
@@ -60,9 +60,12 @@ pub fn compute_query_vectors_and_save_to_disk(queries_path: &Path, word_embeddin
             .par_iter()
             .map(|&i| queries.at(i)).collect();
 
-        file_io::write(&query_vectors, &mut file).unwrap();
+        let qvl = query_vectors.len();
+        for q in query_vectors {
+            file_io::write(q.as_slice(), &mut file).unwrap();
+        }
         if let Some(ref mut progress_bar) = progress_bar {
-            progress_bar.add(query_vectors.len() as u64);
+            progress_bar.add(qvl as u64);
         }
     }
 }

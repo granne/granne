@@ -18,7 +18,16 @@ fn main() {
                 .help("Binary file with word embeddings")
                 .takes_value(true)
                 .required(true)
-                .index(1),
+                .index(1)
+        )
+        .arg(
+            Arg::with_name("dimension")
+                .long("dimension")
+                .short("d")
+                .help("Word embeddings dimension")
+                .takes_value(true)
+                .required(true)
+                .index(2)
         )
         .arg(
             Arg::with_name("queries")
@@ -27,7 +36,7 @@ fn main() {
                 .help("Binary file with query elements")
                 .takes_value(true)
                 .required(true)
-                .index(2)
+                .index(3)
         )
         .arg(
             Arg::with_name("output")
@@ -35,17 +44,19 @@ fn main() {
                 .short("o")
                 .help("Path where to write output")
                 .takes_value(true)
-                .index(3)
+                .index(4)
                 .default_value("queries.vectors")
         ).get_matches();
 
     let word_embeddings_file = matches.value_of("word_embeddings").unwrap();
+    let dimension: usize = matches.value_of("dimension").unwrap().parse().unwrap();
     let query_file = matches.value_of("queries").unwrap();
     let output_file = matches.value_of("output").unwrap();
 
     let start_time = PreciseTime::now();
 
     granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk(
+        dimension,
         &Path::new(query_file),
         &Path::new(word_embeddings_file),
         &Path::new(output_file),

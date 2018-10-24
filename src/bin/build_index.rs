@@ -151,7 +151,7 @@ fn main() {
             };
 
             if settings.scalar == "word_id" {
-                use granne::query_embeddings::{QueryEmbeddings, DIM};
+                use granne::query_embeddings::QueryEmbeddings;
 
                 assert!(is_bin_file);
 
@@ -159,7 +159,7 @@ fn main() {
                 let word_embeddings = File::open(word_embeddings_file).expect("Could not open word embeddings file");
                 let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
 
-                let query_embeddings = QueryEmbeddings::load(&word_embeddings, mmapped_elements.unwrap());
+                let query_embeddings = QueryEmbeddings::load(settings.dimension, &word_embeddings, mmapped_elements.unwrap());
 
                 let mut builder: granne::HnswBuilder<QueryEmbeddings, granne::AngularVector>;
 
@@ -178,17 +178,14 @@ fn main() {
 
                 if let Some(mmapped_elements) = mmapped_elements
                 {
-//                    let mut builder = granne::boxed_borrowing_builder(
-//                        settings.dimension, build_config, mmapped_elements, existing_index);
-
                     let elements = granne::AngularVectors::load(settings.dimension, mmapped_elements);
-                    
+
                     let mut builder = if let Some(mut existing_index) = existing_index {
                         granne::HnswBuilder::read_index_with_borrowed_elements(build_config, &mut existing_index, &elements).expect("Could not read index")
                     } else {
                         granne::HnswBuilder::with_borrowed_elements(build_config, &elements)
                     };
-                    
+
                     build_and_save(&mut builder, settings);
                 } else {
                     let mut builder = {
@@ -204,8 +201,6 @@ fn main() {
                     println!("Saving vectors to {}", settings.output_file);
                     builder.save_elements_to_disk(&settings.vectors_output_file).unwrap();
 
-//                    granne::file_io::save_to_disk(&
-                    
                     build_and_save(&mut builder, settings);
                 }
             };
