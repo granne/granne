@@ -2,8 +2,10 @@ use ordered_float::NotNaN;
 use std::iter::FromIterator;
 
 mod angular_vector;
+mod mmap;
 
 pub use self::angular_vector::*;
+pub use self::mmap::*;
 
 #[cfg(test)]
 pub const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;

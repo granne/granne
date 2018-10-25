@@ -165,9 +165,13 @@ py_class!(class ShardedHnsw |py| {
 
 });
 
+enum BuilderType {
+    AngularVectorBuilder(granne::HnswBuilder<'static, granne::AngularVectors<'static>, granne::AngularVector<'static>>),
+    MmapAngularVectorBuilder(granne::HnswBuilder<'static, granne::MmapAngularVectors, granne::AngularVector<'static>>)
+}
 
 py_class!(class HnswBuilder |py| {
-    data builder: RefCell<granne::HnswBuilder<'static, granne::AngularVectors<'static>, granne::AngularVector<'static>>>;
+    data builder: RefCell<BuilderType>;
 
     def __new__(_cls,
                 dimension: usize,
@@ -183,7 +187,7 @@ py_class!(class HnswBuilder |py| {
 
         let builder = granne::HnswBuilder::new(dimension, config);
 
-        HnswBuilder::create_instance(py, RefCell::new(builder))
+        HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularVectorBuilder(builder)))
     }
 
     @classmethod
@@ -221,9 +225,9 @@ py_class!(class HnswBuilder |py| {
                 elements)
         };
 
-        HnswBuilder::create_instance(py, RefCell::new(builder))
+        HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularVectorBuilder(builder)))
     }
-/*
+
     @classmethod
     def with_mmapped_elements(
         _cls,
@@ -240,62 +244,73 @@ py_class!(class HnswBuilder |py| {
             show_progress: show_progress
         };
 
-        let index = if let Some(index_path) = index_path {
+        let elements = granne::MmapAngularVectors::new(elements_path, dimension);
+
+        let builder = if let Some(index_path) = index_path {
             let index_file = File::open(index_path).expect("Could not open index file");
-            let index_file = BufReader::new(index_file);
+            let mut index_file = BufReader::new(index_file);
 
-            Some(index_file)
-
+            granne::HnswBuilder::read_index_with_owned_elements(config, &mut index_file, elements).expect("Could not read index")
         } else {
-            None
+            granne::HnswBuilder::with_owned_elements(config, elements)
         };
 
-
-        let builder = granne::boxed_mmap_builder(
-            dimension, config.clone(), elements_path, index);
-
-        HnswBuilder::create_instance(py, RefCell::new(builder), dimension, RefCell::new(None), config)
+        HnswBuilder::create_instance(py, RefCell::new(BuilderType::MmapAngularVectorBuilder(builder)))
     }
-*/
+
 
     def add(&self, element: Vec<f32>) -> PyResult<PyObject> {
+        match *self.builder(py).borrow_mut() {
+            BuilderType::AngularVectorBuilder(ref mut builder) => {
+                let mut elements = granne::AngularVectors::new(0);
+                elements.push(&element.into());
 
-        let mut elements = granne::AngularVectors::new(0);
-        elements.push(&element.into());
-
-        let mut builder = self.builder(py).borrow_mut();
-
-        builder.add(elements);
+                builder.add(elements);
+            },
+            BuilderType::MmapAngularVectorBuilder(_) => panic!("Cannot add element to mmapped builder")
+        }
 
         Ok(py.None())
     }
 
     def __len__(&self) -> PyResult<usize> {
-        let builder = self.builder(py).borrow();
-
-        Ok(builder.len())
+        match *self.builder(py).borrow() {
+            BuilderType::AngularVectorBuilder(ref builder) => Ok(builder.len()),
+            BuilderType::MmapAngularVectorBuilder(ref builder) => Ok(builder.len()),
+        }
     }
 
     def indexed_elements(&self) -> PyResult<usize> {
-        let builder = self.builder(py).borrow();
-
-        Ok(builder.indexed_elements())
+        match *self.builder(py).borrow() {
+            BuilderType::AngularVectorBuilder(ref builder) => Ok(builder.indexed_elements()),
+            BuilderType::MmapAngularVectorBuilder(ref builder) => Ok(builder.indexed_elements()),
+        }
     }
 
     def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-        let builder = self.builder(py).borrow();
-        let index = builder.get_index();
-
-        Ok(index.get_element(idx).into())
+        match *self.builder(py).borrow() {
+            BuilderType::AngularVectorBuilder(ref builder) => Ok(builder.get_index().get_element(idx).into()),
+            BuilderType::MmapAngularVectorBuilder(ref builder) => Ok(builder.get_index().get_element(idx).into()),
+        }
     }
 
 
     def build_index(&self, num_elements: usize = <usize>::max_value()) -> PyResult<PyObject> {
-        let mut builder = self.builder(py).borrow_mut();
-        if num_elements == <usize>::max_value() {
-            builder.build_index();
-        } else {
-            builder.build_index_part(num_elements);
+        match *self.builder(py).borrow_mut() {
+            BuilderType::AngularVectorBuilder(ref mut builder) => {
+                if num_elements == <usize>::max_value() {
+                    builder.build_index();
+                } else {
+                    builder.build_index_part(num_elements);
+                }
+            },
+            BuilderType::MmapAngularVectorBuilder(ref mut builder) => {
+                if num_elements == <usize>::max_value() {
+                    builder.build_index();
+                } else {
+                    builder.build_index_part(num_elements);
+                }
+            },
         }
 
         Ok(py.None())
@@ -303,17 +318,19 @@ py_class!(class HnswBuilder |py| {
 
 
     def save_index(&self, path: &str) -> PyResult<PyObject> {
-
-        let builder = self.builder(py).borrow();
-        builder.save_index_to_disk(path).expect("Could not save index to disk");
+        match *self.builder(py).borrow() {
+            BuilderType::AngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
+            BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
+        }.expect("Could not save index to disk");
 
         Ok(py.None())
     }
 
     def save_elements(&self, path: &str) -> PyResult<PyObject> {
-        let builder = self.builder(py).borrow();
-
-        builder.save_elements_to_disk(path).expect("Could not save elements to disk");
+        match *self.builder(py).borrow() {
+            BuilderType::AngularVectorBuilder(ref builder) => builder.save_elements_to_disk(path),
+            BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_elements_to_disk(path),
+        }.expect("Could not save elements to disk");
 
         Ok(py.None())
     }
@@ -322,10 +339,16 @@ py_class!(class HnswBuilder |py| {
                num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let builder = self.builder(py).borrow();
-        let index = builder.get_index();
-
-        Ok(index.search(&element.into(), num_neighbors, max_search))
+        match *self.builder(py).borrow() {
+            BuilderType::AngularVectorBuilder(ref builder) => {
+                let index = builder.get_index();
+                Ok(index.search(&element.into(), num_neighbors, max_search))
+            },
+            BuilderType::MmapAngularVectorBuilder(ref builder) => {
+                let index = builder.get_index();
+                Ok(index.search(&element.into(), num_neighbors, max_search))
+            },
+        }
     }
 
 });

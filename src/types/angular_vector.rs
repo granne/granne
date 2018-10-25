@@ -11,7 +11,7 @@ use super::{ComparableTo, Dense};
 use file_io;
 
 #[derive(Clone)]
-pub struct AngularVectorT<'a, T: Copy + 'static>(Cow<'a, [T]>);
+pub struct AngularVectorT<'a, T: Copy + 'static>(pub Cow<'a, [T]>);
 
 impl<'a, T: Copy> AngularVectorT<'a, T> {
     fn len(self: &Self) -> usize {
@@ -165,8 +165,9 @@ impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'stati
 }
 
 
-// TODO: fix whenever HKT arrive
+// TODO: fix whenever GAT arrive
 // See https://github.com/rust-lang/rfcs/blob/master/text/0235-collections-conventions.md#lack-of-iterator-methods
+// https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
 impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T>
 {
     type Output=AngularVectorT<'static, T>;

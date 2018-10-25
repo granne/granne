@@ -18,7 +18,6 @@ extern crate time;
 
 mod hnsw;
 mod types;
-mod mmap;
 pub mod file_io;
 pub mod query_embeddings;
 
@@ -36,10 +35,10 @@ pub use types::{
     AngularIntVectors,
     AngularVector,
     AngularVectors,
+    MmapAngularVectors,
+    MmapAngularIntVectors,
     ComparableTo,
     Dense,
     angular_reference_dist,
     example,
 };
-
-pub use mmap::MmapSlice;
