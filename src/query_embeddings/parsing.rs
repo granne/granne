@@ -11,7 +11,7 @@ use std::cmp;
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader, BufWriter, Read};
 use std::path::Path;
-use types::AngularVector;
+use types::{AngularVector, AngularVectorT};
 
 pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, output_path: &Path, show_progress: bool) {
     let word_ids: FnvHashMap<_, _> = {
@@ -33,7 +33,9 @@ pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, ou
 }
 
 
-pub fn compute_query_vectors_and_save_to_disk(dimension: usize, queries_path: &Path, word_embeddings_path: &Path, output_path: &Path, show_progress: bool) {
+pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Send>(dimension: usize, queries_path: &Path, word_embeddings_path: &Path, output_path: &Path, show_progress: bool)
+    where AngularVectorT<'static, DTYPE>: From<AngularVector<'static>>
+{
     let word_embeddings = File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
 
@@ -56,16 +58,16 @@ pub fn compute_query_vectors_and_save_to_disk(dimension: usize, queries_path: &P
     let chunk_size = (queries.len() + num_chunks - 1) / num_chunks;
     for i in 0..num_chunks {
         let chunk = (i*chunk_size..cmp::min((i+1)*chunk_size, queries.len())).collect::<Vec<_>>();
-        let query_vectors: Vec<AngularVector<'static>> = chunk
-            .par_iter()
-            .map(|&i| queries.at(i)).collect();
 
-        let qvl = query_vectors.len();
+        let query_vectors: Vec<AngularVectorT<'static, DTYPE>> = chunk
+            .par_iter()
+            .map(|&i| queries.at(i).into()).collect();
+
+        if let Some(ref mut progress_bar) = progress_bar {
+            progress_bar.add(query_vectors.len() as u64);
+        }
         for q in query_vectors {
             file_io::write(q.as_slice(), &mut file).unwrap();
-        }
-        if let Some(ref mut progress_bar) = progress_bar {
-            progress_bar.add(qvl as u64);
         }
     }
 }

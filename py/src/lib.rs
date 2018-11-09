@@ -40,12 +40,14 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
                    queries_path: String,
                    word_embeddings_path: String,
                    output_path: String,
+                   dtype: DTYPE = DTYPE::default(),
                    show_progress: bool = true)
                )
     ));
 
     Ok(())
 });
+
 
 
 py_class!(class Hnsw |py| {

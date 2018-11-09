@@ -418,5 +418,4 @@ mod tests {
 
         assert_eq!(num_word_embeddings, we.embeddings.len());
     }
-
 }

@@ -12,6 +12,9 @@ pub const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 
 pub trait ComparableTo<B: ?Sized> {
     fn dist(self: &Self, other: &B) -> NotNaN<f32>;
+    fn eps() -> NotNaN<f32> {
+        NotNaN::new(0.0000001f32).unwrap()
+    }
 }
 
 pub trait Dense<T> {

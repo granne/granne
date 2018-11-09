@@ -405,6 +405,11 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
     ) {
 
         let element: Element = elements.at(idx);
+        
+        // do not index elements that are zero (multiply by 100 as safety margin)
+        if element.dist(&element) > NotNaN::new(100.0).unwrap() * Element::eps() {
+            return;
+        }
 
         let (entrypoint, _) = prev_layers.search(&element, 1, 1)[0];
 
@@ -418,6 +423,14 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
         let neighbors = Self::select_neighbors(elements, neighbors, MAX_NEIGHBORS);
 
+        // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
+        // this effectively creates a dead node
+        if let Some((_, d)) = neighbors.get(MAX_NEIGHBORS / 2) {
+            if *d < Element::eps() {
+                return;
+            }
+        }
+        
         Self::initialize_node(&layer[idx], &neighbors[..]);
 
         for (neighbor, d) in neighbors {
@@ -499,7 +512,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             // add j to neighbors if j is closer to idx,
             // than to all previously added neighbors
             if neighbors.iter().all(
-                |&(_, _, ref neighbor)| d < neighbor.dist(&element)
+                |&(_, _, ref neighbor)| d <= neighbor.dist(&element) + Element::eps()
             ) {
                 neighbors.push((j, d, element));
             } else {
