@@ -52,6 +52,13 @@ impl<'a> Into<Vec<f32>> for AngularVector<'a> {
     }
 }
 
+impl<'a> Into<Vec<f32>> for AngularIntVector<'a> {
+    fn into(self: Self) -> Vec<f32> {
+        let float_vector: AngularVector = self.into();
+        float_vector.into()
+    }
+}
+
 impl<'a> ComparableTo<Self> for AngularVector<'a>
 {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
@@ -69,13 +76,13 @@ impl<'a> ComparableTo<Self> for AngularVector<'a>
 }
 
 
-impl<'a> Dense<f32> for AngularVector<'a>
+impl<'a, T: Copy> Dense<T> for AngularVectorT<'a, T>
 {
     fn dim(self: &Self) -> usize {
         self.len()
     }
 
-    fn as_slice(self: &Self) -> &[f32] {
+    fn as_slice(self: &Self) -> &[T] {
         &self.0[..]
     }
 }
@@ -181,7 +188,7 @@ impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T>
     }
 }
 
-impl<'a> Writeable for AngularVectors<'a> {
+impl<'a, T: Copy> Writeable for AngularVectorsT<'a, T> {
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
         file_io::write(&self.data[..], buffer)
     }
@@ -211,21 +218,58 @@ impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
     }
 }
 
+impl<'a> From<AngularIntVector<'a>> for AngularVector<'static> {
+    fn from(vec: AngularIntVector<'a>) -> Self {
+        vec.0.into_iter().map(|&x| x as f32).collect::<Vec<f32>>().into()
+    }
+}
+
 impl<'a> ComparableTo<Self> for AngularIntVector<'a>
 {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
+        // optimized code to compute r, dx, and dy for systems supporting avx2
+        // with fallback for other systems
+        // see https://doc.rust-lang.org/std/arch/index.html#examples
+        fn compute_r_dx_dy(x: &[i8], y: &[i8]) -> (f32, f32, f32) {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                if is_x86_feature_detected!("avx2") {
+                    return unsafe { compute_r_dx_dy_avx2(x, y) }
+                }
+            }
+
+            compute_r_dx_dy_fallback(x,y)
+        }
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[target_feature(enable = "avx2")]
+        unsafe fn compute_r_dx_dy_avx2(x: &[i8], y: &[i8]) -> (f32, f32, f32) {
+            // this function will be inlined and take advantage of avx2 auto-vectorization
+            compute_r_dx_dy_fallback(x, y)
+        }
+
+        #[inline(always)]
+        fn compute_r_dx_dy_fallback(x: &[i8], y: &[i8]) -> (f32, f32, f32) {
+            let mut r = 0i32;
+            let mut dx = 0i32;
+            let mut dy = 0i32;
+
+            for (xi,yi) in x.iter().map(|&xi| xi as i32).zip(y.iter().map(|&yi| yi as i32)) {
+                r += xi * yi;
+                dx += xi * xi;
+                dy += yi * yi;
+            }
+
+            (r as f32, dx as f32, dy as f32)
+        }
+
         let &AngularVectorT(ref x) = self;
         let &AngularVectorT(ref y) = other;
 
-        let r = x.iter()
-            .zip(y.iter())
-            .map(|(&xi, &yi)| xi as i32 * yi as i32)
-            .sum::<i32>() as f32;
+        let (r, dx, dy) = compute_r_dx_dy(x, y);
 
-        let dx = x.iter().map(|&xi| xi as i32 * xi as i32).sum::<i32>() as f32;
-        let dy = y.iter().map(|&yi| yi as i32 * yi as i32).sum::<i32>() as f32;
-
-        let d = NotNaN::new(1.0f32 - (r / (dx.sqrt() * dy.sqrt()))).unwrap();
+        let r = NotNaN::new(r / (dx.sqrt() * dy.sqrt())).unwrap_or(NotNaN::new(0.0).unwrap());
+        let d = NotNaN::new(1.0f32).unwrap() - r;
 
         cmp::max(NotNaN::new(0.0f32).unwrap(), d)
     }

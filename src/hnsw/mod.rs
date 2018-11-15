@@ -590,18 +590,20 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
 
 // Methods only implemented for AngularVectors
-impl<'a> HnswBuilder<'a, types::AngularVectors<'static>, types::AngularVector<'static>>
+impl<'a, T> HnswBuilder<'a, types::AngularVectorsT<'static, T>, types::AngularVectorT<'static, T>> where
+    T: Copy + Sync + Send,
+    types::AngularVectorT<'static, T>: ComparableTo<types::AngularVectorT<'static, T>>
 {
     pub fn new(dimension: usize, config: Config) -> Self {
         HnswBuilder {
             layers: Vec::new(),
-            elements: Cow::Owned(types::AngularVectors::new(dimension)),
+            elements: Cow::Owned(types::AngularVectorsT::new(dimension)),
             config: config
         }
     }
 
 
-    pub fn add(self: &mut Self, elements: types::AngularVectors<'static>) {
+    pub fn add(self: &mut Self, elements: types::AngularVectorsT<'static, T>) {
         assert!(self.elements.len() + (elements.len() / self.elements.dim) <= <NeighborId>::max_value() as usize);
 
         if self.elements.len() == 0 {
