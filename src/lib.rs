@@ -1,6 +1,6 @@
-extern crate arrayvec;
 extern crate bit_vec;
 extern crate bytes;
+extern crate byteorder;
 extern crate crossbeam;
 extern crate flate2;
 extern crate fnv;
@@ -13,8 +13,11 @@ extern crate rand;
 extern crate rayon;
 extern crate blas;
 extern crate revord;
-extern crate serde_json;
+extern crate slice_vector;
 extern crate time;
+
+#[macro_use]
+extern crate serde_json;
 
 mod hnsw;
 mod types;

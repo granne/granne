@@ -125,6 +125,7 @@ mod tests {
                     num_layers: 5,
                     max_search: 50,
                     show_progress: false,
+                    num_neighbors: 20,
                 },
                 chunk.to_vec()
             );

@@ -1,17 +1,6 @@
 use super::*;
-use std::mem;
 use types::example::*;
 use types::*;
-
-#[test]
-fn hnsw_node_size() {
-    assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborId>() <= mem::size_of::<HnswNode>());
-
-    assert!(
-        mem::size_of::<HnswNode>() <=
-            MAX_NEIGHBORS * mem::size_of::<NeighborId>() + mem::size_of::<usize>()
-    );
-}
 
 #[test]
 fn neighbor_id_conversions() {
@@ -40,25 +29,39 @@ fn select_neighbors() {
 
     let other_elements: Vec<AngularVector> = (0..50).map(|_| random_dense_element(DIM)).collect();
 
-    let candidates: Vec<_> = other_elements
+    let mut candidates: Vec<_> = other_elements
         .iter()
         .map(|e| e.dist(&element))
         .enumerate()
         .collect();
 
+    candidates.sort_unstable_by_key(|&(_, d)| d);
+
     let neighbors = HnswBuilder::select_neighbors(&other_elements[..], candidates.clone(), 10);
 
-    assert_eq!(10, neighbors.len());
+    assert!(0 < neighbors.len() && neighbors.len() <= 10);
+
+    // assert that neighbors are sorted on distance from element
+    for i in 1..neighbors.len() {
+        assert!(neighbors[i-1].1 <= neighbors[i].1);
+    }
 
 
     let neighbors = HnswBuilder::select_neighbors(&other_elements[..], candidates.clone(), 60);
 
-    assert_eq!(50, neighbors.len());
+    assert_eq!(candidates.len(), neighbors.len());
+
+    // assert that neighbors are sorted on distance from element
+    for i in 1..neighbors.len() {
+        assert!(neighbors[i-1].1 <= neighbors[i].1);
+    }
 }
+
 
 fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) {
     let config = Config {
         num_layers: 5,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false,
     };
@@ -67,11 +70,10 @@ fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) 
     builder.build_index();
     let index = builder.get_index();
 
-    verify_search(&index, 0.95);
+    verify_search(&index, 0.95, 40);
 }
 
-fn verify_search<E: At<Output=T> + ?Sized, T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<E,T>, precision: f32) {
-    let max_search = 40;
+fn verify_search<E: At<Output=T> + ?Sized, T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<E,T>, precision: f32, max_search: usize) {
     let mut num_found = 0;
     for i in 0..index.len() {
         if index.search(&index.get_element(i), 1, max_search)[0].0 == i {
@@ -89,8 +91,9 @@ fn verify_search<E: At<Output=T> + ?Sized, T: ComparableTo<T> + Sync + Send + Cl
 fn with_borrowed_elements() {
     let config = Config {
         num_layers: 5,
+        num_neighbors: 20,
         max_search: 50,
-        show_progress: false
+        show_progress: false,
     };
 
     let elements: Vec<_> = (0..500).map(|_| random_dense_element::<AngularVector>(25)).collect();
@@ -103,13 +106,14 @@ fn with_borrowed_elements() {
 
     assert_eq!(index.len(), elements.len());
 
-    verify_search(&index, 0.95);
+    verify_search(&index, 0.95, 40);
 }
 
 #[test]
 fn with_elements_and_add() {
     let config = Config {
         num_layers: 5,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -127,7 +131,7 @@ fn with_elements_and_add() {
 
     builder.build_index();
 
-    verify_search(&builder.get_index(), 0.95);
+    verify_search(&builder.get_index(), 0.95, 40);
 }
 
 #[test]
@@ -155,6 +159,7 @@ fn incremental_build_0() {
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -186,7 +191,7 @@ fn incremental_build_0() {
     assert_eq!(layer_multiplier.pow(2), builder.layers[2].len());
     assert_eq!(elements.len(), builder.layers[3].len());
 
-    verify_search(&builder.get_index(), 0.95);
+    verify_search(&builder.get_index(), 0.95, 40);
 }
 
 #[test]
@@ -195,6 +200,7 @@ fn incremental_build_1() {
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -214,7 +220,7 @@ fn incremental_build_1() {
     assert_eq!(config.num_layers, builder.layers.len());
     assert_eq!(elements.len(), builder.indexed_elements());
 
-    verify_search(&builder.get_index(), 0.95);
+    verify_search(&builder.get_index(), 0.95, 40);
 }
 
 
@@ -226,6 +232,7 @@ fn incremental_build_with_write_and_read() {
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -256,7 +263,7 @@ fn incremental_build_with_write_and_read() {
     assert_eq!(config.num_layers, index.layers.len());
     assert_eq!(elements.len(), index.len());
 
-    verify_search(&index, 0.95);
+    verify_search(&index, 0.95, 40);
 }
 
 #[test]
@@ -271,6 +278,7 @@ fn read_index_with_owned_elements() {
 
         let config = Config {
             num_layers: 4,
+            num_neighbors: 20,
             max_search: 50,
             show_progress: false
         };
@@ -303,11 +311,24 @@ fn read_index_with_owned_elements() {
 }
 
 #[test]
+fn read_legacy_index() {
+    let file = File::open("example_data/legacy_index.granne")
+        .expect("Could not open file with legacy index");
+
+    let layers = read_layers(file).expect("Could not read index");
+
+    assert_eq!(8, layers.len());
+    assert_eq!(100, layers.last().unwrap().len());
+    assert_eq!(20 + EXTRA_NEIGHBORS_AT_BUILD_TIME, layers.last().unwrap().get(0).len());
+}
+
+#[test]
 fn empty_build() {
     let elements: AngularVectors = (0..100).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -348,6 +369,7 @@ fn write_and_load() {
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 10,
         show_progress: false,
     };
@@ -366,10 +388,10 @@ fn write_and_load() {
         assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
 
         for i in 0..builder.layers[layer].len() {
-            assert_eq!(
-                builder.layers[layer][i].neighbors,
-                index.layers[layer][i].neighbors
-            );
+            let builder_neighbors: Vec<_> = builder.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+            let index_neighbors: Vec<_> = index.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+
+            assert_eq!(builder_neighbors, index_neighbors);
         }
     }
 
@@ -391,6 +413,7 @@ fn write_and_read() {
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 10,
         show_progress: false,
     };
@@ -410,10 +433,10 @@ fn write_and_read() {
         assert_eq!(original.layers[layer].len(), copy.layers[layer].len());
 
         for i in 0..original.layers[layer].len() {
-            assert_eq!(
-                original.layers[layer][i].neighbors,
-                copy.layers[layer][i].neighbors
-            );
+            let original_neighbors: Vec<_> = original.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+            let copy_neighbors: Vec<_> = copy.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+
+            assert_eq!(original_neighbors, copy_neighbors);
         }
     }
 
@@ -432,6 +455,7 @@ fn append_elements() {
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false,
     };
