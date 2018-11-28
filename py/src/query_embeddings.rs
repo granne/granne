@@ -12,8 +12,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 
-use super::DEFAULT_NUM_NEIGHBORS;
-use super::DEFAULT_MAX_SEARCH;
+use super::{DEFAULT_NUM_NEIGHBORS, DEFAULT_MAX_SEARCH, DTYPE};
 
 type IndexType<'a> = granne::Hnsw<'a, QueryEmbeddings<'a>, granne::AngularVector<'a>>;
 type BuilderType = granne::HnswBuilder<'static, MmapQueryEmbeddings, granne::AngularVector<'static>>;
@@ -203,14 +202,24 @@ pub fn py_parse_queries_and_save_to_disk(py: Python, queries_path: String, words
     Ok(py.None())
 }
 
-pub fn py_compute_query_vectors_and_save_to_disk(py: Python, dimension: usize, queries_path: String, word_embeddings_path: String, output_path: String, show_progress: bool) -> PyResult<PyObject>{
-    granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk(
-        dimension,
-        &Path::new(&queries_path),
-        &Path::new(&word_embeddings_path),
-        &Path::new(&output_path),
-        show_progress
-    );
+pub fn py_compute_query_vectors_and_save_to_disk(py: Python, dimension: usize, queries_path: String, word_embeddings_path: String, output_path: String, dtype: DTYPE, show_progress: bool) -> PyResult<PyObject> {
+
+    match dtype {
+        DTYPE::F32 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<f32>(
+            dimension,
+            &Path::new(&queries_path),
+            &Path::new(&word_embeddings_path),
+            &Path::new(&output_path),
+            show_progress
+        ),
+        DTYPE::I8 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<i8>(
+            dimension,
+            &Path::new(&queries_path),
+            &Path::new(&word_embeddings_path),
+            &Path::new(&output_path),
+            show_progress
+        )
+    };
 
     Ok(py.None())
 }
@@ -226,11 +235,13 @@ py_class!(pub class QueryHnswBuilder |py| {
                               word_embeddings_path: &str,
                               queries_path: &str,
                               index_path: Option<String> = None,
+                              num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                               max_search: usize = DEFAULT_MAX_SEARCH,
                               show_progress: bool = true) -> PyResult<QueryHnswBuilder>
     {
         let config = granne::Config {
             num_layers: num_layers,
+            num_neighbors: num_neighbors,
             max_search: max_search,
             show_progress: show_progress
         };

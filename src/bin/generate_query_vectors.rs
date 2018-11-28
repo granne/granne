@@ -55,7 +55,7 @@ fn main() {
 
     let start_time = PreciseTime::now();
 
-    granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk(
+    granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<f32>(
         dimension,
         &Path::new(query_file),
         &Path::new(word_embeddings_file),

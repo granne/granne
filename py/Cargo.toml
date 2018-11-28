@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies.cpython]
 version = "0.2.0"
 default-features = false
-#features = ["extension-module"]
+features = ["extension-module"]
 
 [dependencies]
 memmap = "0.6.2"
