@@ -205,6 +205,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             &json!({
                 "version": SERIALIZATION_VERSION,
                 "num_neighbors": self.config.num_neighbors,
+                "num_extra_neighbors_at_build_time": EXTRA_NEIGHBORS_AT_BUILD_TIME,
                 "num_elements": self.len(),
                 "num_indexed_elements": self.indexed_elements(),
                 "num_layers": self.layers.len(),

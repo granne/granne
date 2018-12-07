@@ -17,7 +17,6 @@ pub trait SliceVector<'a, T> where Self: Sized {
         self.len() == 0
     }
     fn push(self: &mut Self, data: &[T]);
-    fn extend_from_slice_vector(self: &mut Self, other: &Self);
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()>;
 }
 
@@ -70,6 +69,12 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
 
     pub fn resize(self: &mut Self, new_len: usize, value: T) {
         self.data.to_mut().resize(new_len * self.width, value);
+    }
+
+    pub fn extend_from_slice_vector(self: &mut Self, other: &FixedWidthSliceVector<T>) {
+        assert_eq!(self.width, other.width);
+
+        self.data.to_mut().extend_from_slice(&other.data);
     }
 
     pub fn load(buffer: &'a [u8], width: usize) -> Self {
@@ -133,12 +138,6 @@ impl<'a, T: Clone> SliceVector<'a, T> for FixedWidthSliceVector<'a, T> {
         self.data.to_mut().extend_from_slice(data);
     }
 
-    fn extend_from_slice_vector(self: &mut Self, other: &FixedWidthSliceVector<T>) {
-        assert_eq!(self.width, other.width);
-
-        self.data.to_mut().extend_from_slice(&other.data);
-    }
-
     fn len(self: &Self) -> usize {
         self.data.len() / self.width
     }
@@ -185,6 +184,25 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
         }
     }
 
+    pub fn extend_from_slice_vector(self: &mut Self, other: &VariableWidthSliceVector<T, Offset>) {
+        let prev_len: usize = (*self.offsets.last().unwrap()).into();
+
+        self.offsets.to_mut().extend(
+            other.offsets
+                .iter()
+                .skip(1) // skip the initial 0
+                .map(|&x| {
+                    let x: usize = x.into();
+                    let x: Offset = (prev_len + x).into();
+                    x
+                })
+        );
+
+        self.data.to_mut().extend_from_slice(&other.data);
+    }
+
+
+
     pub fn borrow<'b>(self: &'a Self) -> VariableWidthSliceVector<'b, T, Offset> where 'a: 'b {
         Self {
             offsets: Cow::Borrowed(&self.offsets),
@@ -215,23 +233,6 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T> 
     fn push(self: &mut Self, data: &[T]) {
         self.data.to_mut().extend_from_slice(data);
         self.offsets.to_mut().push(self.data.len().into());
-    }
-
-    fn extend_from_slice_vector(self: &mut Self, other: &Self) {
-        let prev_len: usize = (*self.offsets.last().unwrap()).into();
-
-        self.offsets.to_mut().extend(
-            other.offsets
-                .iter()
-                .skip(1) // skip the initial 0
-                .map(|&x| {
-                    let x: usize = x.into();
-                    let x: Offset = (prev_len + x).into();
-                    x
-                })
-        );
-
-        self.data.to_mut().extend_from_slice(&other.data);
     }
 
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {

@@ -1,18 +1,17 @@
+use blas;
 use bytes::{ByteOrder, LittleEndian};
 use file_io;
 use hnsw::{At, Writeable};
-use std::borrow::Cow;
-use std::io::{Result, Write};
-use types;
-use types::Dense;
-use types::AngularVector;
 use rand::Rng;
 use rand;
-use blas;
+use slice_vector::{SliceVector, VariableWidthSliceVector};
+use std::convert::Into;
+use std::io::{Result, Write};
+use types::AngularVector;
+use types::Dense;
+use types;
 
 pub mod parsing;
-
-pub const DIM: usize = 300;
 
 #[derive(Clone)]
 pub struct QueryEmbeddings<'a> {
@@ -49,13 +48,12 @@ impl<'a> QueryEmbeddings<'a> {
 
     pub fn get_words(self: &Self, idx: usize) -> Vec<usize>
     {
-        self.queries.get(idx)
+        self.queries.get(idx).iter().map(|&x| x.into()).collect()
     }
 
     pub fn get_embedding(self: &Self, idx: usize) -> types::AngularVector<'static>
     {
-        // save some time by avoiding conversion to Vec<usize> for word ids
-        self.word_embeddings.get_embedding_internal(&self.queries.get_ref(idx))
+        self.word_embeddings.get_embedding_internal(self.queries.queries.get(idx))
     }
 
     pub fn get_embedding_for_query(self: &Self, word_ids: &[usize]) -> types::AngularVector<'static>
@@ -133,7 +131,7 @@ impl<'a> WordEmbeddings<'a> {
 const BYTES_PER_OFFSET: usize = 5;
 #[repr(C,packed)]
 #[derive(Clone,Copy,Debug,Eq,PartialEq)]
-struct Offset([u8; BYTES_PER_OFFSET]);
+pub struct Offset([u8; BYTES_PER_OFFSET]);
 
 impl From<usize> for Offset {
     #[inline(always)]
@@ -155,7 +153,7 @@ const BYTES_PER_WORD_ID: usize = 3;
 
 #[repr(C,packed)]
 #[derive(Clone,Copy,Debug,Eq,PartialEq)]
-struct WordId([u8; BYTES_PER_WORD_ID]);
+pub struct WordId([u8; BYTES_PER_WORD_ID]);
 
 impl From<usize> for WordId {
     #[inline(always)]
@@ -173,102 +171,47 @@ impl Into<usize> for WordId {
     }
 }
 
+
 /// A Vec for storing variable lengths queries (= sequence of word ids)
 #[derive(Clone)]
 pub struct QueryVec<'a> {
-    offsets: Cow<'a, [Offset]>,
-    word_ids: Cow<'a, [WordId]>,
+    queries: VariableWidthSliceVector<'a, WordId, Offset>
 }
 
 impl<'a> QueryVec<'a> {
     pub fn new() -> Self {
         Self {
-            offsets: Cow::from(vec![0.into()]),
-            word_ids: Cow::from(Vec::new())
+            queries: VariableWidthSliceVector::new()
         }
     }
 
     pub fn push(self: &mut Self, query: &[usize]) {
-        for &w in query {
-            self.word_ids.to_mut().push(w.into());
-        }
-
-        self.offsets.to_mut().push(self.word_ids.len().into());
+        let word_ids: Vec<_> = query.iter().map(|&x| x.into()).collect();
+        self.queries.push(&word_ids);
     }
 
     pub fn get(self: &Self, idx: usize) -> Vec<usize> {
-        self.get_ref(idx).iter().map(|&word_id| word_id.into()).collect()
-    }
-
-    fn get_ref(self: &'a Self, idx: usize) -> &'a [WordId] {
-        let start: usize = self.offsets[idx].into();
-        let end: usize = self.offsets[idx + 1].into();
-
-        &self.word_ids[start..end]
+        self.queries.get(idx).iter().map(|&word_id| word_id.into()).collect()
     }
 
     pub fn len(self: &Self) -> usize {
-        self.offsets.len() - 1
+        self.queries.len()
     }
 
-    pub fn extend_from_queryvec(self: &mut Self, other: &QueryVec) {
-        let prev_len: usize = (*self.offsets.last().unwrap()).into();
-
-        self.offsets.to_mut().extend(
-            other.offsets
-                .iter()
-                .skip(1) // skip the initial 0
-                .map(|&x| {
-                    let x: usize = x.into();
-                    let x: Offset = (prev_len + x).into();
-                    x
-                })
-        );
-
-        self.word_ids.to_mut().extend_from_slice(&other.word_ids);
+    pub fn extend_from_queryvec<'b>(self: &mut Self, other: &QueryVec<'b>) {
+        self.queries.extend_from_slice_vector(&other.queries);
     }
 
-    pub fn load(buffer: &'a [u8]) -> Self
-    {
-        let num_queries = LittleEndian::read_u64(buffer) as usize;
-        let (offsets, word_ids) = buffer[::std::mem::size_of::<u64>()..].split_at((1 + num_queries) * BYTES_PER_OFFSET);
-
+    pub fn load(buffer: &'a [u8]) -> Self {
         Self {
-            offsets: Cow::from(file_io::load::<Offset>(offsets)),
-            word_ids: Cow::from(file_io::load::<WordId>(word_ids)),
+            queries: VariableWidthSliceVector::load(buffer)
         }
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        // write metadata
-        let mut buf = [0u8; 8];
-        LittleEndian::write_u64(&mut buf, self.len() as u64);
-        buffer.write_all(&buf)?;
-
-        // write queries
-        let offsets = unsafe {
-            ::std::slice::from_raw_parts(
-                self.offsets.as_ptr() as *const u8,
-                self.offsets.len() * ::std::mem::size_of::<Offset>(),
-            )
-        };
-
-        buffer.write_all(offsets)?;
-
-        let word_ids = unsafe {
-            ::std::slice::from_raw_parts(
-                self.word_ids.as_ptr() as *const u8,
-                self.word_ids.len() * ::std::mem::size_of::<WordId>(),
-            )
-        };
-
-        buffer.write_all(word_ids)?;
-
-        Ok(())
+        self.queries.write(buffer)
     }
 }
-
-
 
 pub fn get_random_word_embeddings(dimension: usize, num: usize) -> WordEmbeddings<'static>
 {
@@ -398,6 +341,8 @@ mod tests {
     fn test_word_embeddings_write_load() {
         let mut buffer: Vec<u8> = Vec::new();
         let num_word_embeddings = 3;
+
+        const DIM: usize = 300;
 
         let word_embeddings = get_random_word_embeddings(DIM, num_word_embeddings);
 
