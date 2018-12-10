@@ -4,6 +4,7 @@ extern crate cpython;
 extern crate memmap;
 extern crate granne;
 extern crate madvise;
+extern crate rayon;
 extern crate serde_json;
 
 use cpython::{PyObject, PyResult, Python};
@@ -24,6 +25,7 @@ pub enum DTYPE {
     F32,
     I8,
 }
+
 
 impl DTYPE {
     fn default() -> DTYPE {
@@ -120,6 +122,23 @@ py_class!(class Hnsw |py| {
         Ok(index.search(&element.into(), num_elements, max_search))
     }
 
+    def search_batch(&self,
+                     elements: Vec<Vec<f32>>,
+                     num_elements: usize = DEFAULT_NUM_NEIGHBORS,
+                     max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<Vec<(usize, f32)>>>
+    {
+        let _elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
+        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
+            self.index(py), &_elements
+        );
+
+        Ok(elements
+           .into_par_iter()
+           .map(|element| index.search(&element.into_iter().collect(), num_elements, max_search))
+           .collect()
+        )
+    }
+
     def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
         let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
         let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
@@ -136,6 +155,15 @@ py_class!(class Hnsw |py| {
         );
 
         Ok(index.len())
+    }
+
+    def get_neighbors(&self, idx: usize, layer: usize) -> PyResult<Vec<usize>> {
+        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
+        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
+            self.index(py), &elements
+        );
+
+        Ok(index.get_neighbors(idx, layer))
     }
 });
 

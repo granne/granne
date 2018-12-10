@@ -4,6 +4,7 @@ use granne::{At, Dense};
 use granne;
 use madvise::{AccessPattern, AdviseMemory};
 use memmap;
+use rayon::prelude::*;
 use serde_json;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -117,6 +118,21 @@ py_class!(pub class QueryHnsw |py| {
             &element.into_iter().collect(), num_elements, max_search))
     }
 
+    def search_batch(&self,
+                     elements: Vec<Vec<f32>>,
+                     num_elements: usize = DEFAULT_NUM_NEIGHBORS,
+                     max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<Vec<(usize, f32)>>>
+    {
+        let _elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &_elements);
+
+        Ok(elements
+           .into_par_iter()
+           .map(|element| index.search(&element.into_iter().collect(), num_elements, max_search))
+           .collect()
+        )
+    }
+
     def search_query(&self,
                      query: &str,
                      num_elements: usize = DEFAULT_NUM_NEIGHBORS,
@@ -148,6 +164,13 @@ py_class!(pub class QueryHnsw |py| {
     def __len__(&self) -> PyResult<usize> {
         let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         Ok(elements.len())
+    }
+
+    def get_neighbors(&self, idx: usize, layer: usize) -> PyResult<Vec<usize>> {
+        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &elements);
+
+        Ok(index.get_neighbors(idx, layer))
     }
 
 });
