@@ -1,0 +1,8 @@
+[package]
+name = "slice_vector"
+version = "0.1.0"
+authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
+
+[dependencies]
+byteorder = "1.2.1"
+rayon = "1.0"

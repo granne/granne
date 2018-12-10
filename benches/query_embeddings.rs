@@ -55,8 +55,7 @@ mod query_embeddings {
 
     #[bench]
     fn into_element_2_words(b: &mut Bencher) {
-        let word_embeddings = get_random_word_embeddings(1000);
-        let word_embeddings = WordEmbeddings::new(&word_embeddings[..]);
+        let word_embeddings = get_random_word_embeddings(100, 1000);
 
         let query = vec![73, 19];
 
@@ -65,8 +64,7 @@ mod query_embeddings {
 
     #[bench]
     fn into_element_4_words(b: &mut Bencher) {
-        let word_embeddings = get_random_word_embeddings(1000);
-        let word_embeddings = WordEmbeddings::new(&word_embeddings[..]);
+        let word_embeddings = get_random_word_embeddings(100, 1000);
 
         let query = vec![513, 37, 566, 2];
 
@@ -75,8 +73,34 @@ mod query_embeddings {
 
     #[bench]
     fn into_element_8_words(b: &mut Bencher) {
-        let word_embeddings = get_random_word_embeddings(1000);
-        let word_embeddings = WordEmbeddings::new(&word_embeddings[..]);
+        let word_embeddings = get_random_word_embeddings(100, 1000);
+
+        let query = vec![0, 150, 255, 77, 12, 3, 55, 599];
+
+        b.iter(|| word_embeddings.get_embedding(&query[..]));
+    }
+
+    #[bench]
+    fn into_element_2_words_300(b: &mut Bencher) {
+        let word_embeddings = get_random_word_embeddings(300, 1000);
+
+        let query = vec![73, 19];
+
+        b.iter(|| word_embeddings.get_embedding(&query[..]));
+    }
+
+    #[bench]
+    fn into_element_4_words_300(b: &mut Bencher) {
+        let word_embeddings = get_random_word_embeddings(300, 1000);
+
+        let query = vec![513, 37, 566, 2];
+
+        b.iter(|| word_embeddings.get_embedding(&query[..]));
+    }
+
+    #[bench]
+    fn into_element_8_words_300(b: &mut Bencher) {
+        let word_embeddings = get_random_word_embeddings(300, 1000);
 
         let query = vec![0, 150, 255, 77, 12, 3, 55, 599];
 

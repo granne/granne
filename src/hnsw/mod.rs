@@ -1,15 +1,18 @@
-use arrayvec::ArrayVec;
 use fnv::FnvHashSet;
 use ordered_float::NotNaN;
 use revord::RevOrd;
 use std::collections::BinaryHeap;
 use std::cmp;
-use types::ComparableTo;
 use pbr::ProgressBar;
+
+use slice_vector::{FixedWidthSliceVector, SliceVector};
+use serde_json;
 
 // Write and read
 use std::fs::File;
-use std::io::{BufWriter, Read, Write, Result};
+use std::io::{BufReader, BufWriter, Read, Write, Result};
+
+use byteorder::{LittleEndian, ReadBytesExt};
 
 // Threading
 use rayon::prelude::*;
@@ -19,51 +22,61 @@ use time::PreciseTime;
 
 use std::borrow::Cow;
 
-use file_io;
+use crate::types::ComparableTo;
+use crate::types;
+use crate::file_io;
+
 
 #[cfg(test)]
 mod tests;
-mod generic;
 mod sharded_hnsw;
 mod bloomfilter;
 mod neighborid;
 
-pub use self::generic::{
-    SearchIndex,
-    IndexBuilder,
-    boxed_index,
-    boxed_sharded_index,
-    boxed_builder,
-    boxed_borrowing_builder,
-    boxed_owning_builder,
-    boxed_mmap_builder,
-};
-
 pub use self::sharded_hnsw::ShardedHnsw;
 
 use self::neighborid::NeighborId;
-const MAX_NEIGHBORS: usize = 20;
+const MAX_NEIGHBORS: usize = 32;
+const EXTRA_NEIGHBORS_AT_BUILD_TIME: usize = 6;
+const UNUSED: NeighborId = NeighborId([<u8>::max_value(); 5]);
+const METADATA_LEN: usize = 1024;
+const LIBRARY_STR: &str = "granne";
+const SERIALIZATION_VERSION: usize = 0;
 
-#[repr(C)]
-#[derive(Clone, Default, Debug)]
-struct HnswNode {
-    neighbors: ArrayVec<[NeighborId; MAX_NEIGHBORS]>,
+type HnswNode = [NeighborId];
+
+fn iter_neighbors<'b>(node: &'b HnswNode) -> impl 'b + Iterator<Item=usize> {
+    node.iter()
+        .take_while(|&&n| n != UNUSED)
+        .map(|&n| n.into())
 }
 
 #[derive(Clone)]
 pub struct Config {
     pub num_layers: usize,
+    pub num_neighbors: usize,
     pub max_search: usize,
     pub show_progress: bool,
+}
+
+impl Config {
+    pub fn default() -> Self {
+        Self {
+            num_layers: 7,
+            num_neighbors: 20,
+            max_search: 200,
+            show_progress: true,
+        }
+    }
 }
 
 pub struct HnswBuilder<'a, Elements, Element>
     where Elements: 'a + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
           Element: 'a + ComparableTo<Element> + Sync + Send
 {
-    layers: Vec<Vec<HnswNode>>,
+    layers: Vec<FixedWidthSliceVector<'static, NeighborId>>,
     elements: Cow<'a, Elements>,
-    config: Config,
+    config: Config
 }
 
 /// The At trait is similar to std::ops::Index. The latter however always returns a reference which makes it impossible
@@ -102,9 +115,10 @@ pub struct Hnsw<'a, Elements, Element>
     where Elements: 'a + At<Output=Element> + ?Sized,
           Element: 'a + ComparableTo<Element>
 {
-    layers: Vec<&'a [HnswNode]>,
+    layers: Vec<FixedWidthSliceVector<'a, NeighborId>>,
     elements: &'a Elements,
 }
+
 
 
 impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
@@ -131,7 +145,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
     pub fn read_index_with_owned_elements<I: Read>(config: Config, index_reader: &mut I, elements: Elements::Owned) -> Result<Self>
     {
-        let layers = Self::read_layers(index_reader)?;
+        let layers = read_layers(index_reader)?;
 
         let elements: Cow<Elements> = Cow::Owned(elements);
 
@@ -149,7 +163,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
     pub fn read_index_with_borrowed_elements<I: Read>(config: Config, index_reader: &mut I, elements: &'a Elements) -> Result<Self>
     {
-        let layers = Self::read_layers(index_reader)?;
+        let layers = read_layers(index_reader)?;
 
         if let Some(ref last_layer) = layers.last() {
             assert!(last_layer.len() <= elements.len());
@@ -160,50 +174,6 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             elements: Cow::Borrowed(elements),
             config: config
         })
-    }
-
-
-    fn read_layers<I: Read>(index_reader: &mut I) -> Result<Vec<Vec<HnswNode>>>{
-        use std::mem::size_of;
-
-        // read metadata
-        const BUFFER_SIZE: usize = 512;
-        let mut buffer = [0u8; BUFFER_SIZE];
-        index_reader.read_exact(&mut buffer[..2 * size_of::<usize>()])?;
-
-        let num_nodes: usize = unsafe { *(&buffer[0] as *const u8 as *const usize) };
-
-        let num_layers = unsafe { *(&buffer[1 * size_of::<usize>()] as *const u8 as *const usize) };
-
-        index_reader.read_exact(&mut buffer[..num_layers * size_of::<usize>()])?;
-
-        let mut layer_counts = Vec::new();
-
-        for i in 0..num_layers {
-            let count: usize =
-                unsafe { *(&buffer[i * size_of::<usize>()] as *const u8 as *const usize) };
-
-            layer_counts.push(count);
-        }
-
-        assert_eq!(num_nodes, layer_counts.iter().sum::<usize>());
-
-        // read graph
-        let mut layers = Vec::new();
-
-        for count in layer_counts {
-            layers.push(Vec::<HnswNode>::with_capacity(count));
-
-            for _ in 0..count {
-                index_reader.read_exact(&mut buffer[..size_of::<HnswNode>()])?;
-
-                layers.last_mut().unwrap().push(unsafe {
-                    (*(&buffer[0] as *const u8 as *const HnswNode)).clone()
-                })
-            }
-        }
-
-        Ok(layers)
     }
 
 
@@ -227,35 +197,38 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         self.write(&mut file)
     }
 
+
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        // write metadata
-        let num_nodes = self.layers.iter().map(|layer| layer.len()).sum();
-        let num_layers = self.layers.len();
-        let layer_counts = self.layers.iter().map(|layer| layer.len());
+        let mut metadata = String::with_capacity(METADATA_LEN);
+        metadata.push_str(LIBRARY_STR);
 
-        let mut usize_data = vec![num_nodes, num_layers];
-        usize_data.extend(layer_counts);
+        metadata.push_str(&serde_json::to_string(
+            &json!({
+                "version": SERIALIZATION_VERSION,
+                "num_neighbors": self.config.num_neighbors,
+                "num_extra_neighbors_at_build_time": EXTRA_NEIGHBORS_AT_BUILD_TIME,
+                "num_elements": self.len(),
+                "num_indexed_elements": self.indexed_elements(),
+                "num_layers": self.layers.len(),
+                "layer_counts": self.layers.iter().map(|layer| layer.len()).collect::<Vec<_>>(),
+            })
+        ).expect("Could not create metadata json"));
 
-        let data = unsafe {
-            ::std::slice::from_raw_parts(
-                usize_data.as_ptr() as *const u8,
-                usize_data.len() * ::std::mem::size_of::<usize>(),
-            )
-        };
+        let mut metadata = metadata.into_bytes();
+        assert!(metadata.len() <= METADATA_LEN);
+        metadata.resize(METADATA_LEN, ' ' as u8);
 
-        buffer.write_all(data)?;
+        buffer.write_all(metadata.as_slice())?;
 
         // write graph
         for layer in &self.layers {
-
-            let data = unsafe {
-                ::std::slice::from_raw_parts(
-                    layer.as_ptr() as *const u8,
-                    layer.len() * ::std::mem::size_of::<HnswNode>(),
-                )
-            };
-
-            buffer.write_all(data)?;
+            if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
+                for node in layer.iter() {
+                    file_io::write(&node[..self.config.num_neighbors], buffer)?;
+                }
+            } else {
+                layer.write(buffer)?;
+            }
         }
 
         Ok(())
@@ -264,7 +237,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
     pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, Elements, Element> {
         Hnsw {
-            layers: self.layers.iter().map(|layer| &layer[..]).collect(),
+            layers: self.layers.iter().map(|layer| layer.borrow()).collect(),
             elements: self.elements.as_ref(),
         }
     }
@@ -292,7 +265,10 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
         // fresh index build => initialize first layer
         if self.layers.is_empty() {
-            self.layers.push(vec![HnswNode::default()]);
+            let mut layer =
+                FixedWidthSliceVector::new(self.config.num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME);
+            layer.resize(1, UNUSED);
+            self.layers.push(layer);
         }
         else {
             // make sure the current last layer is full (no-op if already full)
@@ -344,19 +320,13 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         elements: &Elements,
         num_elements: usize,
         prev_layers: &Hnsw<Elements,Element>,
-        layer: &mut Vec<HnswNode>,
+        layer: &mut FixedWidthSliceVector<'static, NeighborId>,
     ) {
-
         assert!(layer.len() <= num_elements);
 
         let already_indexed = layer.len();
 
-        layer.resize(num_elements, HnswNode::default());
-
-        // create RwLocks for underlying nodes
-        let layer: Vec<RwLock<&mut HnswNode>> =
-                layer.iter_mut().map(|node| RwLock::new(node)).collect();
-
+        layer.resize(num_elements, UNUSED);
         // set up progress bar
         let step_size = cmp::max(100, num_elements / 400);
         let (progress_bar, start_time) = {
@@ -380,21 +350,27 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             }
         };
 
-        // index elements, skipping already indexed
-        layer
-            .par_iter()
-            .enumerate()
-            .skip(already_indexed)
-            .for_each(|(idx, _)| {
-                Self::index_element(config, elements, prev_layers, &layer, idx);
+        {
+            // create RwLocks for underlying nodes
+            let layer: Vec<RwLock<&mut HnswNode>> =
+                layer.iter_mut().map(|node| RwLock::new(node)).collect();
 
-                // This only shows approximate progress because of par_iter
-                if idx % step_size == 0 {
-                    if let Some(ref progress_bar) = progress_bar {
-                        progress_bar.lock().add(step_size as u64);
+            // index elements, skipping already indexed
+            layer
+                .par_iter()
+                .enumerate()
+                .skip(already_indexed)
+                .for_each(|(idx, _)| {
+                    Self::index_element(config, elements, prev_layers, &layer, idx);
+
+                    // This only shows approximate progress because of par_iter
+                    if idx % step_size == 0 {
+                        if let Some(ref progress_bar) = progress_bar {
+                            progress_bar.lock().add(step_size as u64);
+                        }
                     }
-                }
-            });
+                });
+        }
 
         if let Some(progress_bar) = progress_bar {
             progress_bar.lock().set(layer.len() as u64);
@@ -403,6 +379,15 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
                 let end_time = PreciseTime::now();
                 println!("Time: {} s", start_time.to(end_time).num_seconds());
             }
+        }
+
+        // make sure all nodes have at most config.num_neighbors neighbors
+        if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
+            layer.par_iter_mut().enumerate().for_each(|(i, node)| {
+                if node.len() > config.num_neighbors {
+                    Self::add_and_limit_neighbors(elements, node, i, &[], config.num_neighbors);
+                }
+            });
         }
     }
 
@@ -417,9 +402,14 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
         let element: Element = elements.at(idx);
 
+        // do not index elements that are zero (multiply by 100 as safety margin)
+        if element.dist(&element) > NotNaN::new(100.0).unwrap() * Element::eps() {
+            return;
+        }
+
         let (entrypoint, _) = prev_layers.search(&element, 1, 1)[0];
 
-        let neighbors = Self::search_for_neighbors_index(
+        let candidates = Self::search_for_neighbors_index(
             elements,
             layer,
             entrypoint,
@@ -427,7 +417,15 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             config.max_search,
         );
 
-        let neighbors = Self::select_neighbors(elements, neighbors, MAX_NEIGHBORS);
+        let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
+
+        // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
+        // this effectively creates a dead node
+        if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
+            if *d < Element::eps() {
+                return;
+            }
+        }
 
         Self::initialize_node(&layer[idx], &neighbors[..]);
 
@@ -467,7 +465,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
             let node = layer[idx].read();
 
-            for neighbor_idx in node.neighbors.iter().map(|&n| n.into()) {
+            for neighbor_idx in iter_neighbors(&node) {
                 if visited.insert(neighbor_idx) {
                     let distance = elements.at(neighbor_idx).dist(goal);
 
@@ -510,7 +508,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             // add j to neighbors if j is closer to idx,
             // than to all previously added neighbors
             if neighbors.iter().all(
-                |&(_, _, ref neighbor)| d < neighbor.dist(&element)
+                |&(_, _, ref neighbor)| d <= neighbor.dist(&element) + Element::eps()
             ) {
                 neighbors.push((j, d, element));
             } else {
@@ -518,10 +516,7 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             }
         }
 
-        let mut neighbors: Vec<_> = neighbors.into_iter().map(|(j, d, _)| (j,d)).collect();
-
-        let remaining = max_neighbors - neighbors.len();
-        neighbors.extend(pruned.into_iter().take(remaining));
+        let neighbors: Vec<_> = neighbors.into_iter().map(|(j, d, _)| (j,d)).collect();
 
         neighbors
     }
@@ -531,11 +526,9 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         // Write Lock!
         let mut node = node.write();
 
-        debug_assert!(node.neighbors.len() == 0);
-        let num_to_add = node.neighbors.capacity() - node.neighbors.len();
-
-        for &(idx, _) in neighbors.iter().take(num_to_add) {
-            node.neighbors.push(idx.into());
+        debug_assert_eq!(UNUSED, node[0]);
+        for (i, &(idx, _)) in neighbors.iter().enumerate().take(node.len()) {
+            node[i] = idx.into();
         }
     }
 
@@ -550,29 +543,45 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         // Write Lock!
         let mut node = node.write();
 
-        if node.neighbors.len() < MAX_NEIGHBORS {
-            node.neighbors.push(j.into());
+        if let Some(free_pos) = node.iter().position(|x| *x == UNUSED) {
+            node[free_pos] = j.into();
         } else {
-            let element: Element = elements.at(i);
-            let mut candidates: Vec<_> = node.neighbors
-                .iter()
-                .map(|&k| {
-                    let k: usize = k.into();
-                    (k, elements.at(k).dist(&element))
-                })
-                .collect();
+            let num_neighbors = node.len() - EXTRA_NEIGHBORS_AT_BUILD_TIME;
+            Self::add_and_limit_neighbors(elements, &mut node, i, &[(j, d)], num_neighbors);
+        }
+    }
 
+
+    fn add_and_limit_neighbors(elements: &Elements, node: &mut HnswNode, node_id: usize, extra: &[(usize, NotNaN<f32>)], num_neighbors: usize) {
+        assert!(num_neighbors <= node.len());
+
+        let element: Element = elements.at(node_id);
+
+        let mut candidates: Vec<_> = iter_neighbors(&node)
+            .map(|k| (k, elements.at(k).dist(&element)))
+            .collect();
+
+        for &(j, d) in extra {
             candidates.push((j as usize, d));
-            candidates.sort_unstable_by_key(|&(_, d)| d);
+        }
 
-            let neighbors = Self::select_neighbors(elements, candidates, MAX_NEIGHBORS);
+        candidates.sort_unstable_by_key(|&(_, d)| d);
 
-            for (k, (n, _)) in neighbors.into_iter().enumerate() {
-                node.neighbors[k] = n.into();
-            }
+        let neighbors =
+            Self::select_neighbors(elements, candidates, num_neighbors);
+
+        // set new neighbors and mark last positions as unused
+        for (k, n) in neighbors.into_iter()
+            .map(|(n, _)| n.into())
+            .chain(std::iter::repeat(UNUSED))
+            .enumerate()
+            .take(node.len())
+        {
+            node[k] = n;
         }
     }
 }
+
 
 impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
     where Elements: 'a + Writeable + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
@@ -587,26 +596,27 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 }
 
 
-// Methods only implemented for slices
-impl<'a, Element> HnswBuilder<'a, [Element], Element>
-    where Element: 'a + ComparableTo<Element> + Sync + Send + Clone
+// Methods only implemented for AngularVectors
+impl<'a, T> HnswBuilder<'a, types::AngularVectorsT<'static, T>, types::AngularVectorT<'static, T>> where
+    T: Copy + Sync + Send,
+    types::AngularVectorT<'static, T>: ComparableTo<types::AngularVectorT<'static, T>>
 {
-    pub fn new(config: Config) -> Self {
+    pub fn new(dimension: usize, config: Config) -> Self {
         HnswBuilder {
             layers: Vec::new(),
-            elements: Cow::Owned(Vec::new()),
+            elements: Cow::Owned(types::AngularVectorsT::new(dimension)),
             config: config
         }
     }
 
 
-    pub fn add(self: &mut Self, elements: Vec<Element>) {
-        assert!(self.elements.len() + elements.len() <= <NeighborId>::max_value() as usize);
+    pub fn add(self: &mut Self, elements: types::AngularVectorsT<'static, T>) {
+        assert!(self.elements.len() + (elements.len() / self.elements.dim) <= <NeighborId>::max_value() as usize);
 
         if self.elements.len() == 0 {
             self.elements = Cow::Owned(elements);
         } else {
-            self.elements.to_mut().extend_from_slice(elements.as_slice());
+            self.elements.to_mut().extend(elements);
         }
     }
 }
@@ -626,50 +636,27 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
           Element: 'a + ComparableTo<Element>
 {
     pub fn load(buffer: &'a [u8], elements: &'a Elements) -> Self {
+        let (num_neighbors, layer_counts) = read_metadata(buffer).expect("Could not read metadata");
 
-        let offset = 0 * ::std::mem::size_of::<usize>();
-        let num_nodes = &buffer[offset] as *const u8 as *const usize;
-
-        let offset = 1 * ::std::mem::size_of::<usize>();
-        let num_layers = &buffer[offset] as *const u8 as *const usize;
-
-        let offset = 2 * ::std::mem::size_of::<usize>();
-
-        let layer_counts: &[usize] = unsafe {
-            ::std::slice::from_raw_parts(&buffer[offset] as *const u8 as *const usize, *num_layers)
-        };
-
-        let offset = (2 + layer_counts.len()) * ::std::mem::size_of::<usize>();
-
-        let nodes: &[HnswNode] = unsafe {
-            ::std::slice::from_raw_parts(
-                &buffer[offset] as *const u8 as *const HnswNode,
-                *num_nodes,
-            )
-        };
-
-        assert_eq!(nodes.len(), layer_counts.iter().sum::<usize>());
-
+        // load graph
         let mut layers = Vec::new();
+        let node_size = num_neighbors * std::mem::size_of::<NeighborId>();
 
-        let mut start = 0;
-        for &layer_count in layer_counts {
-            let end = start + layer_count;
-            let layer = &nodes[start..end];
-            layers.push(layer);
+        let mut start = METADATA_LEN;
+        for count in layer_counts {
+            let end = start + count * node_size;
+            let layer = &buffer[start..end];
+            layers.push(FixedWidthSliceVector::load(layer, num_neighbors));
             start = end;
         }
-
-        let offset = offset + nodes.len() * ::std::mem::size_of::<HnswNode>();
-
-        assert_eq!(buffer.len(), offset);
-        assert_eq!(layers.last().unwrap().len(), elements.len());
 
         Self {
             layers: layers,
             elements: elements,
         }
+
     }
+
 
     pub fn search(
         &self,
@@ -696,7 +683,7 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
 
 
     fn find_entrypoint(
-        layers: &[&[HnswNode]],
+        layers: &[FixedWidthSliceVector<'a, NeighborId>],
         element: &Element,
         elements: &Elements) -> usize {
 
@@ -713,7 +700,7 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
 
 
     fn search_for_neighbors(
-        layer: &[HnswNode],
+        layer: &FixedWidthSliceVector<'a, NeighborId>,
         entrypoint: usize,
         elements: &Elements,
         goal: &Element,
@@ -738,9 +725,9 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
 
             res.push((d, idx));
 
-            let node = &layer[idx];
+            let node = layer.get(idx);
 
-            for neighbor_idx in node.neighbors.iter().map(|&n| n.into()) {
+            for neighbor_idx in iter_neighbors(&node) {
                 if visited.insert(neighbor_idx) {
                     let distance = elements.at(neighbor_idx).dist(&goal);
 
@@ -765,6 +752,101 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
     pub fn get_element(self: &Self, index: usize) -> Element {
         self.elements.at(index)
     }
+
+    pub fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
+        iter_neighbors(self.layers[layer].get(index)).collect()
+    }
+
+}
+
+
+fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>)> {
+    let mut index_reader = index_reader.take(METADATA_LEN as u64);
+
+    // Check if the file is a current or old version of an granne index
+    let mut lib_str = Vec::new();
+    index_reader.by_ref().take(LIBRARY_STR.len() as u64).read_to_end(&mut lib_str)?;
+    if String::from_utf8(lib_str).unwrap_or("".to_string()) == LIBRARY_STR {
+        // the current version stores metadata as json
+        let metadata: serde_json::Value = serde_json::from_reader(index_reader).expect("Could not read metadata");
+
+        let num_neighbors: usize =
+            serde_json::from_value(metadata["num_neighbors"].clone()).expect("Could not read num_neighbors");
+        let num_layers: usize =
+            serde_json::from_value(metadata["num_layers"].clone()).expect("Could not read num_layers");
+        let layer_counts: Vec<usize> =
+            serde_json::from_value(metadata["layer_counts"].clone()).expect("Could not read layer_counts");
+        assert_eq!(num_layers, layer_counts.len());
+
+        Ok((num_neighbors, layer_counts))
+    } else {
+        // Read legacy index
+        // First 8 bytes are num_nodes. We can ignore these.
+        // Note that "granne".len() bytes were already read.
+        const LIBRARY_STR_LEN: usize = 6;
+        assert_eq!(LIBRARY_STR_LEN, LIBRARY_STR.len());
+        const BYTES_LEFT_FOR_NUM_NODES: usize = std::mem::size_of::<usize>() - LIBRARY_STR_LEN;
+
+        index_reader.read_exact(&mut [0; BYTES_LEFT_FOR_NUM_NODES])?;
+
+        let num_layers = index_reader.read_u64::<LittleEndian>()? as usize;
+
+        let mut layer_counts = Vec::new();
+        for _ in 0..num_layers {
+            layer_counts.push(index_reader.read_u64::<LittleEndian>()? as usize);
+        }
+
+        let num_neighbors = 20;
+
+        Ok((num_neighbors, layer_counts))
+    }
+}
+
+
+fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
+    use std::mem::size_of;
+
+    let mut index_reader = BufReader::new(index_reader);
+
+    let (num_neighbors, layer_counts) = read_metadata(index_reader.by_ref())?;
+
+    // read graph
+    let mut layers = Vec::new();
+    let node_size = num_neighbors * size_of::<NeighborId>();
+
+    for count in layer_counts {
+        let mut layer_reader = index_reader.by_ref().take((node_size * count) as u64);
+
+        let layer = if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
+            let num_neighbors_at_build_time = num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME;
+
+            let mut vec = FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, count);
+
+            let mut buffer = Vec::new();
+            buffer.resize(num_neighbors_at_build_time * size_of::<NeighborId>(), 0);
+
+            while let Ok(()) = layer_reader.read_exact(&mut buffer[..node_size]) {
+                vec.push(file_io::load(&buffer));
+            }
+
+            vec.par_iter_mut().for_each(|node| {
+                for i in num_neighbors..num_neighbors_at_build_time {
+                    node[i] = UNUSED;
+                }
+            });
+
+            vec
+
+        } else {
+            FixedWidthSliceVector::read(layer_reader, num_neighbors)?
+        };
+
+        assert_eq!(count, layer.len());
+
+        layers.push(layer);
+    }
+
+    Ok(layers)
 }
 
 

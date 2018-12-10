@@ -1,17 +1,7 @@
 use super::*;
-use std::mem;
-use types::example::*;
-use types::*;
 
-#[test]
-fn hnsw_node_size() {
-    assert!((MAX_NEIGHBORS) * mem::size_of::<NeighborId>() <= mem::size_of::<HnswNode>());
-
-    assert!(
-        mem::size_of::<HnswNode>() <=
-            MAX_NEIGHBORS * mem::size_of::<NeighborId>() + mem::size_of::<usize>()
-    );
-}
+use crate::types::example::*;
+use crate::types::*;
 
 #[test]
 fn neighbor_id_conversions() {
@@ -35,43 +25,56 @@ fn neighbor_id_cast() {
 
 #[test]
 fn select_neighbors() {
-    let element: AngularVector<[f32; 50]> = random_dense_element();
+    const DIM: usize = 50;
+    let element: AngularVector = random_dense_element(DIM);
 
-    let other_elements: Vec<AngularVector<[f32; 50]>> = (0..50).map(|_| random_dense_element()).collect();
+    let other_elements: Vec<AngularVector> = (0..50).map(|_| random_dense_element(DIM)).collect();
 
-    let candidates: Vec<_> = other_elements
+    let mut candidates: Vec<_> = other_elements
         .iter()
         .map(|e| e.dist(&element))
         .enumerate()
         .collect();
 
+    candidates.sort_unstable_by_key(|&(_, d)| d);
+
     let neighbors = HnswBuilder::select_neighbors(&other_elements[..], candidates.clone(), 10);
 
-    assert_eq!(10, neighbors.len());
+    assert!(0 < neighbors.len() && neighbors.len() <= 10);
+
+    // assert that neighbors are sorted on distance from element
+    for i in 1..neighbors.len() {
+        assert!(neighbors[i-1].1 <= neighbors[i].1);
+    }
 
 
     let neighbors = HnswBuilder::select_neighbors(&other_elements[..], candidates.clone(), 60);
 
-    assert_eq!(50, neighbors.len());
+    assert_eq!(candidates.len(), neighbors.len());
+
+    // assert that neighbors are sorted on distance from element
+    for i in 1..neighbors.len() {
+        assert!(neighbors[i-1].1 <= neighbors[i].1);
+    }
 }
+
 
 fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) {
     let config = Config {
         num_layers: 5,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false,
     };
 
-    let mut builder = HnswBuilder::new(config);
-    builder.add(elements.clone());
+    let mut builder = HnswBuilder::<[T], T>::with_owned_elements(config, elements);
     builder.build_index();
     let index = builder.get_index();
 
-    verify_search(&index, 0.95);
+    verify_search(&index, 0.95, 40);
 }
 
-fn verify_search<T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<[T],T>, precision: f32) {
-    let max_search = 40;
+fn verify_search<E: At<Output=T> + ?Sized, T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<E,T>, precision: f32, max_search: usize) {
     let mut num_found = 0;
     for i in 0..index.len() {
         if index.search(&index.get_element(i), 1, max_search)[0].0 == i {
@@ -89,11 +92,12 @@ fn verify_search<T: ComparableTo<T> + Sync + Send + Clone>(index: &Hnsw<[T],T>, 
 fn with_borrowed_elements() {
     let config = Config {
         num_layers: 5,
+        num_neighbors: 20,
         max_search: 50,
-        show_progress: false
+        show_progress: false,
     };
 
-    let elements: Vec<_> = (0..500).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+    let elements: Vec<_> = (0..500).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
     let mut builder = HnswBuilder::with_borrowed_elements(config, elements.as_slice());
 
@@ -103,44 +107,48 @@ fn with_borrowed_elements() {
 
     assert_eq!(index.len(), elements.len());
 
-    verify_search(&index, 0.95);
+    verify_search(&index, 0.95, 40);
 }
 
 #[test]
 fn with_elements_and_add() {
     let config = Config {
         num_layers: 5,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
 
-    let elements: Vec<_> = (0..600).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+    let elements: AngularVectors = (0..500).map(|_| random_dense_element::<AngularVector>(25)).collect();
+    let additional_elements: AngularVectors = (0..100).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
-    let mut builder = HnswBuilder::with_borrowed_elements(config, &elements[..500]);
+    let mut builder: HnswBuilder<AngularVectors, AngularVector> = HnswBuilder::with_owned_elements(config, elements);
 
     assert_eq!(500, builder.elements.len());
 
-    builder.add(elements[500..].to_vec());
+    builder.add(additional_elements);
 
     assert_eq!(600, builder.elements.len());
 
     builder.build_index();
 
-    verify_search(&builder.get_index(), 0.95);
+    verify_search(&builder.get_index(), 0.95, 40);
 }
 
 #[test]
 fn build_and_search_float() {
-    let elements: Vec<_> = (0..1500).map(|_| random_dense_element::<AngularVector<[f32; 128]>, _>()).collect();
+    let elements: Vec<_> = (0..1500).map(|_| random_dense_element::<AngularVector>(128)).collect();
 
     build_and_search(elements);
 }
 
 #[test]
 fn build_and_search_int8() {
-    let elements: Vec<AngularIntVector<[i8; 32]>> =
+    const DIM: usize = 32;
+
+    let elements: Vec<AngularIntVector> =
         (0..500)
-        .map(|_| random_dense_element::<AngularVector<[f32; 32]>, _>().into())
+        .map(|_| random_dense_element::<AngularVector>(DIM).into())
         .collect();
 
     build_and_search(elements);
@@ -148,10 +156,11 @@ fn build_and_search_int8() {
 
 #[test]
 fn incremental_build_0() {
-    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -183,15 +192,16 @@ fn incremental_build_0() {
     assert_eq!(layer_multiplier.pow(2), builder.layers[2].len());
     assert_eq!(elements.len(), builder.layers[3].len());
 
-    verify_search(&builder.get_index(), 0.95);
+    verify_search(&builder.get_index(), 0.95, 40);
 }
 
 #[test]
 fn incremental_build_1() {
-    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -211,16 +221,19 @@ fn incremental_build_1() {
     assert_eq!(config.num_layers, builder.layers.len());
     assert_eq!(elements.len(), builder.indexed_elements());
 
-    verify_search(&builder.get_index(), 0.95);
+    verify_search(&builder.get_index(), 0.95, 40);
 }
 
 
 #[test]
 fn incremental_build_with_write_and_read() {
-    let elements: Vec<_> = (0..1000).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+    const DIM: usize = 25;
+
+    let elements: AngularVectors = (0..1000).map(|_| random_dense_element::<AngularVector>(DIM)).collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
@@ -231,12 +244,12 @@ fn incremental_build_with_write_and_read() {
 
     let mut data = Vec::new();
     {
-        let builder = HnswBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
+        let builder = HnswBuilder::with_borrowed_elements(config.clone(), &elements);
         builder.write(&mut data).unwrap();
     }
 
     for i in 0..num_chunks {
-        let mut builder = HnswBuilder::read_index_with_borrowed_elements(config.clone(), &mut data.as_slice(), elements.as_slice()).unwrap();
+        let mut builder = HnswBuilder::read_index_with_borrowed_elements(config.clone(), &mut data.as_slice(), &elements).unwrap();
         assert_eq!(i * chunk_size, builder.indexed_elements());
 
         builder.build_index_part((i + 1) * chunk_size);
@@ -247,24 +260,26 @@ fn incremental_build_with_write_and_read() {
         builder.write(&mut data).unwrap();
     }
 
-    let index = Hnsw::<[AngularVector<[f32; 25]>], AngularVector<[f32; 25]>>::load(data.as_slice(), elements.as_slice());
+    let index = Hnsw::<AngularVectors, AngularVector>::load(data.as_slice(), &elements);
     assert_eq!(config.num_layers, index.layers.len());
     assert_eq!(elements.len(), index.len());
 
-    verify_search(&index, 0.95);
+    verify_search(&index, 0.95, 40);
 }
 
 #[test]
 fn read_index_with_owned_elements() {
     let num_elements = 1000;
-    type Element = AngularVector<[f32; 25]>;
+    const DIM: usize = 25;
+    type Element = AngularVector<'static>;
 
     let mut owning_builder = {
 
-        let elements: Vec<Element> = (0..num_elements).map(|_| random_dense_element::<Element, _>()).collect();
+        let elements: Vec<Element> = (0..num_elements).map(|_| random_dense_element::<Element>(DIM)).collect();
 
         let config = Config {
             num_layers: 4,
+            num_neighbors: 20,
             max_search: 50,
             show_progress: false
         };
@@ -274,7 +289,7 @@ fn read_index_with_owned_elements() {
         let mut data = Vec::new();
         builder.write(&mut data).unwrap();
 
-        let mut owning_builder: HnswBuilder<[Element], Element> =
+        let owning_builder: HnswBuilder<[Element], Element> =
             HnswBuilder::read_index_with_owned_elements(config.clone(), &mut data.as_slice(), elements.clone()).unwrap();
 
         assert_eq!(num_elements / 2, builder.indexed_elements());
@@ -297,16 +312,29 @@ fn read_index_with_owned_elements() {
 }
 
 #[test]
+fn read_legacy_index() {
+    let file = File::open("example_data/legacy_index.granne")
+        .expect("Could not open file with legacy index");
+
+    let layers = read_layers(file).expect("Could not read index");
+
+    assert_eq!(8, layers.len());
+    assert_eq!(100, layers.last().unwrap().len());
+    assert_eq!(20 + EXTRA_NEIGHBORS_AT_BUILD_TIME, layers.last().unwrap().get(0).len());
+}
+
+#[test]
 fn empty_build() {
-    let elements: Vec<_> = (0..100).map(|_| random_dense_element::<AngularVector<[f32; 25]>, _>()).collect();
+    let elements: AngularVectors = (0..100).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false
     };
 
-    let mut builder = HnswBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
+    let mut builder = HnswBuilder::with_borrowed_elements(config.clone(), &elements);
 
     builder.build_index_part(0);
 }
@@ -337,22 +365,23 @@ fn test_layer_multiplier() {
 
 #[test]
 fn write_and_load() {
-    let elements: Vec<AngularVector<[f32; 50]>> = (0..100).map(|_| random_dense_element()).collect();
+    const DIM: usize = 50;
+    let elements: AngularVectors = (0..100).map(|_| random_dense_element(DIM)).collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 10,
         show_progress: false,
     };
 
-    let mut builder = HnswBuilder::new(config);
-    builder.add(elements.clone());
+    let mut builder = HnswBuilder::with_borrowed_elements(config, &elements);
     builder.build_index();
 
     let mut data = Vec::new();
     builder.write(&mut data).unwrap();
 
-    let index = Hnsw::<[AngularVector<[f32; 50]>], AngularVector<[f32; 50]>>::load(&data[..], &elements[..]);
+    let index = Hnsw::<AngularVectors, AngularVector>::load(&data[..], &elements);
 
     assert_eq!(builder.layers.len(), index.layers.len());
 
@@ -360,17 +389,17 @@ fn write_and_load() {
         assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
 
         for i in 0..builder.layers[layer].len() {
-            assert_eq!(
-                builder.layers[layer][i].neighbors,
-                index.layers[layer][i].neighbors
-            );
+            let builder_neighbors: Vec<_> = builder.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+            let index_neighbors: Vec<_> = index.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+
+            assert_eq!(builder_neighbors, index_neighbors);
         }
     }
 
     assert_eq!(builder.elements.len(), index.len());
 
     for i in 0..builder.elements.len() {
-        assert!(builder.elements[i].dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+        assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
     }
 }
 
@@ -378,25 +407,25 @@ fn write_and_load() {
 fn write_and_read() {
     const DIM: usize = 64;
 
-    let elements: Vec<AngularIntVector<[i8; DIM]>> =
+    let elements: AngularIntVectors =
         (0..100)
-        .map(|_| random_dense_element::<AngularVector<[f32; DIM]>, _>().into())
+        .map(|_| random_dense_element::<AngularVector>(DIM).into())
         .collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 10,
         show_progress: false,
     };
 
-    let mut original = HnswBuilder::new(config.clone());
-    original.add(elements.clone());
+    let mut original = HnswBuilder::with_borrowed_elements(config.clone(), &elements);
     original.build_index();
 
     let mut data = Vec::new();
     original.write(&mut data).unwrap();
 
-    let copy = HnswBuilder::<[AngularIntVector<[i8; DIM]>], AngularIntVector<[i8; DIM]>>::read_index_with_borrowed_elements(
+    let copy = HnswBuilder::<AngularIntVectors, AngularIntVector>::read_index_with_borrowed_elements(
         config, &mut data.as_slice(), &elements).unwrap();
 
     assert_eq!(original.layers.len(), copy.layers.len());
@@ -405,10 +434,10 @@ fn write_and_read() {
         assert_eq!(original.layers[layer].len(), copy.layers[layer].len());
 
         for i in 0..original.layers[layer].len() {
-            assert_eq!(
-                original.layers[layer][i].neighbors,
-                copy.layers[layer][i].neighbors
-            );
+            let original_neighbors: Vec<_> = original.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+            let copy_neighbors: Vec<_> = copy.layers[layer].get(i).iter().take_while(|&&n| n != UNUSED).collect();
+
+            assert_eq!(original_neighbors, copy_neighbors);
         }
     }
 
@@ -417,19 +446,24 @@ fn write_and_read() {
 
 #[test]
 fn append_elements() {
-    let elements: Vec<_> = (0..1000)
-        .map(|_| random_dense_element::<AngularVector<[f32; 50]>, _>())
+    let elements: AngularVectors = (0..500)
+        .map(|_| random_dense_element::<AngularVector>(50))
+        .collect();
+
+    let additional_elements: AngularVectors = (0..500)
+        .map(|_| random_dense_element::<AngularVector>(50))
         .collect();
 
     let config = Config {
         num_layers: 4,
+        num_neighbors: 20,
         max_search: 50,
         show_progress: false,
     };
 
     // insert half of the elements
-    let mut builder = HnswBuilder::new(config);
-    builder.add(elements[..500].to_vec());
+    let mut builder = HnswBuilder::new(50, config);
+    builder.add(elements.clone());
     builder.build_index();
 
     assert_eq!(4, builder.layers.len());
@@ -441,13 +475,13 @@ fn append_elements() {
     {
         let index = builder.get_index();
 
-        assert!(index.search(&elements[123], 1, max_search).iter().any(
+        assert!(index.search(&elements.at(123), 1, max_search).iter().any(
             |&(idx, _)| 123 == idx,
         ));
     }
 
     // insert rest of the elements
-    builder.add(elements[500..].to_vec());
+    builder.add(additional_elements.clone());
     builder.build_index();
 
     assert_eq!(4, builder.layers.len());
@@ -458,12 +492,12 @@ fn append_elements() {
     {
         let index = builder.get_index();
 
-        assert!(index.search(&elements[123], 1, max_search).iter().any(
+        assert!(index.search(&elements.at(123), 1, max_search).iter().any(
             |&(idx, _)| 123 == idx,
         ));
 
-        assert!(index.search(&elements[789], 1, max_search).iter().any(
-            |&(idx, _)| 789 == idx,
+        assert!(index.search(&additional_elements.at(123), 1, max_search).iter().any(
+            |&(idx, _)| elements.len() + 123 == idx,
         ));
     }
 }

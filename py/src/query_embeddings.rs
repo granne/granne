@@ -1,9 +1,10 @@
 use cpython::{PyObject, PyResult, Python};
-use granne::query_embeddings::{QueryEmbeddings, DIM};
+use granne::query_embeddings::QueryEmbeddings;
 use granne::{At, Dense};
 use granne;
 use madvise::{AccessPattern, AdviseMemory};
 use memmap;
+use rayon::prelude::*;
 use serde_json;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -12,11 +13,10 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 
-use super::DEFAULT_NUM_NEIGHBORS;
-use super::DEFAULT_MAX_SEARCH;
+use super::{DEFAULT_NUM_NEIGHBORS, DEFAULT_MAX_SEARCH, DTYPE};
 
-type IndexType<'a> = granne::Hnsw<'a, QueryEmbeddings<'a>, granne::AngularVector<[f32; DIM]>>;
-type BuilderType = granne::HnswBuilder<'static, MmapQueryEmbeddings, granne::AngularVector<[f32; DIM]>>;
+type IndexType<'a> = granne::Hnsw<'a, QueryEmbeddings<'a>, granne::AngularVector<'a>>;
+type BuilderType = granne::HnswBuilder<'static, MmapQueryEmbeddings, granne::AngularVector<'static>>;
 
 pub struct WordDict {
     word_to_id: HashMap<String, usize>,
@@ -71,12 +71,14 @@ py_class!(pub class QueryHnsw |py| {
     data word_embeddings: memmap::Mmap;
     data index: memmap::Mmap;
     data elements: memmap::Mmap;
+    data dimension: usize;
     data word_dict: Option<WordDict>;
 
     def __new__(_cls,
                 word_embeddings_path: &str,
                 index_path: &str,
                 elements_path: &str,
+                dimension: usize,
                 words_path: Option<String> = None) -> PyResult<QueryHnsw> {
 
         let index = File::open(index_path).unwrap();
@@ -92,7 +94,7 @@ py_class!(pub class QueryHnsw |py| {
 
         // sanity check / fail early
         {
-            let elements = QueryEmbeddings::load(&word_embeddings, &elements);
+            let elements = QueryEmbeddings::load(dimension, &word_embeddings, &elements);
             let _index = IndexType::load(&index, &elements);
         }
 
@@ -101,7 +103,7 @@ py_class!(pub class QueryHnsw |py| {
             None => None
         };
 
-        QueryHnsw::create_instance(py, word_embeddings, index, elements, word_dict)
+        QueryHnsw::create_instance(py, word_embeddings, index, elements, dimension, word_dict)
     }
 
     def search(&self,
@@ -109,11 +111,26 @@ py_class!(pub class QueryHnsw |py| {
                num_elements: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let elements = QueryEmbeddings::load(&self.word_embeddings(py), &self.elements(py));
+        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
 
         Ok(index.search(
             &element.into_iter().collect(), num_elements, max_search))
+    }
+
+    def search_batch(&self,
+                     elements: Vec<Vec<f32>>,
+                     num_elements: usize = DEFAULT_NUM_NEIGHBORS,
+                     max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<Vec<(usize, f32)>>>
+    {
+        let _elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &_elements);
+
+        Ok(elements
+           .into_par_iter()
+           .map(|element| index.search(&element.into_iter().collect(), num_elements, max_search))
+           .collect()
+        )
     }
 
     def search_query(&self,
@@ -122,7 +139,7 @@ py_class!(pub class QueryHnsw |py| {
                      max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, String, f32)>>
     {
         let word_dict = self.word_dict(py).as_ref().unwrap();
-        let elements = QueryEmbeddings::load(&self.word_embeddings(py), &self.elements(py));
+        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
 
         let element = elements.get_embedding_for_query(&word_dict.get_word_ids(query));
@@ -133,20 +150,27 @@ py_class!(pub class QueryHnsw |py| {
     }
 
     def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-        let elements = QueryEmbeddings::load(&self.word_embeddings(py), &self.elements(py));
-        Ok(elements.get_embedding(idx).0.to_vec())
+        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        Ok(elements.get_embedding(idx).into())
     }
 
     def get_query(&self, idx: usize) -> PyResult<String> {
         let word_dict = self.word_dict(py).as_ref().unwrap();
-        let elements = QueryEmbeddings::load(&self.word_embeddings(py), &self.elements(py));
+        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
 
         Ok(word_dict.get_query(&elements.get_words(idx)))
     }
 
     def __len__(&self) -> PyResult<usize> {
-        let elements = QueryEmbeddings::load(&self.word_embeddings(py), &self.elements(py));
+        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         Ok(elements.len())
+    }
+
+    def get_neighbors(&self, idx: usize, layer: usize) -> PyResult<Vec<usize>> {
+        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &elements);
+
+        Ok(index.get_neighbors(idx, layer))
     }
 
 });
@@ -156,26 +180,29 @@ py_class!(pub class QueryHnsw |py| {
 #[derive(Clone)]
 pub struct MmapQueryEmbeddings {
     word_embeddings: Arc<memmap::Mmap>,
-    queries: Arc<memmap::Mmap>
+    queries: Arc<memmap::Mmap>,
+    dimension: usize
 }
 
 impl MmapQueryEmbeddings {
-    pub fn new(word_embeddings: memmap::Mmap, queries: memmap::Mmap) -> Self {
+    pub fn new(dimension: usize, word_embeddings: memmap::Mmap, queries: memmap::Mmap) -> Self {
         Self {
             word_embeddings: Arc::new(word_embeddings),
-            queries: Arc::new(queries)
+            queries: Arc::new(queries),
+            dimension: dimension
+
         }
     }
 
     #[inline(always)]
     pub fn load<'a>(self: &'a Self) -> QueryEmbeddings<'a> {
-        QueryEmbeddings::load(&self.word_embeddings[..], &self.queries[..])
+        QueryEmbeddings::load(self.dimension, &self.word_embeddings[..], &self.queries[..])
     }
 }
 
 
 impl At for MmapQueryEmbeddings {
-    type Output = granne::AngularVector<[f32; DIM]>;
+    type Output = granne::AngularVector<'static>;
 
     fn at(self: &Self, index: usize) -> Self::Output {
         self.load().at(index)
@@ -198,13 +225,24 @@ pub fn py_parse_queries_and_save_to_disk(py: Python, queries_path: String, words
     Ok(py.None())
 }
 
-pub fn py_compute_query_vectors_and_save_to_disk(py: Python, queries_path: String, word_embeddings_path: String, output_path: String, show_progress: bool) -> PyResult<PyObject>{
-    granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk(
-        &Path::new(&queries_path),
-        &Path::new(&word_embeddings_path),
-        &Path::new(&output_path),
-        show_progress
-    );
+pub fn py_compute_query_vectors_and_save_to_disk(py: Python, dimension: usize, queries_path: String, word_embeddings_path: String, output_path: String, dtype: DTYPE, show_progress: bool) -> PyResult<PyObject> {
+
+    match dtype {
+        DTYPE::F32 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<f32>(
+            dimension,
+            &Path::new(&queries_path),
+            &Path::new(&word_embeddings_path),
+            &Path::new(&output_path),
+            show_progress
+        ),
+        DTYPE::I8 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<i8>(
+            dimension,
+            &Path::new(&queries_path),
+            &Path::new(&word_embeddings_path),
+            &Path::new(&output_path),
+            show_progress
+        )
+    };
 
     Ok(py.None())
 }
@@ -215,16 +253,18 @@ py_class!(pub class QueryHnswBuilder |py| {
 
     @classmethod
     def with_mmapped_elements(_cls,
+                              dimension: usize,
                               num_layers: usize,
                               word_embeddings_path: &str,
                               queries_path: &str,
                               index_path: Option<String> = None,
+                              num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                               max_search: usize = DEFAULT_MAX_SEARCH,
-                              show_progress: bool = true,
-                              words_path: Option<String> = None) -> PyResult<QueryHnswBuilder>
+                              show_progress: bool = true) -> PyResult<QueryHnswBuilder>
     {
         let config = granne::Config {
             num_layers: num_layers,
+            num_neighbors: num_neighbors,
             max_search: max_search,
             show_progress: show_progress
         };
@@ -235,7 +275,7 @@ py_class!(pub class QueryHnswBuilder |py| {
         let queries = File::open(queries_path).unwrap();
         let queries = unsafe { memmap::Mmap::map(&queries).unwrap() };
 
-        let elements = MmapQueryEmbeddings::new(word_embeddings, queries);
+        let elements = MmapQueryEmbeddings::new(dimension, word_embeddings, queries);
 
         // sanity check / fail early
         {

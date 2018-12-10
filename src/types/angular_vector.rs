@@ -1,182 +1,292 @@
+use crate::hnsw::{At,Writeable};
+use crate::types::{ComparableTo, Dense};
+use crate::file_io;
+
 use std::cmp;
 use ordered_float::NotNaN;
 use blas;
 
+use std::borrow::Cow;
 use std::iter::FromIterator;
+use std::io::{Write, Result};
 
-use super::{ComparableTo, Dense};
-use super::array::Array;
-
-#[repr(C)]
 #[derive(Clone)]
-pub struct AngularVector<D>(pub D)
-    where D: Array<f32>;
+pub struct AngularVectorT<'a, T: Copy + 'static>(pub Cow<'a, [T]>);
 
+impl<'a, T: Copy> AngularVectorT<'a, T> {
+    fn len(self: &Self) -> usize {
+        self.0.len()
+    }
+}
 
-impl<D> From<D> for AngularVector<D>
-    where D: Array<f32>
+impl<T> FromIterator<f32> for AngularVectorT<'static, T>
+    where T: Copy,
+          AngularVectorT<'static, T>: From<Vec<f32>>
 {
-    fn from(data: D) -> Self {
-        let mut data = data;
+    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
+        let vec: Vec<f32> = iter.into_iter().collect();
+        vec.into()
+    }
+}
 
-        let n = data.as_slice().len() as i32;
-        let norm = unsafe { blas::snrm2(n, data.as_slice(), 1) };
+pub type AngularVector<'a> = AngularVectorT<'a, f32>;
+pub type AngularIntVector<'a> = AngularVectorT<'a, i8>;
+
+
+impl From<Vec<f32>> for AngularVector<'static> {
+    fn from(vec: Vec<f32>) -> Self {
+        let mut vec = vec;
+        let n = vec.len() as i32;
+        let norm = unsafe { blas::snrm2(n, vec.as_slice(), 1) };
         if norm > 0.0 {
-            unsafe { blas::sscal(n, 1.0 / norm, data.as_mut_slice(), 1) };
+            unsafe { blas::sscal(n, 1.0 / norm, vec.as_mut_slice(), 1) };
         }
 
-        AngularVector::<D>(data)
+        AngularVectorT(vec.into())
     }
 }
 
-
-impl<D> FromIterator<f32> for AngularVector<D>
-    where D: Array<f32>
-{
-    fn from_iter<T: IntoIterator<Item = f32>>(iter: T) -> Self {
-        let mut data: D = unsafe { ::std::mem::uninitialized() };
-        let mut iter = iter.into_iter();
-        for x in data.as_mut_slice() {
-            *x = iter.next().expect("Too few elements");
-        }
-        assert_eq!(0, iter.count(), "Too many elements");
-
-        data.into()
+impl<'a> Into<Vec<f32>> for AngularVector<'a> {
+    fn into(self: Self) -> Vec<f32> {
+        self.0.into_owned()
     }
 }
 
+impl<'a> Into<Vec<f32>> for AngularIntVector<'a> {
+    fn into(self: Self) -> Vec<f32> {
+        let float_vector: AngularVector = self.into();
+        float_vector.into()
+    }
+}
 
-impl<D> ComparableTo<Self> for AngularVector<D>
-    where D: Array<f32>
+impl<'a> ComparableTo<Self> for AngularVector<'a>
 {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
-        compute_distance(self.0.as_slice(), other.0.as_slice())
+        assert_eq!(self.len(), other.len());
+
+        let &AngularVectorT(ref x) = self;
+        let &AngularVectorT(ref y) = other;
+
+        let r: f32 = unsafe { blas::sdot(x.len() as i32, x, 1, y, 1) };
+
+        let d = NotNaN::new(1.0f32 - r).unwrap();
+
+        cmp::max(0f32.into(), d)
     }
 }
 
 
-impl<D> Dense<f32> for AngularVector<D>
-    where D: Array<f32>
+impl<'a, T: Copy> Dense<T> for AngularVectorT<'a, T>
 {
-    fn dim() -> usize {
-        ::std::mem::size_of::<D>() / ::std::mem::size_of::<f32>()
+    fn dim(self: &Self) -> usize {
+        self.len()
     }
 
-    fn as_slice(self: &Self) -> &[f32] {
-        self.0.as_slice()
-    }
-}
-
-impl<D> Dense<i8> for AngularIntVector<D>
-    where D: Array<i8>
-{
-    fn dim() -> usize {
-        ::std::mem::size_of::<D>() / ::std::mem::size_of::<i8>()
-    }
-
-    fn as_slice(self: &Self) -> &[i8] {
-        self.0.as_slice()
+    fn as_slice(self: &Self) -> &[T] {
+        &self.0[..]
     }
 }
 
 
-#[repr(C)]
 #[derive(Clone)]
-pub struct AngularIntVector<D>(pub D)
-    where D: Array<i8>;
-
-const INT8_ELEMENT_NORM: i32 = 100;
-
-impl<D> From<D> for AngularIntVector<D>
-    where D: Array<i8>
-{
-    fn from(data: D) -> Self {
-        AngularIntVector::<D>(data)
-    }
+pub struct AngularVectorsT<'a, T: Copy + 'static> {
+    data: Cow<'a, [T]>,
+    pub dim: usize
 }
 
+pub type AngularVectors<'a> = AngularVectorsT<'a, f32>;
+pub type AngularIntVectors<'a> = AngularVectorsT<'a, i8>;
 
-impl<D> FromIterator<i32> for AngularIntVector<D>
-    where D: Array<i8>
-{
-    fn from_iter<T: IntoIterator<Item = i32>>(iter: T) -> Self {
-        let mut data: D = unsafe { ::std::mem::uninitialized() };
-        let mut iter = iter.into_iter();
-        for x in data.as_mut_slice() {
-            *x = iter.next().expect("Too few elements") as i8;
+impl<'a, T: Copy> AngularVectorsT<'a, T> {
+    pub fn new(dimension: usize) -> Self {
+        Self {
+            data: Vec::new().into(),
+            dim: dimension
         }
-        assert_eq!(0, iter.count(), "Too many elements");
-
-        data.into()
     }
-}
 
+    pub fn load(dim: usize, buffer: &'a [u8]) -> Self {
+        let data: &[T] = file_io::load(buffer);
 
-impl<D, T> From<AngularVector<D>> for AngularIntVector<T>
-    where D: Array<f32>,
-          T: Array<i8>
-{
-    fn from(element: AngularVector<D>) -> AngularIntVector<T> {
-        let AngularVector(ref element) = element;
-        let element = element.as_slice();
-        let mut array: T = unsafe { ::std::mem::uninitialized() };
-        {
-            let array = array.as_mut_slice();
+        assert_eq!(0, data.len() % dim);
 
-            assert_eq!(array.len(), element.len());
+        Self {
+            data: data.into(),
+            dim: dim
+        }
+    }
 
-            for i in 0..array.len() {
-                array[i] = (element[i] * INT8_ELEMENT_NORM as f32).round() as i8;
-            }
+    pub fn from_vec(dim: usize, vec: Vec<T>) -> Self {
+        assert_eq!(0, vec.len() % dim);
+
+        Self {
+            data: vec.into(),
+            dim: dim
+        }
+    }
+
+    pub fn extend(self: &mut Self, vec: AngularVectorsT<T>) {
+        assert_eq!(self.dim, vec.dim);
+
+        self.data.to_mut().extend_from_slice(&vec.data[..]);
+    }
+
+    pub fn push(self: &mut Self, vec: &AngularVectorT<T>) {
+        if self.dim == 0 {
+            self.dim = vec.len();
         }
 
-        array.into()
+        assert_eq!(self.dim, vec.len());
+
+        self.data.to_mut().extend_from_slice(&vec.0[..]);
+    }
+
+    pub fn len(self: &Self) -> usize {
+        if self.dim > 0 {
+            self.data.len() / self.dim
+        } else {
+            0
+        }
+    }
+
+    pub fn get_element(self: &'a Self, index: usize) -> AngularVectorT<'a, T> {
+        AngularVectorT(Cow::Borrowed(&self.data[index*self.dim..(index+1)*self.dim]))
+    }
+
+    pub fn data(self: &'a Self) -> &'a [T] {
+        &self.data[..]
     }
 }
 
 
-impl<D> ComparableTo<Self> for AngularIntVector<D>
-    where D: Array<i8>
+impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'static, T>
+{
+    fn from_iter<I: IntoIterator<Item = AngularVectorT<'a, T>>>(iter: I) -> Self {
+        let mut vecs = AngularVectorsT::new(0);
+        for vec in iter {
+            vecs.push(&vec);
+        }
+
+        vecs
+    }
+}
+
+
+// TODO: fix whenever GAT arrive
+// See https://github.com/rust-lang/rfcs/blob/master/text/0235-collections-conventions.md#lack-of-iterator-methods
+// https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
+impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T>
+{
+    type Output=AngularVectorT<'static, T>;
+
+    fn at(self: &Self, index: usize) -> Self::Output {
+        AngularVectorT(self.data[index*self.dim..(index+1)*self.dim].to_vec().into())
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
+impl<'a, T: Copy> Writeable for AngularVectorsT<'a, T> {
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
+        file_io::write(&self.data[..], buffer)
+    }
+}
+
+
+const MAX_QVALUE: usize = 127;
+
+impl From<Vec<f32>> for AngularIntVector<'static> {
+    fn from(vec: Vec<f32>) -> Self {
+        let n = vec.len() as i32;
+        let max_ind = unsafe { blas::isamax(n as i32, vec.as_slice(), 1)-1 };
+        let max_value: f32 = vec[max_ind].abs();
+
+        let mut vec = vec;
+        if max_value > 0.0 {
+            unsafe { blas::sscal(n, MAX_QVALUE as f32 / max_value, vec.as_mut_slice(), 1) };
+        }
+
+        AngularVectorT(vec.into_iter().map(|x| x as i8).collect::<Vec<i8>>().into())
+    }
+}
+
+impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
+    fn from(vec: AngularVector<'a>) -> Self {
+        vec.0.into_owned().into()
+    }
+}
+
+impl<'a> From<AngularIntVector<'a>> for AngularVector<'static> {
+    fn from(vec: AngularIntVector<'a>) -> Self {
+        vec.0.into_iter().map(|&x| x as f32).collect::<Vec<f32>>().into()
+    }
+}
+
+impl<'a> ComparableTo<Self> for AngularIntVector<'a>
 {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
-        let &AngularIntVector(ref x) = self;
-        let &AngularIntVector(ref y) = other;
+        // optimized code to compute r, dx, and dy for systems supporting avx2
+        // with fallback for other systems
+        // see https://doc.rust-lang.org/std/arch/index.html#examples
+        fn compute_r_dx_dy(x: &[i8], y: &[i8]) -> (f32, f32, f32) {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                if is_x86_feature_detected!("avx2") {
+                    return unsafe { compute_r_dx_dy_avx2(x, y) }
+                }
+            }
 
-        let r: i32 = x.as_slice().iter()
-            .zip(y.as_slice().iter())
-            .map(|(&xi, &yi)| xi as i32 * yi as i32)
-            .sum();
+            compute_r_dx_dy_fallback(x,y)
+        }
 
-        const INT8_ELEMENT_NORM_SQUARED: f32 = (INT8_ELEMENT_NORM * INT8_ELEMENT_NORM) as f32;
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[target_feature(enable = "avx2")]
+        unsafe fn compute_r_dx_dy_avx2(x: &[i8], y: &[i8]) -> (f32, f32, f32) {
+            // this function will be inlined and take advantage of avx2 auto-vectorization
+            compute_r_dx_dy_fallback(x, y)
+        }
 
-        let d = NotNaN::new(1.0f32 - (r as f32 / INT8_ELEMENT_NORM_SQUARED)).unwrap();
+        #[inline(always)]
+        fn compute_r_dx_dy_fallback(x: &[i8], y: &[i8]) -> (f32, f32, f32) {
+            let mut r = 0i32;
+            let mut dx = 0i32;
+            let mut dy = 0i32;
+
+            for (xi,yi) in x.iter().map(|&xi| xi as i32).zip(y.iter().map(|&yi| yi as i32)) {
+                r += xi * yi;
+                dx += xi * xi;
+                dy += yi * yi;
+            }
+
+            (r as f32, dx as f32, dy as f32)
+        }
+
+        let &AngularVectorT(ref x) = self;
+        let &AngularVectorT(ref y) = other;
+
+        let (r, dx, dy) = compute_r_dx_dy(x, y);
+
+        let r = NotNaN::new(r / (dx.sqrt() * dy.sqrt())).unwrap_or(NotNaN::new(0.0).unwrap());
+        let d = NotNaN::new(1.0f32).unwrap() - r;
 
         cmp::max(NotNaN::new(0.0f32).unwrap(), d)
     }
 }
 
 
-#[inline(always)]
-fn compute_distance(x: &[f32], y: &[f32]) -> NotNaN<f32> {
-    let r: f32 = unsafe { blas::sdot(x.len() as i32, x, 1, y, 1) };
+pub fn angular_reference_dist(first: &AngularVector, second: &AngularVector) -> NotNaN<f32> {
+    let &AngularVectorT(ref x) = first;
+    let &AngularVectorT(ref y) = second;
 
-    let d = NotNaN::new(1.0f32 - r).unwrap();
-
-    cmp::max(0f32.into(), d)
-}
-
-
-pub fn angular_reference_dist<D: Array<f32>>(first: &AngularVector<D>, second: &AngularVector<D>) -> NotNaN<f32> {
-    let &AngularVector::<D>(ref x) = first;
-    let &AngularVector::<D>(ref y) = second;
-
-    let r: f32 = x.as_slice().iter()
-        .zip(y.as_slice().iter())
+    let r: f32 = x.iter()
+        .zip(y.iter())
         .map(|(&xi, &yi)| xi as f32 * yi as f32)
         .sum();
 
-    let dx: f32 = x.as_slice().iter().map(|&xi| xi as f32 * xi as f32).sum();
-    let dy: f32 = y.as_slice().iter().map(|&yi| yi as f32 * yi as f32).sum();
+    let dx: f32 = x.iter().map(|&xi| xi as f32 * xi as f32).sum();
+    let dy: f32 = y.iter().map(|&yi| yi as f32 * yi as f32).sum();
 
     let d = NotNaN::new(1.0f32 - (r / (dx.sqrt() * dy.sqrt()))).unwrap();
 
@@ -192,8 +302,8 @@ mod tests {
     #[test]
     fn rblas_dist() {
         for _ in 0..100 {
-            let x: AngularVector<[f32; 100]> = example::random_dense_element();
-            let y: AngularVector<[f32; 100]> = example::random_dense_element();
+            let x: AngularVector = example::random_dense_element(100);
+            let y: AngularVector = example::random_dense_element(100);
 
             assert!((x.dist(&y) - angular_reference_dist(&x, &y)).abs() < DIST_EPSILON);
         }
@@ -202,7 +312,7 @@ mod tests {
     #[test]
     fn dist_between_same_vector() {
         for _ in 0..100 {
-            let x: AngularVector<[f32; 100]> = example::random_dense_element();
+            let x: AngularVector = example::random_dense_element(100);
 
             assert!(x.dist(&x).into_inner() < DIST_EPSILON);
         }
@@ -211,8 +321,8 @@ mod tests {
     #[test]
     fn dist_between_opposite_vector() {
         for _ in 0..100 {
-            let x: AngularVector<[f32; 100]> = example::random_dense_element();
-            let y: AngularVector<[f32; 100]> =
+            let x: AngularVector = example::random_dense_element(100);
+            let y: AngularVector =
                 x.0.clone().into_iter().map(|x| -x).collect();
 
             assert!(x.dist(&y).into_inner() > 2.0f32 - DIST_EPSILON);
@@ -221,16 +331,16 @@ mod tests {
 
     #[test]
     fn test_array() {
-        let a: AngularVector<[f32; 3]> = [0f32, 1f32, 2f32].into();
+        let a: AngularVector = vec![0f32, 1f32, 2f32].into();
 
         a.dist(&a);
     }
 
     #[test]
     fn test_large_arrays() {
-        let x = [1.0f32; 100];
+        let x = vec![1.0f32; 100];
 
-        let a: AngularVector<[f32; 100]> = x.into();
+        let a: AngularVector = x.into();
 
         a.dist(&a);
     }

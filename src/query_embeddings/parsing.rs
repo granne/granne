@@ -1,4 +1,5 @@
-use super::*;
+use crate::query_embeddings::*;
+use crate::types::{AngularVector, AngularVectorT};
 
 use flate2;
 use fnv::FnvHashMap;
@@ -11,7 +12,6 @@ use std::cmp;
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader, BufWriter, Read};
 use std::path::Path;
-use types::AngularVector;
 
 pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, output_path: &Path, show_progress: bool) {
     let word_ids: FnvHashMap<_, _> = {
@@ -33,14 +33,16 @@ pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, ou
 }
 
 
-pub fn compute_query_vectors_and_save_to_disk(queries_path: &Path, word_embeddings_path: &Path, output_path: &Path, show_progress: bool) {
+pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Send>(dimension: usize, queries_path: &Path, word_embeddings_path: &Path, output_path: &Path, show_progress: bool)
+    where AngularVectorT<'static, DTYPE>: From<AngularVector<'static>>
+{
     let word_embeddings = File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
 
     let queries = File::open(&queries_path).expect("Could not open queries file");
     let queries = unsafe { memmap::Mmap::map(&queries).unwrap() };
 
-    let queries = QueryEmbeddings::load(&word_embeddings, &queries);
+    let queries = QueryEmbeddings::load(dimension, &word_embeddings, &queries);
 
     let file = File::create(&output_path).expect("Could not create output file");
     let mut file = BufWriter::new(file);
@@ -56,13 +58,16 @@ pub fn compute_query_vectors_and_save_to_disk(queries_path: &Path, word_embeddin
     let chunk_size = (queries.len() + num_chunks - 1) / num_chunks;
     for i in 0..num_chunks {
         let chunk = (i*chunk_size..cmp::min((i+1)*chunk_size, queries.len())).collect::<Vec<_>>();
-        let query_vectors: Vec<AngularVector<[f32; DIM]>> = chunk
-            .par_iter()
-            .map(|&i| queries.at(i)).collect();
 
-        file_io::write(&query_vectors, &mut file).unwrap();
+        let query_vectors: Vec<AngularVectorT<'static, DTYPE>> = chunk
+            .par_iter()
+            .map(|&i| queries.at(i).into()).collect();
+
         if let Some(ref mut progress_bar) = progress_bar {
             progress_bar.add(query_vectors.len() as u64);
+        }
+        for q in query_vectors {
+            file_io::write(q.as_slice(), &mut file).unwrap();
         }
     }
 }
