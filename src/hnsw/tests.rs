@@ -1,6 +1,7 @@
 use super::*;
-use types::example::*;
-use types::*;
+
+use crate::types::example::*;
+use crate::types::*;
 
 #[test]
 fn neighbor_id_conversions() {
@@ -288,7 +289,7 @@ fn read_index_with_owned_elements() {
         let mut data = Vec::new();
         builder.write(&mut data).unwrap();
 
-        let mut owning_builder: HnswBuilder<[Element], Element> =
+        let owning_builder: HnswBuilder<[Element], Element> =
             HnswBuilder::read_index_with_owned_elements(config.clone(), &mut data.as_slice(), elements.clone()).unwrap();
 
         assert_eq!(num_elements / 2, builder.indexed_elements());

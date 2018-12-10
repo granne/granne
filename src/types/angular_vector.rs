@@ -1,14 +1,14 @@
+use crate::hnsw::{At,Writeable};
+use crate::types::{ComparableTo, Dense};
+use crate::file_io;
+
 use std::cmp;
-use hnsw::{At,Writeable};
 use ordered_float::NotNaN;
 use blas;
 
 use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::io::{Write, Result};
-
-use super::{ComparableTo, Dense};
-use file_io;
 
 #[derive(Clone)]
 pub struct AngularVectorT<'a, T: Copy + 'static>(pub Cow<'a, [T]>);

@@ -3,8 +3,6 @@ use ordered_float::NotNaN;
 use revord::RevOrd;
 use std::collections::BinaryHeap;
 use std::cmp;
-use types::ComparableTo;
-use types;
 use pbr::ProgressBar;
 
 use slice_vector::{FixedWidthSliceVector, SliceVector};
@@ -24,7 +22,10 @@ use time::PreciseTime;
 
 use std::borrow::Cow;
 
-use file_io;
+use crate::types::ComparableTo;
+use crate::types;
+use crate::file_io;
+
 
 #[cfg(test)]
 mod tests;

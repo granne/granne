@@ -5,6 +5,7 @@ authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
 license = "MIT"
 links = "blas"
 build = "build.rs"
+edition = "2018"
 
 [dependencies]
 bytes = "0.4"

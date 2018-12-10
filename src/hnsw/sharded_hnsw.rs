@@ -5,7 +5,8 @@ use super::{
     Hnsw,
     At
 };
-use types::ComparableTo;
+
+use crate::types::ComparableTo;
 
 pub struct ShardedHnsw<'a, Elements, Element>
     where Elements: 'a + At<Output=Element> + Sync + ?Sized,
@@ -109,9 +110,9 @@ impl<'a, Elements, Element> ShardedHnsw<'a, Elements, Element>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::example::*;
-    use types::AngularVector;
-    use hnsw::*;
+    use crate::types::example::*;
+    use crate::types::AngularVector;
+    use crate::hnsw::*;
 
     type ElementType = AngularVector<'static>;
 

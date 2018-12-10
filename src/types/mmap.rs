@@ -1,12 +1,14 @@
-use At;
-use Writeable;
-use file_io;
+use crate::At;
+use crate::Writeable;
+use crate::file_io;
+
+use super::angular_vector::AngularVectorT;
+
 use madvise::{AccessPattern, AdviseMemory};
 use memmap::Mmap;
 use std::fs::File;
 use std::io::{Write, Result};
 use std::marker;
-use super::angular_vector::AngularVectorT;
 
 pub struct MmapAngularVectorsT<T: Copy + 'static> {
     path: String,

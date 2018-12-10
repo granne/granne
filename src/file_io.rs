@@ -153,7 +153,7 @@ pub fn read_f32<P: AsRef<path::Path>>(path: P) -> Result<(Vec<f32>, Vec<String>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{AngularVector, ComparableTo};
+    use crate::types::{AngularVector, ComparableTo};
 
     #[test]
     fn read_file() {

@@ -1,15 +1,16 @@
+use crate::file_io;
+use crate::hnsw::{At, Writeable};
+use crate::types::AngularVector;
+use crate::types::Dense;
+use crate::types;
+
 use blas;
 use bytes::{ByteOrder, LittleEndian};
-use file_io;
-use hnsw::{At, Writeable};
 use rand::Rng;
 use rand;
 use slice_vector::{SliceVector, VariableWidthSliceVector};
 use std::convert::Into;
 use std::io::{Result, Write};
-use types::AngularVector;
-use types::Dense;
-use types;
 
 pub mod parsing;
 

@@ -1,4 +1,5 @@
-use super::*;
+use crate::query_embeddings::*;
+use crate::types::{AngularVector, AngularVectorT};
 
 use flate2;
 use fnv::FnvHashMap;
@@ -11,7 +12,6 @@ use std::cmp;
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader, BufWriter, Read};
 use std::path::Path;
-use types::{AngularVector, AngularVectorT};
 
 pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, output_path: &Path, show_progress: bool) {
     let word_ids: FnvHashMap<_, _> = {
