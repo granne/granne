@@ -1,13 +1,13 @@
 use crate::file_io;
 use crate::hnsw::{At, Writeable};
+use crate::types;
 use crate::types::AngularVector;
 use crate::types::Dense;
-use crate::types;
 
 use blas;
 use bytes::{ByteOrder, LittleEndian};
-use rand::Rng;
 use rand;
+use rand::Rng;
 use slice_vector::{SliceVector, VariableWidthSliceVector};
 use std::convert::Into;
 use std::io::{Result, Write};
@@ -17,48 +17,44 @@ pub mod parsing;
 #[derive(Clone)]
 pub struct QueryEmbeddings<'a> {
     word_embeddings: WordEmbeddings<'a>,
-    queries: QueryVec<'a>
+    queries: QueryVec<'a>,
 }
 
 impl<'a> QueryEmbeddings<'a> {
-    pub fn new(word_embeddings: WordEmbeddings<'a>) -> Self
-    {
+    pub fn new(word_embeddings: WordEmbeddings<'a>) -> Self {
         Self {
             word_embeddings: word_embeddings,
             queries: QueryVec::new(),
         }
     }
 
-    pub fn from(word_embeddings: WordEmbeddings<'a>, queries: QueryVec<'a>) -> Self
-    {
+    pub fn from(word_embeddings: WordEmbeddings<'a>, queries: QueryVec<'a>) -> Self {
         Self {
             word_embeddings: word_embeddings,
             queries: queries,
         }
     }
 
-    pub fn load(dimension:usize,
-                word_embeddings: &'a [u8],
-                query_buffer: &'a [u8]) -> Self
-    {
+    pub fn load(dimension: usize, word_embeddings: &'a [u8], query_buffer: &'a [u8]) -> Self {
         let word_embeddings = WordEmbeddings::load(dimension, word_embeddings);
         let queries = QueryVec::load(query_buffer);
 
         Self::from(word_embeddings, queries)
     }
 
-    pub fn get_words(self: &Self, idx: usize) -> Vec<usize>
-    {
+    pub fn get_words(self: &Self, idx: usize) -> Vec<usize> {
         self.queries.get(idx).iter().map(|&x| x.into()).collect()
     }
 
-    pub fn get_embedding(self: &Self, idx: usize) -> types::AngularVector<'static>
-    {
-        self.word_embeddings.get_embedding_internal(self.queries.queries.get(idx))
+    pub fn get_embedding(self: &Self, idx: usize) -> types::AngularVector<'static> {
+        self.word_embeddings
+            .get_embedding_internal(self.queries.queries.get(idx))
     }
 
-    pub fn get_embedding_for_query(self: &Self, word_ids: &[usize]) -> types::AngularVector<'static>
-    {
+    pub fn get_embedding_for_query(
+        self: &Self,
+        word_ids: &[usize],
+    ) -> types::AngularVector<'static> {
         self.word_embeddings.get_embedding(word_ids)
     }
 
@@ -87,11 +83,10 @@ impl<'a> Writeable for QueryEmbeddings<'a> {
 
 #[derive(Clone)]
 pub struct WordEmbeddings<'a> {
-    embeddings: types::AngularVectors<'a>
+    embeddings: types::AngularVectors<'a>,
 }
 
 impl<'a> WordEmbeddings<'a> {
-
     pub fn load(dimension: usize, data: &'a [u8]) -> Self {
         assert_eq!(0, data.len() % (dimension * ::std::mem::size_of::<f32>()));
 
@@ -105,10 +100,9 @@ impl<'a> WordEmbeddings<'a> {
         self.get_embedding_internal(&word_ids)
     }
 
-    fn get_embedding_internal(self: &Self, word_ids: &[WordId]) -> types::AngularVector<'static>
-    {
+    fn get_embedding_internal(self: &Self, word_ids: &[WordId]) -> types::AngularVector<'static> {
         if word_ids.is_empty() {
-            return vec![0.0f32; self.embeddings.dim].into()
+            return vec![0.0f32; self.embeddings.dim].into();
         }
 
         let w: usize = word_ids[0].into();
@@ -118,7 +112,16 @@ impl<'a> WordEmbeddings<'a> {
             let w: usize = w.into();
             let embedding = self.embeddings.get_element(w);
 
-            unsafe { blas::saxpy(embedding.dim() as i32, 1f32, embedding.as_slice(), 1, data.as_mut_slice(), 1) };
+            unsafe {
+                blas::saxpy(
+                    embedding.dim() as i32,
+                    1f32,
+                    embedding.as_slice(),
+                    1,
+                    data.as_mut_slice(),
+                    1,
+                )
+            };
         }
 
         data.into()
@@ -130,8 +133,8 @@ impl<'a> WordEmbeddings<'a> {
 }
 
 const BYTES_PER_OFFSET: usize = 5;
-#[repr(C,packed)]
-#[derive(Clone,Copy,Debug,Eq,PartialEq)]
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Offset([u8; BYTES_PER_OFFSET]);
 
 impl From<usize> for Offset {
@@ -152,8 +155,8 @@ impl Into<usize> for Offset {
 
 const BYTES_PER_WORD_ID: usize = 3;
 
-#[repr(C,packed)]
-#[derive(Clone,Copy,Debug,Eq,PartialEq)]
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WordId([u8; BYTES_PER_WORD_ID]);
 
 impl From<usize> for WordId {
@@ -172,17 +175,16 @@ impl Into<usize> for WordId {
     }
 }
 
-
 /// A Vec for storing variable lengths queries (= sequence of word ids)
 #[derive(Clone)]
 pub struct QueryVec<'a> {
-    queries: VariableWidthSliceVector<'a, WordId, Offset>
+    queries: VariableWidthSliceVector<'a, WordId, Offset>,
 }
 
 impl<'a> QueryVec<'a> {
     pub fn new() -> Self {
         Self {
-            queries: VariableWidthSliceVector::new()
+            queries: VariableWidthSliceVector::new(),
         }
     }
 
@@ -192,7 +194,11 @@ impl<'a> QueryVec<'a> {
     }
 
     pub fn get(self: &Self, idx: usize) -> Vec<usize> {
-        self.queries.get(idx).iter().map(|&word_id| word_id.into()).collect()
+        self.queries
+            .get(idx)
+            .iter()
+            .map(|&word_id| word_id.into())
+            .collect()
     }
 
     pub fn len(self: &Self) -> usize {
@@ -205,7 +211,7 @@ impl<'a> QueryVec<'a> {
 
     pub fn load(buffer: &'a [u8]) -> Self {
         Self {
-            queries: VariableWidthSliceVector::load(buffer)
+            queries: VariableWidthSliceVector::load(buffer),
         }
     }
 
@@ -214,28 +220,27 @@ impl<'a> QueryVec<'a> {
     }
 }
 
-pub fn get_random_word_embeddings(dimension: usize, num: usize) -> WordEmbeddings<'static>
-{
+pub fn get_random_word_embeddings(dimension: usize, num: usize) -> WordEmbeddings<'static> {
     let mut rng = rand::thread_rng();
 
-    let embeddings: types::AngularVectors = (0..num).map(|_| {
-        let element: AngularVector = (0..dimension).map(|_| rng.gen::<f32>() - 0.5).collect();
+    let embeddings: types::AngularVectors = (0..num)
+        .map(|_| {
+            let element: AngularVector = (0..dimension).map(|_| rng.gen::<f32>() - 0.5).collect();
 
-        element
-    }).collect();
+            element
+        })
+        .collect();
 
-    WordEmbeddings {
-        embeddings
-    }
+    WordEmbeddings { embeddings }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env::temp_dir;
-    use std::io::Write;
-    use std::fs::File;
     use memmap;
+    use std::env::temp_dir;
+    use std::fs::File;
+    use std::io::Write;
 
     #[test]
     fn queryvec_push() {
@@ -270,8 +275,8 @@ mod tests {
     fn queryvec_extend() {
         let mut qvec = QueryVec::new();
         qvec.push(&[44, 1234]);
-        qvec.push(&[132,151]);
-        qvec.push(&[0,2]);
+        qvec.push(&[132, 151]);
+        qvec.push(&[0, 2]);
 
         let mut other = QueryVec::new();
         other.push(&[17]);
@@ -280,26 +285,26 @@ mod tests {
         qvec.extend_from_queryvec(&other);
 
         assert_eq!(5, qvec.len());
-        assert_eq!(vec![44,1234], qvec.get(0));
-        assert_eq!(vec![132,151], qvec.get(1));
-        assert_eq!(vec![0,2], qvec.get(2));
+        assert_eq!(vec![44, 1234], qvec.get(0));
+        assert_eq!(vec![132, 151], qvec.get(1));
+        assert_eq!(vec![0, 2], qvec.get(2));
         assert_eq!(vec![17], qvec.get(3));
-        assert_eq!(vec![9,12345,6245], qvec.get(4));
+        assert_eq!(vec![9, 12345, 6245], qvec.get(4));
     }
 
     #[test]
     fn queryvec_extend_empty() {
         let mut qvec = QueryVec::new();
         qvec.push(&[44, 1234]);
-        qvec.push(&[132,151]);
-        qvec.push(&[0,2]);
+        qvec.push(&[132, 151]);
+        qvec.push(&[0, 2]);
 
         qvec.extend_from_queryvec(&QueryVec::new());
 
         assert_eq!(3, qvec.len());
-        assert_eq!(vec![44,1234], qvec.get(0));
-        assert_eq!(vec![132,151], qvec.get(1));
-        assert_eq!(vec![0,2], qvec.get(2));
+        assert_eq!(vec![44, 1234], qvec.get(0));
+        assert_eq!(vec![132, 151], qvec.get(1));
+        assert_eq!(vec![0, 2], qvec.get(2));
     }
 
     #[test]
@@ -314,7 +319,7 @@ mod tests {
 
         assert_eq!(2, qvec.len());
         assert_eq!(vec![17], qvec.get(0));
-        assert_eq!(vec![9,12345,6245], qvec.get(1));
+        assert_eq!(vec![9, 12345, 6245], qvec.get(1));
     }
 
     #[test]

@@ -18,7 +18,7 @@ fn main() {
                 .help("Binary file with word embeddings")
                 .takes_value(true)
                 .required(true)
-                .index(1)
+                .index(1),
         )
         .arg(
             Arg::with_name("dimension")
@@ -27,7 +27,7 @@ fn main() {
                 .help("Word embeddings dimension")
                 .takes_value(true)
                 .required(true)
-                .index(2)
+                .index(2),
         )
         .arg(
             Arg::with_name("queries")
@@ -36,7 +36,7 @@ fn main() {
                 .help("Binary file with query elements")
                 .takes_value(true)
                 .required(true)
-                .index(3)
+                .index(3),
         )
         .arg(
             Arg::with_name("output")
@@ -45,8 +45,9 @@ fn main() {
                 .help("Path where to write output")
                 .takes_value(true)
                 .index(4)
-                .default_value("queries.vectors")
-        ).get_matches();
+                .default_value("queries.vectors"),
+        )
+        .get_matches();
 
     let word_embeddings_file = matches.value_of("word_embeddings").unwrap();
     let dimension: usize = matches.value_of("dimension").unwrap().parse().unwrap();
@@ -60,7 +61,7 @@ fn main() {
         &Path::new(query_file),
         &Path::new(word_embeddings_file),
         &Path::new(output_file),
-        true
+        true,
     );
 
     let end_time = PreciseTime::now();

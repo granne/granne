@@ -44,13 +44,16 @@ fn main() {
     let output_path = matches.value_of("output").unwrap();
 
     let start_time = PreciseTime::now();
-    println!("Reading queries from {:?} and generating queries...", query_path);
+    println!(
+        "Reading queries from {:?} and generating queries...",
+        query_path
+    );
 
     granne::query_embeddings::parsing::parse_queries_and_save_to_disk(
         &Path::new(query_path),
         &Path::new(word_path),
         &Path::new(output_path),
-        true
+        true,
     );
 
     let end_time = PreciseTime::now();

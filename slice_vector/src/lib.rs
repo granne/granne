@@ -1,17 +1,21 @@
-extern crate byteorder;
-extern crate rayon;
-
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use rayon::prelude::*;
 use rayon::prelude::ParallelSliceMut;
+use rayon::prelude::*;
 
 use std::borrow::Cow;
 use std::io::{Read, Result, Write};
 
-pub trait SliceVector<'a, T> where Self: Sized {
-    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T] where 'a : 'b;
-    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T] where 'a : 'b;
+pub trait SliceVector<'a, T>
+where
+    Self: Sized,
+{
+    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
+    where
+        'a: 'b;
+    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
+    where
+        'a: 'b;
     fn len(self: &Self) -> usize;
     fn is_empty(self: &Self) -> bool {
         self.len() == 0
@@ -29,7 +33,7 @@ pub struct VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {
 #[derive(Clone)]
 pub struct FixedWidthSliceVector<'a, T: 'a + Clone> {
     data: Cow<'a, [T]>,
-    width: usize
+    width: usize,
 }
 
 impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
@@ -51,11 +55,17 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         }
     }
 
-    pub fn iter<'b>(self: &'b Self) -> impl Iterator<Item=&'b [T]> where 'a: 'b {
+    pub fn iter<'b>(self: &'b Self) -> impl Iterator<Item = &'b [T]>
+    where
+        'a: 'b,
+    {
         self.data.chunks(self.width)
     }
 
-    pub fn iter_mut<'b>(self: &'b mut Self) -> impl Iterator<Item=&'b mut [T]> where 'a: 'b {
+    pub fn iter_mut<'b>(self: &'b mut Self) -> impl Iterator<Item = &'b mut [T]>
+    where
+        'a: 'b,
+    {
         self.data.to_mut().chunks_mut(self.width)
     }
 
@@ -80,7 +90,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     pub fn load(buffer: &'a [u8], width: usize) -> Self {
         Self {
             data: Cow::from(load(&buffer[..])),
-            width: width
+            width: width,
         }
     }
 
@@ -97,35 +107,48 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         Ok(vec)
     }
 
-
-    pub fn borrow<'b>(self: &'a Self) -> FixedWidthSliceVector<'b, T> where 'a: 'b {
+    pub fn borrow<'b>(self: &'a Self) -> FixedWidthSliceVector<'b, T>
+    where
+        'a: 'b,
+    {
         Self {
             data: Cow::Borrowed(&self.data),
-            width: self.width
+            width: self.width,
         }
     }
-
 }
 
 impl<'a, T: 'a + Clone + Send + Sync> FixedWidthSliceVector<'a, T> {
-    pub fn par_iter<'b>(self: &'b Self) -> impl IndexedParallelIterator<Item=&'b [T]> where 'a: 'b {
+    pub fn par_iter<'b>(self: &'b Self) -> impl IndexedParallelIterator<Item = &'b [T]>
+    where
+        'a: 'b,
+    {
         self.data.par_chunks(self.width)
     }
 
-    pub fn par_iter_mut<'b>(self: &'b mut Self) -> impl IndexedParallelIterator<Item=&'b mut [T]> where 'a: 'b {
+    pub fn par_iter_mut<'b>(self: &'b mut Self) -> impl IndexedParallelIterator<Item = &'b mut [T]>
+    where
+        'a: 'b,
+    {
         self.data.to_mut().par_chunks_mut(self.width)
     }
 }
 
 impl<'a, T: Clone> SliceVector<'a, T> for FixedWidthSliceVector<'a, T> {
-    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T] where 'a : 'b {
+    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
+    where
+        'a: 'b,
+    {
         let begin = idx * self.width;
         let end = (idx + 1) * self.width;
 
         &self.data[begin..end]
     }
 
-    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T] where 'a : 'b {
+    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
+    where
+        'a: 'b,
+    {
         let begin = idx * self.width;
         let end = begin + self.width;
 
@@ -147,7 +170,9 @@ impl<'a, T: Clone> SliceVector<'a, T> for FixedWidthSliceVector<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthSliceVector<'a, T, Offset> {
+impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy>
+    VariableWidthSliceVector<'a, T, Offset>
+{
     pub fn new() -> Self {
         Self {
             offsets: vec![0.into()].into(),
@@ -155,13 +180,31 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
         }
     }
 
-    pub fn iter<'b>(self: &'b Self) -> impl Iterator<Item=&'b [T]> where 'a: 'b {
+    pub fn extend_from_slice_vector(self: &mut Self, other: &VariableWidthSliceVector<T, Offset>) {
+        let prev_len: usize = (*self.offsets.last().unwrap()).into();
+
+        self.offsets.to_mut().extend(
+            other
+                .offsets
+                .iter()
+                .skip(1) // skip the initial 0
+                .map(|&x| {
+                    let x: usize = x.into();
+                    let x: Offset = (prev_len + x).into();
+                    x
+                }),
+        );
+
+        self.data.to_mut().extend_from_slice(&other.data);
+    }
+
+    pub fn iter<'b>(self: &'b Self) -> impl Iterator<Item = &'b [T]>
+    where
+        'a: 'b,
+    {
         self.offsets
             .iter()
-            .zip(
-                self.offsets
-                    .iter()
-                    .skip(1))
+            .zip(self.offsets.iter().skip(1))
             .map(move |(&begin, &end)| {
                 let begin: usize = begin.into();
                 let end: usize = end.into();
@@ -170,10 +213,11 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
             })
     }
 
-    pub fn load(buffer: &'a [u8]) -> Self
-    {
+    pub fn load(buffer: &'a [u8]) -> Self {
         let u64_len = ::std::mem::size_of::<u64>();
-        let num_slices = (&buffer[..u64_len]).clone().read_u64::<LittleEndian>()
+        let num_slices = (&buffer[..u64_len])
+            //.clone()
+            .read_u64::<LittleEndian>()
             .expect("Coult not read length") as usize;
         let offset_len = ::std::mem::size_of::<Offset>();
         let (offsets, data) = buffer[u64_len..].split_at((1 + num_slices) * offset_len);
@@ -184,26 +228,10 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
         }
     }
 
-    pub fn extend_from_slice_vector(self: &mut Self, other: &VariableWidthSliceVector<T, Offset>) {
-        let prev_len: usize = (*self.offsets.last().unwrap()).into();
-
-        self.offsets.to_mut().extend(
-            other.offsets
-                .iter()
-                .skip(1) // skip the initial 0
-                .map(|&x| {
-                    let x: usize = x.into();
-                    let x: Offset = (prev_len + x).into();
-                    x
-                })
-        );
-
-        self.data.to_mut().extend_from_slice(&other.data);
-    }
-
-
-
-    pub fn borrow<'b>(self: &'a Self) -> VariableWidthSliceVector<'b, T, Offset> where 'a: 'b {
+    pub fn borrow<'b>(self: &'a Self) -> VariableWidthSliceVector<'b, T, Offset>
+    where
+        'a: 'b,
+    {
         Self {
             offsets: Cow::Borrowed(&self.offsets),
             data: Cow::Borrowed(&self.data),
@@ -211,15 +239,23 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
     }
 }
 
-impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T> for VariableWidthSliceVector<'a, T, Offset> {
-    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T] where 'a : 'b {
+impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
+    for VariableWidthSliceVector<'a, T, Offset>
+{
+    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
+    where
+        'a: 'b,
+    {
         let begin: usize = self.offsets[idx].into();
         let end: usize = self.offsets[idx + 1].into();
 
         &self.data[begin..end]
     }
 
-    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T] where 'a : 'b {
+    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
+    where
+        'a: 'b,
+    {
         let begin: usize = self.offsets[idx].into();
         let end: usize = self.offsets[idx + 1].into();
 
@@ -237,13 +273,14 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T> 
 
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
         // write metadata
-        buffer.write_u64::<LittleEndian>(self.len() as u64).expect("Could not write length");
+        buffer
+            .write_u64::<LittleEndian>(self.len() as u64)
+            .expect("Could not write length");
 
         write(&self.offsets[..], buffer)?;
         write(&self.data[..], buffer)
     }
 }
-
 
 fn load<T>(buffer: &[u8]) -> &[T] {
     let elements: &[T] = unsafe {
@@ -266,8 +303,6 @@ fn write<T, B: Write>(elements: &[T], buffer: &mut B) -> Result<()> {
 
     buffer.write_all(data)
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -348,6 +383,22 @@ mod tests {
         test_extend(vec0, vec1);
     }
 
+    fn test_extend(vec0: FixedWidthSliceVector<i32>, vec1: FixedWidthSliceVector<i32>) {
+        let mut vec_combined = vec0.clone();
+
+        vec_combined.extend_from_slice_vector(&vec1);
+
+        assert_eq!(vec0.len() + vec1.len(), vec_combined.len());
+
+        for i in 0..vec0.len() {
+            assert_eq!(vec0.get(i), vec_combined.get(i));
+        }
+
+        for i in 0..vec1.len() {
+            assert_eq!(vec1.get(i), vec_combined.get(vec0.len() + i));
+        }
+    }
+
     #[test]
     fn variable_width_extend() {
         let mut vec0 = VariableWidthSliceVector::<i32, usize>::new();
@@ -361,7 +412,7 @@ mod tests {
             }
         }
 
-        test_extend(vec0, vec1);
+        test_extend_var(vec0, vec1);
     }
 
     #[test]
@@ -373,7 +424,7 @@ mod tests {
             vec1.push(&data);
         }
 
-        test_extend(vec0, vec1);
+        test_extend_var(vec0, vec1);
     }
 
     #[test]
@@ -385,10 +436,13 @@ mod tests {
             vec0.push(&data);
         }
 
-        test_extend(vec0, vec1);
+        test_extend_var(vec0, vec1);
     }
 
-    fn test_extend<'a, T: SliceVector<'a, i32> + Clone>(vec0: T, vec1: T) {
+    fn test_extend_var(
+        vec0: VariableWidthSliceVector<i32, usize>,
+        vec1: VariableWidthSliceVector<i32, usize>,
+    ) {
         let mut vec_combined = vec0.clone();
 
         vec_combined.extend_from_slice_vector(&vec1);
@@ -409,7 +463,7 @@ mod tests {
         let width = 7;
         let mut vec = FixedWidthSliceVector::new(width);
         for i in 0..123 {
-            let data: Vec<i16> = (2*i+3..).take(width).collect();
+            let data: Vec<i16> = (2 * i + 3..).take(width).collect();
             vec.push(&data);
         }
 
@@ -430,7 +484,7 @@ mod tests {
         let width = 7;
         let mut vec = FixedWidthSliceVector::new(width);
         for i in 0..123 {
-            let data: Vec<i16> = (2*i+3..).take(7).collect();
+            let data: Vec<i16> = (2 * i + 3..).take(7).collect();
             vec.push(&data);
         }
 

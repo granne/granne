@@ -29,7 +29,8 @@ pub mod example {
     use rand::Rng;
 
     pub fn random_dense_element<T>(dim: usize) -> T
-        where T: Dense<f32> + FromIterator<f32>
+    where
+        T: Dense<f32> + FromIterator<f32>,
     {
         let mut rng = rand::thread_rng();
 

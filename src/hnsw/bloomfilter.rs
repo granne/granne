@@ -1,6 +1,6 @@
+use bit_vec::BitVec;
 use fnv::FnvHasher;
 use std::hash::Hasher;
-use bit_vec::BitVec;
 
 pub struct BloomFilter {
     table: BitVec,
@@ -18,7 +18,6 @@ impl BloomFilter {
         }
     }
 
-
     pub fn insert(self: &mut Self, x: usize) -> bool {
         let h = Self::hash(x) & self.mask;
 
@@ -28,13 +27,11 @@ impl BloomFilter {
         !already_inserted
     }
 
-
     #[allow(dead_code)]
     pub fn contains(self: &Self, x: usize) -> bool {
         let h = Self::hash(x) & self.mask;
         self.table.get(h).unwrap()
     }
-
 
     #[inline(always)]
     fn hash(x: usize) -> usize {
@@ -44,7 +41,6 @@ impl BloomFilter {
 
         hasher.finish() as usize
     }
-
 
     #[inline(always)]
     fn get_bytes(x: usize) -> [u8; 8] {
@@ -60,7 +56,6 @@ impl BloomFilter {
         ]
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -94,10 +89,22 @@ mod tests {
         for &num_elements in &[100, 1000, 2, 8, 1024, 1337, 961234] {
             for &error in &[0.05, 0.5, 0.001, 0.005] {
                 let h = BloomFilter::new(num_elements, error);
-                assert!(num_elements as f64 <= h.table.len() as f64 * error,
-                        format!("{} vs {}", num_elements as f64, h.table.len() as f64 * error));
-                assert!(h.table.len() as f64 * error <= 2.0 * num_elements as f64,
-                        format!("{} vs {}", h.table.len() as f64 * error, 2.0 * num_elements as f64));
+                assert!(
+                    num_elements as f64 <= h.table.len() as f64 * error,
+                    format!(
+                        "{} vs {}",
+                        num_elements as f64,
+                        h.table.len() as f64 * error
+                    )
+                );
+                assert!(
+                    h.table.len() as f64 * error <= 2.0 * num_elements as f64,
+                    format!(
+                        "{} vs {}",
+                        h.table.len() as f64 * error,
+                        2.0 * num_elements as f64
+                    )
+                );
             }
         }
     }
@@ -120,8 +127,16 @@ mod tests {
                     }
                 }
 
-                assert!(hits as f64 / to_check.len() as f64 <= 2.0 * error,
-                        format!("num_elements: {}, error: {}, hits: {}, tested: {}", num_elements, error, hits, to_check.len()));
+                assert!(
+                    hits as f64 / to_check.len() as f64 <= 2.0 * error,
+                    format!(
+                        "num_elements: {}, error: {}, hits: {}, tested: {}",
+                        num_elements,
+                        error,
+                        hits,
+                        to_check.len()
+                    )
+                );
             }
         }
     }

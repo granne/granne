@@ -2,8 +2,8 @@ use bytes::{ByteOrder, LittleEndian};
 
 const BYTES_PER_NEIGHBOR_ID: usize = 5;
 
-#[repr(C,packed)]
-#[derive(Clone,Copy,Debug,Eq,PartialEq)]
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NeighborId(pub [u8; BYTES_PER_NEIGHBOR_ID]);
 
 impl From<usize> for NeighborId {
@@ -13,7 +13,6 @@ impl From<usize> for NeighborId {
         NeighborId(data)
     }
 }
-
 
 impl Into<usize> for NeighborId {
     #[inline(always)]
@@ -31,8 +30,8 @@ impl NeighborId {
 
 #[cfg(test)]
 mod tests {
-    use std::mem;
     use super::*;
+    use std::mem;
 
     #[test]
     fn hnsw_node_size() {

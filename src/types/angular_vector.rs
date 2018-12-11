@@ -1,14 +1,14 @@
-use crate::hnsw::{At,Writeable};
-use crate::types::{ComparableTo, Dense};
 use crate::file_io;
+use crate::hnsw::{At, Writeable};
+use crate::types::{ComparableTo, Dense};
 
-use std::cmp;
-use ordered_float::NotNaN;
 use blas;
+use ordered_float::NotNaN;
+use std::cmp;
 
 use std::borrow::Cow;
+use std::io::{Result, Write};
 use std::iter::FromIterator;
-use std::io::{Write, Result};
 
 #[derive(Clone)]
 pub struct AngularVectorT<'a, T: Copy + 'static>(pub Cow<'a, [T]>);
@@ -20,8 +20,9 @@ impl<'a, T: Copy> AngularVectorT<'a, T> {
 }
 
 impl<T> FromIterator<f32> for AngularVectorT<'static, T>
-    where T: Copy,
-          AngularVectorT<'static, T>: From<Vec<f32>>
+where
+    T: Copy,
+    AngularVectorT<'static, T>: From<Vec<f32>>,
 {
     fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
         let vec: Vec<f32> = iter.into_iter().collect();
@@ -31,7 +32,6 @@ impl<T> FromIterator<f32> for AngularVectorT<'static, T>
 
 pub type AngularVector<'a> = AngularVectorT<'a, f32>;
 pub type AngularIntVector<'a> = AngularVectorT<'a, i8>;
-
 
 impl From<Vec<f32>> for AngularVector<'static> {
     fn from(vec: Vec<f32>) -> Self {
@@ -59,8 +59,7 @@ impl<'a> Into<Vec<f32>> for AngularIntVector<'a> {
     }
 }
 
-impl<'a> ComparableTo<Self> for AngularVector<'a>
-{
+impl<'a> ComparableTo<Self> for AngularVector<'a> {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         assert_eq!(self.len(), other.len());
 
@@ -75,9 +74,7 @@ impl<'a> ComparableTo<Self> for AngularVector<'a>
     }
 }
 
-
-impl<'a, T: Copy> Dense<T> for AngularVectorT<'a, T>
-{
+impl<'a, T: Copy> Dense<T> for AngularVectorT<'a, T> {
     fn dim(self: &Self) -> usize {
         self.len()
     }
@@ -87,11 +84,10 @@ impl<'a, T: Copy> Dense<T> for AngularVectorT<'a, T>
     }
 }
 
-
 #[derive(Clone)]
 pub struct AngularVectorsT<'a, T: Copy + 'static> {
     data: Cow<'a, [T]>,
-    pub dim: usize
+    pub dim: usize,
 }
 
 pub type AngularVectors<'a> = AngularVectorsT<'a, f32>;
@@ -101,7 +97,7 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
     pub fn new(dimension: usize) -> Self {
         Self {
             data: Vec::new().into(),
-            dim: dimension
+            dim: dimension,
         }
     }
 
@@ -112,7 +108,7 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
 
         Self {
             data: data.into(),
-            dim: dim
+            dim: dim,
         }
     }
 
@@ -121,7 +117,7 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
 
         Self {
             data: vec.into(),
-            dim: dim
+            dim: dim,
         }
     }
 
@@ -150,7 +146,9 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
     }
 
     pub fn get_element(self: &'a Self, index: usize) -> AngularVectorT<'a, T> {
-        AngularVectorT(Cow::Borrowed(&self.data[index*self.dim..(index+1)*self.dim]))
+        AngularVectorT(Cow::Borrowed(
+            &self.data[index * self.dim..(index + 1) * self.dim],
+        ))
     }
 
     pub fn data(self: &'a Self) -> &'a [T] {
@@ -158,9 +156,7 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
     }
 }
 
-
-impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'static, T>
-{
+impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'static, T> {
     fn from_iter<I: IntoIterator<Item = AngularVectorT<'a, T>>>(iter: I) -> Self {
         let mut vecs = AngularVectorsT::new(0);
         for vec in iter {
@@ -171,16 +167,18 @@ impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'stati
     }
 }
 
-
 // TODO: fix whenever GAT arrive
 // See https://github.com/rust-lang/rfcs/blob/master/text/0235-collections-conventions.md#lack-of-iterator-methods
 // https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T>
-{
-    type Output=AngularVectorT<'static, T>;
+impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T> {
+    type Output = AngularVectorT<'static, T>;
 
     fn at(self: &Self, index: usize) -> Self::Output {
-        AngularVectorT(self.data[index*self.dim..(index+1)*self.dim].to_vec().into())
+        AngularVectorT(
+            self.data[index * self.dim..(index + 1) * self.dim]
+                .to_vec()
+                .into(),
+        )
     }
 
     fn len(self: &Self) -> usize {
@@ -194,13 +192,12 @@ impl<'a, T: Copy> Writeable for AngularVectorsT<'a, T> {
     }
 }
 
-
 const MAX_QVALUE: usize = 127;
 
 impl From<Vec<f32>> for AngularIntVector<'static> {
     fn from(vec: Vec<f32>) -> Self {
         let n = vec.len() as i32;
-        let max_ind = unsafe { blas::isamax(n as i32, vec.as_slice(), 1)-1 };
+        let max_ind = unsafe { blas::isamax(n as i32, vec.as_slice(), 1) - 1 };
         let max_value: f32 = vec[max_ind].abs();
 
         let mut vec = vec;
@@ -220,12 +217,15 @@ impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
 
 impl<'a> From<AngularIntVector<'a>> for AngularVector<'static> {
     fn from(vec: AngularIntVector<'a>) -> Self {
-        vec.0.into_iter().map(|&x| x as f32).collect::<Vec<f32>>().into()
+        vec.0
+            .into_iter()
+            .map(|&x| x as f32)
+            .collect::<Vec<f32>>()
+            .into()
     }
 }
 
-impl<'a> ComparableTo<Self> for AngularIntVector<'a>
-{
+impl<'a> ComparableTo<Self> for AngularIntVector<'a> {
     fn dist(self: &Self, other: &Self) -> NotNaN<f32> {
         // optimized code to compute r, dx, and dy for systems supporting avx2
         // with fallback for other systems
@@ -234,11 +234,11 @@ impl<'a> ComparableTo<Self> for AngularIntVector<'a>
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 if is_x86_feature_detected!("avx2") {
-                    return unsafe { compute_r_dx_dy_avx2(x, y) }
+                    return unsafe { compute_r_dx_dy_avx2(x, y) };
                 }
             }
 
-            compute_r_dx_dy_fallback(x,y)
+            compute_r_dx_dy_fallback(x, y)
         }
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -254,7 +254,11 @@ impl<'a> ComparableTo<Self> for AngularIntVector<'a>
             let mut dx = 0i32;
             let mut dy = 0i32;
 
-            for (xi,yi) in x.iter().map(|&xi| xi as i32).zip(y.iter().map(|&yi| yi as i32)) {
+            for (xi, yi) in x
+                .iter()
+                .map(|&xi| xi as i32)
+                .zip(y.iter().map(|&yi| yi as i32))
+            {
                 r += xi * yi;
                 dx += xi * xi;
                 dy += yi * yi;
@@ -275,12 +279,12 @@ impl<'a> ComparableTo<Self> for AngularIntVector<'a>
     }
 }
 
-
 pub fn angular_reference_dist(first: &AngularVector, second: &AngularVector) -> NotNaN<f32> {
     let &AngularVectorT(ref x) = first;
     let &AngularVectorT(ref y) = second;
 
-    let r: f32 = x.iter()
+    let r: f32 = x
+        .iter()
         .zip(y.iter())
         .map(|(&xi, &yi)| xi as f32 * yi as f32)
         .sum();
@@ -293,11 +297,10 @@ pub fn angular_reference_dist(first: &AngularVector, second: &AngularVector) -> 
     cmp::max(NotNaN::new(0.0f32).unwrap(), d)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::*;
+    use super::*;
 
     #[test]
     fn rblas_dist() {
@@ -322,8 +325,7 @@ mod tests {
     fn dist_between_opposite_vector() {
         for _ in 0..100 {
             let x: AngularVector = example::random_dense_element(100);
-            let y: AngularVector =
-                x.0.clone().into_iter().map(|x| -x).collect();
+            let y: AngularVector = x.0.clone().into_iter().map(|x| -x).collect();
 
             assert!(x.dist(&y).into_inner() > 2.0f32 - DIST_EPSILON);
         }

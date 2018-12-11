@@ -1,41 +1,34 @@
+use byteorder::{LittleEndian, ReadBytesExt};
 use fnv::FnvHashSet;
 use ordered_float::NotNaN;
-use revord::RevOrd;
-use std::collections::BinaryHeap;
-use std::cmp;
-use pbr::ProgressBar;
-
-use slice_vector::{FixedWidthSliceVector, SliceVector};
-use serde_json;
-
-// Write and read
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write, Result};
-
-use byteorder::{LittleEndian, ReadBytesExt};
-
-// Threading
-use rayon::prelude::*;
 use parking_lot::{Mutex, RwLock};
-
+use pbr::ProgressBar;
+use rayon::prelude::*;
+use revord::RevOrd;
+use serde_json;
+use std::borrow::Cow;
+use std::cmp;
+use std::collections::BinaryHeap;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read, Result, Write};
 use time::PreciseTime;
 
-use std::borrow::Cow;
+use slice_vector::{FixedWidthSliceVector, SliceVector};
 
-use crate::types::ComparableTo;
-use crate::types;
 use crate::file_io;
+use crate::types;
+use crate::types::ComparableTo;
 
-
-#[cfg(test)]
-mod tests;
-mod sharded_hnsw;
 mod bloomfilter;
 mod neighborid;
+mod sharded_hnsw;
+#[cfg(test)]
+mod tests;
 
 pub use self::sharded_hnsw::ShardedHnsw;
 
 use self::neighborid::NeighborId;
+
 const MAX_NEIGHBORS: usize = 32;
 const EXTRA_NEIGHBORS_AT_BUILD_TIME: usize = 6;
 const UNUSED: NeighborId = NeighborId([<u8>::max_value(); 5]);
@@ -45,10 +38,8 @@ const SERIALIZATION_VERSION: usize = 0;
 
 type HnswNode = [NeighborId];
 
-fn iter_neighbors<'b>(node: &'b HnswNode) -> impl 'b + Iterator<Item=usize> {
-    node.iter()
-        .take_while(|&&n| n != UNUSED)
-        .map(|&n| n.into())
+fn iter_neighbors<'b>(node: &'b HnswNode) -> impl 'b + Iterator<Item = usize> {
+    node.iter().take_while(|&&n| n != UNUSED).map(|&n| n.into())
 }
 
 #[derive(Clone)]
@@ -71,12 +62,13 @@ impl Config {
 }
 
 pub struct HnswBuilder<'a, Elements, Element>
-    where Elements: 'a + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
-          Element: 'a + ComparableTo<Element> + Sync + Send
+where
+    Elements: 'a + At<Output = Element> + Sync + Send + ToOwned + ?Sized,
+    Element: 'a + ComparableTo<Element> + Sync + Send,
 {
     layers: Vec<FixedWidthSliceVector<'static, NeighborId>>,
     elements: Cow<'a, Elements>,
-    config: Config
+    config: Config,
 }
 
 /// The At trait is similar to std::ops::Index. The latter however always returns a reference which makes it impossible
@@ -90,7 +82,7 @@ pub trait At {
 // Implement At for all slices of cloneable objects. Using this instead of normal indexing (std::ops::Index) is associated
 // with a small performance penalty (since each element needs to be cloned on access).
 impl<T: Clone> At for [T] {
-    type Output=T;
+    type Output = T;
 
     fn at(self: &Self, index: usize) -> Self::Output {
         self[index].clone()
@@ -112,39 +104,40 @@ impl<T> Writeable for [T] {
 }
 
 pub struct Hnsw<'a, Elements, Element>
-    where Elements: 'a + At<Output=Element> + ?Sized,
-          Element: 'a + ComparableTo<Element>
+where
+    Elements: 'a + At<Output = Element> + ?Sized,
+    Element: 'a + ComparableTo<Element>,
 {
     layers: Vec<FixedWidthSliceVector<'a, NeighborId>>,
     elements: &'a Elements,
 }
 
-
-
 impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
-    where Elements: 'a + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
-          Element: 'a + ComparableTo<Element> + Sync + Send + Clone
+where
+    Elements: 'a + At<Output = Element> + Sync + Send + ToOwned + ?Sized,
+    Element: 'a + ComparableTo<Element> + Sync + Send + Clone,
 {
     pub fn with_borrowed_elements(config: Config, elements: &'a Elements) -> Self {
         HnswBuilder {
             layers: Vec::new(),
             elements: Cow::Borrowed(elements),
-            config: config
+            config: config,
         }
     }
-
 
     pub fn with_owned_elements(config: Config, elements: Elements::Owned) -> Self {
         HnswBuilder {
             layers: Vec::new(),
             elements: Cow::Owned(elements),
-            config: config
+            config: config,
         }
     }
 
-
-    pub fn read_index_with_owned_elements<I: Read>(config: Config, index_reader: &mut I, elements: Elements::Owned) -> Result<Self>
-    {
+    pub fn read_index_with_owned_elements<I: Read>(
+        config: Config,
+        index_reader: &mut I,
+        elements: Elements::Owned,
+    ) -> Result<Self> {
         let layers = read_layers(index_reader)?;
 
         let elements: Cow<Elements> = Cow::Owned(elements);
@@ -156,13 +149,15 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         Ok(Self {
             layers: layers,
             elements: elements,
-            config: config
+            config: config,
         })
     }
 
-
-    pub fn read_index_with_borrowed_elements<I: Read>(config: Config, index_reader: &mut I, elements: &'a Elements) -> Result<Self>
-    {
+    pub fn read_index_with_borrowed_elements<I: Read>(
+        config: Config,
+        index_reader: &mut I,
+        elements: &'a Elements,
+    ) -> Result<Self> {
         let layers = read_layers(index_reader)?;
 
         if let Some(ref last_layer) = layers.last() {
@@ -172,15 +167,13 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         Ok(Self {
             layers: layers,
             elements: Cow::Borrowed(elements),
-            config: config
+            config: config,
         })
     }
-
 
     pub fn len(self: &Self) -> usize {
         self.elements.len()
     }
-
 
     pub fn indexed_elements(self: &Self) -> usize {
         if let Some(layer) = self.layers.last() {
@@ -190,20 +183,18 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         }
     }
 
-
     pub fn save_index_to_disk(self: &Self, path: &str) -> Result<()> {
         let file = File::create(path)?;
         let mut file = BufWriter::new(file);
         self.write(&mut file)
     }
 
-
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
         let mut metadata = String::with_capacity(METADATA_LEN);
         metadata.push_str(LIBRARY_STR);
 
-        metadata.push_str(&serde_json::to_string(
-            &json!({
+        metadata.push_str(
+            &serde_json::to_string(&json!({
                 "version": SERIALIZATION_VERSION,
                 "num_neighbors": self.config.num_neighbors,
                 "num_extra_neighbors_at_build_time": EXTRA_NEIGHBORS_AT_BUILD_TIME,
@@ -211,8 +202,9 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
                 "num_indexed_elements": self.indexed_elements(),
                 "num_layers": self.layers.len(),
                 "layer_counts": self.layers.iter().map(|layer| layer.len()).collect::<Vec<_>>(),
-            })
-        ).expect("Could not create metadata json"));
+            }))
+            .expect("Could not create metadata json"),
+        );
 
         let mut metadata = metadata.into_bytes();
         assert!(metadata.len() <= METADATA_LEN);
@@ -234,14 +226,12 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         Ok(())
     }
 
-
     pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, Elements, Element> {
         Hnsw {
             layers: self.layers.iter().map(|layer| layer.borrow()).collect(),
             elements: self.elements.as_ref(),
         }
     }
-
 
     /// Builds the search index for all elements
     pub fn build_index(&mut self) {
@@ -258,19 +248,23 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             return;
         }
 
-        assert!(num_elements >= self.layers.last().map_or(0, |layer| layer.len()),
-                "Cannot index fewer elements than already in index.");
-        assert!(num_elements <= self.elements.len(),
-                "Cannot index more elements than exist.");
+        assert!(
+            num_elements >= self.layers.last().map_or(0, |layer| layer.len()),
+            "Cannot index fewer elements than already in index."
+        );
+        assert!(
+            num_elements <= self.elements.len(),
+            "Cannot index more elements than exist."
+        );
 
         // fresh index build => initialize first layer
         if self.layers.is_empty() {
-            let mut layer =
-                FixedWidthSliceVector::new(self.config.num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME);
+            let mut layer = FixedWidthSliceVector::new(
+                self.config.num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME,
+            );
             layer.resize(1, UNUSED);
             self.layers.push(layer);
-        }
-        else {
+        } else {
             // make sure the current last layer is full (no-op if already full)
             self.index_elements_in_last_layer(num_elements);
         }
@@ -290,13 +284,13 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         }
     }
 
-
     fn index_elements_in_last_layer(&mut self, max_num_elements: usize) {
         let layer_multiplier =
             compute_layer_multiplier(self.elements.len(), self.config.num_layers);
 
-        let layer = self.layers.len()-1;
-        let ideal_num_elements_in_layer = cmp::min(layer_multiplier.pow(layer as u32), self.elements.len());
+        let layer = self.layers.len() - 1;
+        let ideal_num_elements_in_layer =
+            cmp::min(layer_multiplier.pow(layer as u32), self.elements.len());
         let mut num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
 
         // if last layer index all elements
@@ -309,17 +303,22 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         let additional = ideal_num_elements_in_layer - layer.len();
         layer.reserve_exact(additional);
 
-        Self::index_elements(&self.config, &self.elements, num_elements_in_layer, &self.get_index(), &mut layer);
+        Self::index_elements(
+            &self.config,
+            &self.elements,
+            num_elements_in_layer,
+            &self.get_index(),
+            &mut layer,
+        );
 
         self.layers.push(layer);
     }
-
 
     fn index_elements(
         config: &Config,
         elements: &Elements,
         num_elements: usize,
-        prev_layers: &Hnsw<Elements,Element>,
+        prev_layers: &Hnsw<Elements, Element>,
         layer: &mut FixedWidthSliceVector<'static, NeighborId>,
     ) {
         assert!(layer.len() <= num_elements);
@@ -344,7 +343,6 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
                 }
 
                 (Some(Mutex::new(progress_bar)), Some(PreciseTime::now()))
-
             } else {
                 (None, None)
             }
@@ -391,7 +389,6 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         }
     }
 
-
     fn index_element(
         config: &Config,
         elements: &Elements,
@@ -399,7 +396,6 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         layer: &[RwLock<&mut HnswNode>],
         idx: usize,
     ) {
-
         let element: Element = elements.at(idx);
 
         // do not index elements that are zero (multiply by 100 as safety margin)
@@ -434,7 +430,6 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         }
     }
 
-
     // Similar to Hnsw::search_for_neighbors but with RwLocks for
     // parallel indexing (and bloomfilter for visited set)
     fn search_for_neighbors_index(
@@ -444,7 +439,6 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         goal: &Element,
         max_search: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
-
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
 
@@ -483,13 +477,11 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             .collect()
     }
 
-
     fn select_neighbors(
         elements: &Elements,
         candidates: Vec<(usize, NotNaN<f32>)>,
         max_neighbors: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
-
         if candidates.len() <= max_neighbors {
             return candidates;
         }
@@ -507,20 +499,20 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
             // add j to neighbors if j is closer to idx,
             // than to all previously added neighbors
-            if neighbors.iter().all(
-                |&(_, _, ref neighbor)| d <= neighbor.dist(&element) + Element::eps()
-            ) {
+            if neighbors
+                .iter()
+                .all(|&(_, _, ref neighbor)| d <= neighbor.dist(&element) + Element::eps())
+            {
                 neighbors.push((j, d, element));
             } else {
                 pruned.push((j, d));
             }
         }
 
-        let neighbors: Vec<_> = neighbors.into_iter().map(|(j, d, _)| (j,d)).collect();
+        let neighbors: Vec<_> = neighbors.into_iter().map(|(j, d, _)| (j, d)).collect();
 
         neighbors
     }
-
 
     fn initialize_node(node: &RwLock<&mut HnswNode>, neighbors: &[(usize, NotNaN<f32>)]) {
         // Write Lock!
@@ -531,7 +523,6 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
             node[i] = idx.into();
         }
     }
-
 
     fn connect_nodes(
         elements: &Elements,
@@ -551,8 +542,13 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
         }
     }
 
-
-    fn add_and_limit_neighbors(elements: &Elements, node: &mut HnswNode, node_id: usize, extra: &[(usize, NotNaN<f32>)], num_neighbors: usize) {
+    fn add_and_limit_neighbors(
+        elements: &Elements,
+        node: &mut HnswNode,
+        node_id: usize,
+        extra: &[(usize, NotNaN<f32>)],
+        num_neighbors: usize,
+    ) {
         assert!(num_neighbors <= node.len());
 
         let element: Element = elements.at(node_id);
@@ -567,11 +563,11 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 
         candidates.sort_unstable_by_key(|&(_, d)| d);
 
-        let neighbors =
-            Self::select_neighbors(elements, candidates, num_neighbors);
+        let neighbors = Self::select_neighbors(elements, candidates, num_neighbors);
 
         // set new neighbors and mark last positions as unused
-        for (k, n) in neighbors.into_iter()
+        for (k, n) in neighbors
+            .into_iter()
             .map(|(n, _)| n.into())
             .chain(std::iter::repeat(UNUSED))
             .enumerate()
@@ -582,10 +578,10 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
     }
 }
 
-
 impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
-    where Elements: 'a + Writeable + At<Output=Element> + Sync + Send + ToOwned + ?Sized,
-          Element: 'a + ComparableTo<Element> + Sync + Send
+where
+    Elements: 'a + Writeable + At<Output = Element> + Sync + Send + ToOwned + ?Sized,
+    Element: 'a + ComparableTo<Element> + Sync + Send,
 {
     pub fn save_elements_to_disk(self: &Self, path: &str) -> Result<()> {
         let file = File::create(path)?;
@@ -595,23 +591,25 @@ impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
     }
 }
 
-
 // Methods only implemented for AngularVectors
-impl<'a, T> HnswBuilder<'a, types::AngularVectorsT<'static, T>, types::AngularVectorT<'static, T>> where
+impl<'a, T> HnswBuilder<'a, types::AngularVectorsT<'static, T>, types::AngularVectorT<'static, T>>
+where
     T: Copy + Sync + Send,
-    types::AngularVectorT<'static, T>: ComparableTo<types::AngularVectorT<'static, T>>
+    types::AngularVectorT<'static, T>: ComparableTo<types::AngularVectorT<'static, T>>,
 {
     pub fn new(dimension: usize, config: Config) -> Self {
         HnswBuilder {
             layers: Vec::new(),
             elements: Cow::Owned(types::AngularVectorsT::new(dimension)),
-            config: config
+            config: config,
         }
     }
 
-
     pub fn add(self: &mut Self, elements: types::AngularVectorsT<'static, T>) {
-        assert!(self.elements.len() + (elements.len() / self.elements.dim) <= <NeighborId>::max_value() as usize);
+        assert!(
+            self.elements.len() + (elements.len() / self.elements.dim)
+                <= <NeighborId>::max_value() as usize
+        );
 
         if self.elements.len() == 0 {
             self.elements = Cow::Owned(elements);
@@ -621,7 +619,6 @@ impl<'a, T> HnswBuilder<'a, types::AngularVectorsT<'static, T>, types::AngularVe
     }
 }
 
-
 // Computes a layer multiplier m, s.t. the number of elements in layer i is
 // equal to m^i
 fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
@@ -630,10 +627,10 @@ fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
         .ceil() as usize
 }
 
-
 impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
-    where Elements: 'a + At<Output=Element> + ?Sized,
-          Element: 'a + ComparableTo<Element>
+where
+    Elements: 'a + At<Output = Element> + ?Sized,
+    Element: 'a + ComparableTo<Element>,
 {
     pub fn load(buffer: &'a [u8], elements: &'a Elements) -> Self {
         let (num_neighbors, layer_counts) = read_metadata(buffer).expect("Could not read metadata");
@@ -654,9 +651,7 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
             layers: layers,
             elements: elements,
         }
-
     }
-
 
     pub fn search(
         &self,
@@ -664,7 +659,6 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
         num_neighbors: usize,
         max_search: usize,
     ) -> Vec<(usize, f32)> {
-
         let (bottom_layer, top_layers) = self.layers.split_last().unwrap();
 
         let entrypoint = Self::find_entrypoint(&top_layers, element, &self.elements);
@@ -675,29 +669,27 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
             &self.elements,
             element,
             max_search,
-        ).into_iter()
-            .take(num_neighbors)
-            .map(|(i, d)| (i, d.into_inner()))
-            .collect()
+        )
+        .into_iter()
+        .take(num_neighbors)
+        .map(|(i, d)| (i, d.into_inner()))
+        .collect()
     }
-
 
     fn find_entrypoint(
         layers: &[FixedWidthSliceVector<'a, NeighborId>],
         element: &Element,
-        elements: &Elements) -> usize {
-
+        elements: &Elements,
+    ) -> usize {
         let mut entrypoint = 0;
         for layer in layers {
-            let res =
-                Self::search_for_neighbors(&layer, entrypoint, elements, &element, 1);
+            let res = Self::search_for_neighbors(&layer, entrypoint, elements, &element, 1);
 
             entrypoint = res[0].0;
         }
 
         entrypoint
     }
-
 
     fn search_for_neighbors(
         layer: &FixedWidthSliceVector<'a, NeighborId>,
@@ -706,7 +698,6 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
         goal: &Element,
         max_search: usize,
     ) -> Vec<(usize, NotNaN<f32>)> {
-
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
         let mut visited =
@@ -756,26 +747,28 @@ impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
     pub fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
         iter_neighbors(self.layers[layer].get(index)).collect()
     }
-
 }
-
 
 fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>)> {
     let mut index_reader = index_reader.take(METADATA_LEN as u64);
 
     // Check if the file is a current or old version of an granne index
     let mut lib_str = Vec::new();
-    index_reader.by_ref().take(LIBRARY_STR.len() as u64).read_to_end(&mut lib_str)?;
+    index_reader
+        .by_ref()
+        .take(LIBRARY_STR.len() as u64)
+        .read_to_end(&mut lib_str)?;
     if String::from_utf8(lib_str).unwrap_or("".to_string()) == LIBRARY_STR {
         // the current version stores metadata as json
-        let metadata: serde_json::Value = serde_json::from_reader(index_reader).expect("Could not read metadata");
+        let metadata: serde_json::Value =
+            serde_json::from_reader(index_reader).expect("Could not read metadata");
 
-        let num_neighbors: usize =
-            serde_json::from_value(metadata["num_neighbors"].clone()).expect("Could not read num_neighbors");
-        let num_layers: usize =
-            serde_json::from_value(metadata["num_layers"].clone()).expect("Could not read num_layers");
-        let layer_counts: Vec<usize> =
-            serde_json::from_value(metadata["layer_counts"].clone()).expect("Could not read layer_counts");
+        let num_neighbors: usize = serde_json::from_value(metadata["num_neighbors"].clone())
+            .expect("Could not read num_neighbors");
+        let num_layers: usize = serde_json::from_value(metadata["num_layers"].clone())
+            .expect("Could not read num_layers");
+        let layer_counts: Vec<usize> = serde_json::from_value(metadata["layer_counts"].clone())
+            .expect("Could not read layer_counts");
         assert_eq!(num_layers, layer_counts.len());
 
         Ok((num_neighbors, layer_counts))
@@ -802,8 +795,9 @@ fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>)> {
     }
 }
 
-
-fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
+fn read_layers<I: Read>(
+    index_reader: I,
+) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
     use std::mem::size_of;
 
     let mut index_reader = BufReader::new(index_reader);
@@ -836,7 +830,6 @@ fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'st
             });
 
             vec
-
         } else {
             FixedWidthSliceVector::read(layer_reader, num_neighbors)?
         };
@@ -848,7 +841,6 @@ fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'st
 
     Ok(layers)
 }
-
 
 struct MaxSizeHeap<T> {
     heap: BinaryHeap<T>,
@@ -866,7 +858,6 @@ impl<T: Ord> MaxSizeHeap<T> {
     pub fn push(self: &mut Self, element: T) {
         if !self.is_full() {
             self.heap.push(element);
-
         } else if element < *self.heap.peek().unwrap() {
             if self.heap.len() >= self.max_size {
                 self.heap.pop();
