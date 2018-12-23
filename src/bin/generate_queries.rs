@@ -1,9 +1,5 @@
-#[macro_use]
-extern crate clap;
-extern crate granne;
-extern crate time;
-
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
+use granne;
 use std::path::Path;
 use time::PreciseTime;
 

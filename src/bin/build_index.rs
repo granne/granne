@@ -1,18 +1,13 @@
-#[macro_use]
-extern crate clap;
-extern crate granne;
-extern crate memmap;
-#[macro_use]
-extern crate serde_derive;
-extern crate time;
-extern crate toml;
-
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
+use granne;
 use granne::file_io;
+use memmap;
+use serde::Deserialize;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use time::PreciseTime;
+use toml;
 
 #[derive(Clone, Debug, Deserialize)]
 struct Settings {
