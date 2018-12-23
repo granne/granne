@@ -1,5 +1,5 @@
 use byteorder::{LittleEndian, ReadBytesExt};
-use fnv::FnvHashSet;
+use hashbrown;
 use ordered_float::NotNaN;
 use parking_lot::{Mutex, RwLock};
 use pbr::ProgressBar;
@@ -19,7 +19,6 @@ use crate::file_io;
 use crate::types;
 use crate::types::ComparableTo;
 
-mod bloomfilter;
 mod neighborid;
 mod sharded_hnsw;
 #[cfg(test)]
@@ -29,7 +28,6 @@ pub use self::sharded_hnsw::ShardedHnsw;
 
 use self::neighborid::NeighborId;
 
-const MAX_NEIGHBORS: usize = 32;
 const EXTRA_NEIGHBORS_AT_BUILD_TIME: usize = 6;
 const UNUSED: NeighborId = NeighborId([<u8>::max_value(); 5]);
 const METADATA_LEN: usize = 1024;
@@ -431,7 +429,7 @@ where
     }
 
     // Similar to Hnsw::search_for_neighbors but with RwLocks for
-    // parallel indexing (and bloomfilter for visited set)
+    // parallel indexing
     fn search_for_neighbors_index(
         elements: &Elements,
         layer: &[RwLock<&mut HnswNode>],
@@ -442,9 +440,8 @@ where
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
 
-        // A bloomfilter is fine since we mostly want to avoid revisiting nodes
-        // and it's faster than FnvHashSet.
-        let mut visited = bloomfilter::BloomFilter::new(max_search * MAX_NEIGHBORS, 0.01);
+        let num_neighbors = layer[entrypoint].read().len();
+        let mut visited = hashbrown::HashSet::with_capacity(max_search * num_neighbors);
 
         pq.push(RevOrd((elements.at(entrypoint).dist(goal), entrypoint)));
 
@@ -700,8 +697,9 @@ where
     ) -> Vec<(usize, NotNaN<f32>)> {
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
-        let mut visited =
-            FnvHashSet::with_capacity_and_hasher(max_search * MAX_NEIGHBORS, Default::default());
+
+        let num_neighbors = layer.get(0).len();
+        let mut visited = hashbrown::HashSet::with_capacity(max_search * num_neighbors);
 
         let distance = elements.at(entrypoint).dist(&goal);
 

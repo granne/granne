@@ -2,7 +2,7 @@ use crate::query_embeddings::*;
 use crate::types::{AngularVector, AngularVectorT};
 
 use flate2;
-use fnv::FnvHashMap;
+use hashbrown;
 use memmap;
 use parking_lot::Mutex;
 use pbr;
@@ -19,7 +19,7 @@ pub fn parse_queries_and_save_to_disk(
     output_path: &Path,
     show_progress: bool,
 ) {
-    let word_ids: FnvHashMap<_, _> = {
+    let word_ids: hashbrown::HashMap<_, _> = {
         let word_file = File::open(&words_path).unwrap();
         let word_file = BufReader::new(word_file);
 
@@ -92,7 +92,7 @@ pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Sen
 
 pub fn parse_queries_in_directory_or_file(
     path: &Path,
-    word_ids: &FnvHashMap<String, usize>,
+    word_ids: &hashbrown::HashMap<String, usize>,
     show_progress: bool,
 ) -> QueryVec<'static> {
     let parts = if path.is_dir() {
@@ -157,7 +157,10 @@ pub fn parse_queries_in_directory_or_file(
     queries
 }
 
-fn parse_file<T: Read>(query_file: T, word_ids: &FnvHashMap<String, usize>) -> QueryVec<'static> {
+fn parse_file<T: Read>(
+    query_file: T,
+    word_ids: &hashbrown::HashMap<String, usize>,
+) -> QueryVec<'static> {
     let query_file = BufReader::new(query_file);
 
     let mut queries = QueryVec::new();
