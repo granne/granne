@@ -18,7 +18,7 @@ use madvise::{AccessPattern, AdviseMemory};
 mod query_embeddings;
 use query_embeddings::{py_parse_queries_and_save_to_disk, py_compute_query_vectors_and_save_to_disk};
 
-const DEFAULT_NUM_NEIGHBORS: usize = 5;
+const DEFAULT_NUM_NEIGHBORS: usize = 20;
 const DEFAULT_MAX_SEARCH: usize = 200;
 
 pub enum DTYPE {
