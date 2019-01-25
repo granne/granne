@@ -1,22 +1,22 @@
 #[macro_use]
 extern crate cpython;
 
-extern crate memmap;
 extern crate granne;
 extern crate madvise;
+extern crate memmap;
 extern crate rayon;
 extern crate serde_json;
 
 use cpython::{PyObject, PyResult, Python};
+use madvise::{AccessPattern, AdviseMemory};
+use memmap::Mmap;
 use rayon::prelude::*;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::BufReader;
-use memmap::Mmap;
-use madvise::{AccessPattern, AdviseMemory};
 
 mod query_embeddings;
-use query_embeddings::{py_parse_queries_and_save_to_disk, py_compute_query_vectors_and_save_to_disk};
+use query_embeddings::{py_compute_query_vectors_and_save_to_disk, py_parse_queries_and_save_to_disk};
 
 const DEFAULT_NUM_NEIGHBORS: usize = 20;
 const DEFAULT_MAX_SEARCH: usize = 200;
@@ -25,7 +25,6 @@ pub enum DTYPE {
     F32,
     I8,
 }
-
 
 impl DTYPE {
     fn default() -> DTYPE {
@@ -36,11 +35,10 @@ impl DTYPE {
         match s {
             "f32" | "F32" => DTYPE::F32,
             "i8" | "I8" => DTYPE::I8,
-            _ => panic!("Invalid dtype")
+            _ => panic!("Invalid dtype"),
         }
     }
 }
-
 
 impl<'source> cpython::FromPyObject<'source> for DTYPE {
     fn extract(py: Python, obj: &'source PyObject) -> PyResult<Self> {
@@ -50,37 +48,48 @@ impl<'source> cpython::FromPyObject<'source> for DTYPE {
     }
 }
 
-
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
-    try!(m.add(py, "__doc__", "granne - Graph-based Retrieval of Approximate Nearest Neighbors"));
+    try!(m.add(
+        py,
+        "__doc__",
+        "granne - Graph-based Retrieval of Approximate Nearest Neighbors"
+    ));
     try!(m.add_class::<Hnsw>(py));
     try!(m.add_class::<ShardedHnsw>(py));
     try!(m.add_class::<HnswBuilder>(py));
     try!(m.add_class::<query_embeddings::QueryHnsw>(py));
     try!(m.add_class::<query_embeddings::QueryHnswBuilder>(py));
-    try!(m.add(py, "parse_queries_and_save_to_disk",
-               py_fn!(py, py_parse_queries_and_save_to_disk(
-                   queries_path: String,
-                   words_path: String,
-                   output_path: String,
-                   show_progress: bool = true)
-               )
+    try!(m.add(
+        py,
+        "parse_queries_and_save_to_disk",
+        py_fn!(
+            py,
+            py_parse_queries_and_save_to_disk(
+                queries_path: String,
+                words_path: String,
+                output_path: String,
+                show_progress: bool = true
+            )
+        )
     ));
-    try!(m.add(py, "compute_query_vectors_and_save_to_disk",
-               py_fn!(py, py_compute_query_vectors_and_save_to_disk(
-                   dimension: usize,
-                   queries_path: String,
-                   word_embeddings_path: String,
-                   output_path: String,
-                   dtype: DTYPE = DTYPE::default(),
-                   show_progress: bool = true)
-               )
+    try!(m.add(
+        py,
+        "compute_query_vectors_and_save_to_disk",
+        py_fn!(
+            py,
+            py_compute_query_vectors_and_save_to_disk(
+                dimension: usize,
+                queries_path: String,
+                word_embeddings_path: String,
+                output_path: String,
+                dtype: DTYPE = DTYPE::default(),
+                show_progress: bool = true
+            )
+        )
     ));
 
     Ok(())
 });
-
-
 
 py_class!(class Hnsw |py| {
     data index: memmap::Mmap;
@@ -167,7 +176,6 @@ py_class!(class Hnsw |py| {
     }
 });
 
-
 py_class!(class ShardedHnsw |py| {
     data shards: Vec<(memmap::Mmap, memmap::Mmap)>;
 
@@ -227,9 +235,13 @@ py_class!(class ShardedHnsw |py| {
 
 enum BuilderType {
     AngularVectorBuilder(granne::HnswBuilder<'static, granne::AngularVectors<'static>, granne::AngularVector<'static>>),
-    AngularIntVectorBuilder(granne::HnswBuilder<'static, granne::AngularIntVectors<'static>, granne::AngularIntVector<'static>>),
+    AngularIntVectorBuilder(
+        granne::HnswBuilder<'static, granne::AngularIntVectors<'static>, granne::AngularIntVector<'static>>,
+    ),
     MmapAngularVectorBuilder(granne::HnswBuilder<'static, granne::MmapAngularVectors, granne::AngularVector<'static>>),
-    MmapAngularIntVectorBuilder(granne::HnswBuilder<'static, granne::MmapAngularIntVectors, granne::AngularIntVector<'static>>)
+    MmapAngularIntVectorBuilder(
+        granne::HnswBuilder<'static, granne::MmapAngularIntVectors, granne::AngularIntVector<'static>>,
+    ),
 }
 
 py_class!(class HnswBuilder |py| {
