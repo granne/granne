@@ -1,7 +1,7 @@
 use cpython::{PyObject, PyResult, Python};
+use granne;
 use granne::query_embeddings::QueryEmbeddings;
 use granne::{At, Dense};
-use granne;
 use madvise::{AccessPattern, AdviseMemory};
 use memmap;
 use rayon::prelude::*;
@@ -13,14 +13,14 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 
-use super::{DEFAULT_NUM_NEIGHBORS, DEFAULT_MAX_SEARCH, DTYPE};
+use super::{DEFAULT_MAX_SEARCH, DEFAULT_NUM_NEIGHBORS, DTYPE};
 
 type IndexType<'a> = granne::Hnsw<'a, QueryEmbeddings<'a>, granne::AngularVector<'a>>;
 type BuilderType = granne::HnswBuilder<'static, MmapQueryEmbeddings, granne::AngularVector<'static>>;
 
 pub struct WordDict {
     word_to_id: HashMap<String, usize>,
-    id_to_word: Vec<String>
+    id_to_word: Vec<String>,
 }
 
 impl WordDict {
@@ -35,21 +35,17 @@ impl WordDict {
             })
             .collect();
 
-        let word_to_id = words
-            .iter()
-            .enumerate()
-            .map(|(i, w)| (w.to_string(), i))
-            .collect();
+        let word_to_id = words.iter().enumerate().map(|(i, w)| (w.to_string(), i)).collect();
 
         Self {
             word_to_id: word_to_id,
-            id_to_word: words
+            id_to_word: words,
         }
     }
 
     pub fn get_query(self: &Self, ids: &[usize]) -> String {
         if ids.is_empty() {
-            return String::new()
+            return String::new();
         }
 
         let mut query = self.id_to_word[ids[0]].clone();
@@ -63,7 +59,10 @@ impl WordDict {
     }
 
     pub fn get_word_ids(self: &Self, query: &str) -> Vec<usize> {
-        query.split_whitespace().filter_map(|w| self.word_to_id.get(w).cloned()).collect()
+        query
+            .split_whitespace()
+            .filter_map(|w| self.word_to_id.get(w).cloned())
+            .collect()
     }
 }
 
@@ -175,13 +174,12 @@ py_class!(pub class QueryHnsw |py| {
 
 });
 
-
 /// A wrapper around granne::QueryEmbeddings to allow building indexes from python
 #[derive(Clone)]
 pub struct MmapQueryEmbeddings {
     word_embeddings: Arc<memmap::Mmap>,
     queries: Arc<memmap::Mmap>,
-    dimension: usize
+    dimension: usize,
 }
 
 impl MmapQueryEmbeddings {
@@ -189,8 +187,7 @@ impl MmapQueryEmbeddings {
         Self {
             word_embeddings: Arc::new(word_embeddings),
             queries: Arc::new(queries),
-            dimension: dimension
-
+            dimension: dimension,
         }
     }
 
@@ -199,7 +196,6 @@ impl MmapQueryEmbeddings {
         QueryEmbeddings::load(self.dimension, &self.word_embeddings[..], &self.queries[..])
     }
 }
-
 
 impl At for MmapQueryEmbeddings {
     type Output = granne::AngularVector<'static>;
@@ -213,40 +209,51 @@ impl At for MmapQueryEmbeddings {
     }
 }
 
-
-pub fn py_parse_queries_and_save_to_disk(py: Python, queries_path: String, words_path: String, output_path: String, show_progress: bool) -> PyResult<PyObject>{
+pub fn py_parse_queries_and_save_to_disk(
+    py: Python,
+    queries_path: String,
+    words_path: String,
+    output_path: String,
+    show_progress: bool,
+) -> PyResult<PyObject> {
     granne::query_embeddings::parsing::parse_queries_and_save_to_disk(
         &Path::new(&queries_path),
         &Path::new(&words_path),
         &Path::new(&output_path),
-        show_progress
+        show_progress,
     );
 
     Ok(py.None())
 }
 
-pub fn py_compute_query_vectors_and_save_to_disk(py: Python, dimension: usize, queries_path: String, word_embeddings_path: String, output_path: String, dtype: DTYPE, show_progress: bool) -> PyResult<PyObject> {
-
+pub fn py_compute_query_vectors_and_save_to_disk(
+    py: Python,
+    dimension: usize,
+    queries_path: String,
+    word_embeddings_path: String,
+    output_path: String,
+    dtype: DTYPE,
+    show_progress: bool,
+) -> PyResult<PyObject> {
     match dtype {
         DTYPE::F32 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<f32>(
             dimension,
             &Path::new(&queries_path),
             &Path::new(&word_embeddings_path),
             &Path::new(&output_path),
-            show_progress
+            show_progress,
         ),
         DTYPE::I8 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<i8>(
             dimension,
             &Path::new(&queries_path),
             &Path::new(&word_embeddings_path),
             &Path::new(&output_path),
-            show_progress
-        )
+            show_progress,
+        ),
     };
 
     Ok(py.None())
 }
-
 
 py_class!(pub class QueryHnswBuilder |py| {
     data builder: RefCell<BuilderType>;
