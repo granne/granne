@@ -28,7 +28,7 @@ pub use self::sharded_hnsw::ShardedHnsw;
 
 use self::neighborid::NeighborId;
 
-const EXTRA_NEIGHBORS_AT_BUILD_TIME: usize = 6;
+const EXTRA_NEIGHBORS_AT_BUILD_TIME: usize = 0;
 const UNUSED: NeighborId = NeighborId([<u8>::max_value(); 5]);
 const METADATA_LEN: usize = 1024;
 const LIBRARY_STR: &str = "granne";
@@ -136,9 +136,9 @@ where
         index_reader: &mut I,
         elements: Elements::Owned,
     ) -> Result<Self> {
-        let layers = read_layers(index_reader)?;
-
         let elements: Cow<Elements> = Cow::Owned(elements);
+
+        let layers = read_layers(index_reader, Some((config.num_layers, elements.len())))?;
 
         if let Some(ref last_layer) = layers.last() {
             assert!(last_layer.len() <= elements.len());
@@ -156,7 +156,7 @@ where
         index_reader: &mut I,
         elements: &'a Elements,
     ) -> Result<Self> {
-        let layers = read_layers(index_reader)?;
+        let layers = read_layers(index_reader, Some((config.num_layers, elements.len())))?;
 
         if let Some(ref last_layer) = layers.last() {
             assert!(last_layer.len() <= elements.len());
@@ -755,7 +755,10 @@ fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>)> {
     }
 }
 
-fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
+fn read_layers<I: Read>(
+    index_reader: I,
+    num_layers_and_size: Option<(usize, usize)>,
+) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
     use std::mem::size_of;
 
     let mut index_reader = BufReader::new(index_reader);
@@ -766,13 +769,24 @@ fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'st
     let mut layers = Vec::new();
     let node_size = num_neighbors * size_of::<NeighborId>();
 
-    for count in layer_counts {
+    // if last layer idx and size was passed in, we use this to allocate the full layer before reading
+    let (last_layer_idx, last_layer_size) = if let Some((num_layers, last_layer_size)) = num_layers_and_size {
+        (num_layers - 1, last_layer_size)
+    } else {
+        (<usize>::max_value(), 0)
+    };
+
+    for (layer_idx, count) in layer_counts.into_iter().enumerate() {
         let mut layer_reader = index_reader.by_ref().take((node_size * count) as u64);
 
         let layer = if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
             let num_neighbors_at_build_time = num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME;
 
-            let mut vec = FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, count);
+            let mut vec = if layer_idx != last_layer_idx {
+                FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, count)
+            } else {
+                FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, last_layer_size)
+            };
 
             let mut buffer = Vec::new();
             buffer.resize(num_neighbors_at_build_time * size_of::<NeighborId>(), 0);
@@ -789,7 +803,11 @@ fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'st
 
             vec
         } else {
-            FixedWidthSliceVector::read(layer_reader, num_neighbors)?
+            if layer_idx != last_layer_idx {
+                FixedWidthSliceVector::read(layer_reader, num_neighbors)?
+            } else {
+                FixedWidthSliceVector::read_with_capacity(layer_reader, num_neighbors, last_layer_size)?
+            }
         };
 
         assert_eq!(count, layer.len());

@@ -322,7 +322,7 @@ fn read_index_with_owned_elements() {
 fn read_legacy_index() {
     let file = File::open("example_data/legacy_index.granne").expect("Could not open file with legacy index");
 
-    let layers = read_layers(file).expect("Could not read index");
+    let layers = read_layers(file, None).expect("Could not read index");
 
     assert_eq!(8, layers.len());
     assert_eq!(100, layers.last().unwrap().len());

@@ -107,6 +107,19 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         Ok(vec)
     }
 
+    pub fn read_with_capacity<I: Read>(mut reader: I, width: usize, capacity: usize) -> Result<Self> {
+        let mut buffer = Vec::new();
+        buffer.resize(width * ::std::mem::size_of::<T>(), 0);
+
+        let mut vec = Self::with_capacity(width, capacity);
+
+        while let Ok(()) = reader.read_exact(&mut buffer) {
+            vec.push(load(&buffer[..]));
+        }
+
+        Ok(vec)
+    }
+
     pub fn borrow<'b>(self: &'a Self) -> FixedWidthSliceVector<'b, T>
     where
         'a: 'b,
