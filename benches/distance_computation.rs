@@ -28,10 +28,8 @@ mod types {
     #[bench]
     fn angular_int_vector_100_dist(b: &mut Bencher) {
         for _ in 0..5 {
-            let x: AngularIntVector =
-                granne::example::random_dense_element::<AngularVector>(100).into();
-            let y: AngularIntVector =
-                granne::example::random_dense_element::<AngularVector>(100).into();
+            let x: AngularIntVector = granne::example::random_dense_element::<AngularVector>(100).into();
+            let y: AngularIntVector = granne::example::random_dense_element::<AngularVector>(100).into();
 
             b.iter(|| x.dist(&y));
         }

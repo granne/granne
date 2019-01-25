@@ -146,9 +146,7 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
     }
 
     pub fn get_element(self: &'a Self, index: usize) -> AngularVectorT<'a, T> {
-        AngularVectorT(Cow::Borrowed(
-            &self.data[index * self.dim..(index + 1) * self.dim],
-        ))
+        AngularVectorT(Cow::Borrowed(&self.data[index * self.dim..(index + 1) * self.dim]))
     }
 
     pub fn data(self: &'a Self) -> &'a [T] {
@@ -174,11 +172,7 @@ impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T> {
     type Output = AngularVectorT<'static, T>;
 
     fn at(self: &Self, index: usize) -> Self::Output {
-        AngularVectorT(
-            self.data[index * self.dim..(index + 1) * self.dim]
-                .to_vec()
-                .into(),
-        )
+        AngularVectorT(self.data[index * self.dim..(index + 1) * self.dim].to_vec().into())
     }
 
     fn len(self: &Self) -> usize {
@@ -217,11 +211,7 @@ impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
 
 impl<'a> From<AngularIntVector<'a>> for AngularVector<'static> {
     fn from(vec: AngularIntVector<'a>) -> Self {
-        vec.0
-            .into_iter()
-            .map(|&x| x as f32)
-            .collect::<Vec<f32>>()
-            .into()
+        vec.0.into_iter().map(|&x| x as f32).collect::<Vec<f32>>().into()
     }
 }
 
@@ -254,11 +244,7 @@ impl<'a> ComparableTo<Self> for AngularIntVector<'a> {
             let mut dx = 0i32;
             let mut dy = 0i32;
 
-            for (xi, yi) in x
-                .iter()
-                .map(|&xi| xi as i32)
-                .zip(y.iter().map(|&yi| yi as i32))
-            {
+            for (xi, yi) in x.iter().map(|&xi| xi as i32).zip(y.iter().map(|&yi| yi as i32)) {
                 r += xi * yi;
                 dx += xi * xi;
                 dy += yi * yi;
@@ -283,11 +269,7 @@ pub fn angular_reference_dist(first: &AngularVector, second: &AngularVector) -> 
     let &AngularVectorT(ref x) = first;
     let &AngularVectorT(ref y) = second;
 
-    let r: f32 = x
-        .iter()
-        .zip(y.iter())
-        .map(|(&xi, &yi)| xi as f32 * yi as f32)
-        .sum();
+    let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi as f32 * yi as f32).sum();
 
     let dx: f32 = x.iter().map(|&xi| xi as f32 * xi as f32).sum();
     let dy: f32 = y.iter().map(|&yi| yi as f32 * yi as f32).sum();

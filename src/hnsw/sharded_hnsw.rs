@@ -33,32 +33,21 @@ where
         Self { indexes: indexes }
     }
 
-    pub fn search(
-        &self,
-        element: &Element,
-        num_neighbors: usize,
-        max_search: usize,
-    ) -> Vec<(usize, f32)> {
+    pub fn search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
         let mut results: Vec<_> = crossbeam::scope(|scope| {
             let children: Vec<_> = (0..self.indexes.len())
                 .map(|i| {
                     scope.spawn(move || {
                         let (ref index, id_offset) = self.indexes[i];
 
-                        let mut results: Vec<(usize, f32)> =
-                            index.search(element, num_neighbors, max_search);
-                        results
-                            .iter_mut()
-                            .for_each(|&mut (ref mut id, _)| *id += id_offset);
+                        let mut results: Vec<(usize, f32)> = index.search(element, num_neighbors, max_search);
+                        results.iter_mut().for_each(|&mut (ref mut id, _)| *id += id_offset);
                         results
                     })
                 })
                 .collect();
 
-            children
-                .into_iter()
-                .flat_map(|child| child.join())
-                .collect()
+            children.into_iter().flat_map(|child| child.join()).collect()
         });
 
         // sort and pick top num_neighbor elements
@@ -69,20 +58,13 @@ where
         results
     }
 
-    pub fn sequential_search(
-        &self,
-        element: &Element,
-        num_neighbors: usize,
-        max_search: usize,
-    ) -> Vec<(usize, f32)> {
+    pub fn sequential_search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
         let mut results: Vec<_> = self
             .indexes
             .iter()
             .flat_map(|&(ref index, id_offset)| {
                 let mut results = index.search(element, num_neighbors, max_search);
-                results
-                    .iter_mut()
-                    .for_each(|&mut (ref mut id, _)| *id += id_offset);
+                results.iter_mut().for_each(|&mut (ref mut id, _)| *id += id_offset);
                 results
             })
             .collect();
@@ -124,9 +106,7 @@ mod tests {
 
     fn get_shards(num_shards: usize, num_elements: usize) -> Vec<(Vec<u8>, Vec<ElementType>)> {
         assert!(num_elements % num_shards == 0);
-        let elements: Vec<_> = (0..num_elements)
-            .map(|_| random_dense_element(25))
-            .collect();
+        let elements: Vec<_> = (0..num_elements).map(|_| random_dense_element(25)).collect();
         let shards: Vec<_> = elements
             .chunks(num_elements / num_shards)
             .map(|chunk| {

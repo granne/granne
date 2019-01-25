@@ -147,15 +147,11 @@ fn main() {
                 let word_embeddings_file = matches
                     .value_of("word_embeddings")
                     .expect("scalar: query requires word embeddings file");
-                let word_embeddings =
-                    File::open(word_embeddings_file).expect("Could not open word embeddings file");
+                let word_embeddings = File::open(word_embeddings_file).expect("Could not open word embeddings file");
                 let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
 
-                let query_embeddings = QueryEmbeddings::load(
-                    settings.dimension,
-                    &word_embeddings,
-                    mmapped_elements.unwrap(),
-                );
+                let query_embeddings =
+                    QueryEmbeddings::load(settings.dimension, &word_embeddings, mmapped_elements.unwrap());
 
                 let mut builder: granne::HnswBuilder<QueryEmbeddings, granne::AngularVector>;
 
@@ -167,17 +163,13 @@ fn main() {
                     )
                     .expect("Could not read existing index");
                 } else {
-                    builder = granne::HnswBuilder::with_borrowed_elements(
-                        build_config,
-                        &query_embeddings,
-                    );
+                    builder = granne::HnswBuilder::with_borrowed_elements(build_config, &query_embeddings);
                 }
 
                 build_and_save(&mut builder, settings);
             } else {
                 if let Some(mmapped_elements) = mmapped_elements {
-                    let elements =
-                        granne::AngularVectors::load(settings.dimension, mmapped_elements);
+                    let elements = granne::AngularVectors::load(settings.dimension, mmapped_elements);
 
                     let mut builder = if let Some(mut existing_index) = existing_index {
                         granne::HnswBuilder::read_index_with_borrowed_elements(
@@ -197,16 +189,16 @@ fn main() {
 
                         let (vector_data, _) = file_io::read_f32(&input_file).unwrap();
 
-                        let elements =
-                            granne::AngularVectors::from_vec(settings.dimension, vector_data);
+                        let elements = granne::AngularVectors::from_vec(settings.dimension, vector_data);
 
-                        granne::HnswBuilder::<granne::AngularVectors, granne::AngularVector>::with_owned_elements(build_config, elements)
+                        granne::HnswBuilder::<granne::AngularVectors, granne::AngularVector>::with_owned_elements(
+                            build_config,
+                            elements,
+                        )
                     };
 
                     println!("Saving vectors to {}", settings.output_file);
-                    builder
-                        .save_elements_to_disk(&settings.vectors_output_file)
-                        .unwrap();
+                    builder.save_elements_to_disk(&settings.vectors_output_file).unwrap();
 
                     build_and_save(&mut builder, settings);
                 }
@@ -219,10 +211,7 @@ fn main() {
             panic!("Malformed config file");
         }
     } else {
-        panic!(
-            "An error occurred: Could not open config file: {}",
-            config_file
-        );
+        panic!("An error occurred: Could not open config file: {}", config_file);
     }
 }
 
@@ -239,8 +228,7 @@ where
         builder.save_index_to_disk(&settings.output_file).unwrap();
         println!("Completed!");
     } else {
-        let chunk_size =
-            (builder.len() + settings.num_build_chunks - 1) / settings.num_build_chunks;
+        let chunk_size = (builder.len() + settings.num_build_chunks - 1) / settings.num_build_chunks;
         let start_chunk = 1 + (builder.indexed_elements() + chunk_size - 1) / chunk_size;
 
         // insert elements for all chunks except the last

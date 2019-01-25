@@ -51,10 +51,7 @@ impl<'a> QueryEmbeddings<'a> {
             .get_embedding_internal(self.queries.queries.get(idx))
     }
 
-    pub fn get_embedding_for_query(
-        self: &Self,
-        word_ids: &[usize],
-    ) -> types::AngularVector<'static> {
+    pub fn get_embedding_for_query(self: &Self, word_ids: &[usize]) -> types::AngularVector<'static> {
         self.word_embeddings.get_embedding(word_ids)
     }
 
@@ -194,11 +191,7 @@ impl<'a> QueryVec<'a> {
     }
 
     pub fn get(self: &Self, idx: usize) -> Vec<usize> {
-        self.queries
-            .get(idx)
-            .iter()
-            .map(|&word_id| word_id.into())
-            .collect()
+        self.queries.get(idx).iter().map(|&word_id| word_id.into()).collect()
     }
 
     pub fn len(self: &Self) -> usize {

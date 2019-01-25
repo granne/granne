@@ -9,6 +9,6 @@ mod types;
 pub use crate::hnsw::{At, Config, Hnsw, HnswBuilder, ShardedHnsw, Writeable};
 
 pub use crate::types::{
-    angular_reference_dist, example, AngularIntVector, AngularIntVectors, AngularVector,
-    AngularVectors, ComparableTo, Dense, MmapAngularIntVectors, MmapAngularVectors,
+    angular_reference_dist, example, AngularIntVector, AngularIntVectors, AngularVector, AngularVectors, ComparableTo,
+    Dense, MmapAngularIntVectors, MmapAngularVectors,
 };
