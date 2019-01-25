@@ -73,20 +73,13 @@ pub fn load_from_disk<T: Clone>(path: &str) -> Result<(Vec<T>)> {
 }
 
 pub fn load<T>(buffer: &[u8]) -> &[T] {
-    let vectors: &[T] = unsafe {
-        ::std::slice::from_raw_parts(
-            buffer.as_ptr() as *const T,
-            buffer.len() / ::std::mem::size_of::<T>(),
-        )
-    };
+    let vectors: &[T] =
+        unsafe { ::std::slice::from_raw_parts(buffer.as_ptr() as *const T, buffer.len() / ::std::mem::size_of::<T>()) };
 
     vectors
 }
 
-pub fn read_elements<T: Clone, B: Read>(
-    reader: &mut B,
-    max_number_of_elements: usize,
-) -> Result<Vec<T>> {
+pub fn read_elements<T: Clone, B: Read>(reader: &mut B, max_number_of_elements: usize) -> Result<Vec<T>> {
     use std::mem::size_of;
 
     const BUFFER_SIZE: usize = 512;
@@ -94,9 +87,7 @@ pub fn read_elements<T: Clone, B: Read>(
 
     let mut elements: Vec<T> = Vec::new();
 
-    while reader.read_exact(&mut buffer[..size_of::<T>()]).is_ok()
-        && elements.len() < max_number_of_elements
-    {
+    while reader.read_exact(&mut buffer[..size_of::<T>()]).is_ok() && elements.len() < max_number_of_elements {
         elements.push(unsafe { (*(&buffer[0] as *const u8 as *const T)).clone() })
     }
 

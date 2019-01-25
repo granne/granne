@@ -23,7 +23,7 @@ fn main() {
                 .help("Text file or directory with text files containing one json query string per line")
                 .takes_value(true)
                 .required(true)
-                .index(2)
+                .index(2),
         )
         .arg(
             Arg::with_name("output")
@@ -32,18 +32,16 @@ fn main() {
                 .help("Path for output")
                 .takes_value(true)
                 .index(3)
-                .default_value("queries.bin")
-        ).get_matches();
+                .default_value("queries.bin"),
+        )
+        .get_matches();
 
     let word_path = matches.value_of("words").unwrap();
     let query_path = matches.value_of("queries").unwrap();
     let output_path = matches.value_of("output").unwrap();
 
     let start_time = PreciseTime::now();
-    println!(
-        "Reading queries from {:?} and generating queries...",
-        query_path
-    );
+    println!("Reading queries from {:?} and generating queries...", query_path);
 
     granne::query_embeddings::parsing::parse_queries_and_save_to_disk(
         &Path::new(query_path),

@@ -13,12 +13,7 @@ use std::fs::{read_dir, File};
 use std::io::{BufRead, BufReader, BufWriter, Read};
 use std::path::Path;
 
-pub fn parse_queries_and_save_to_disk(
-    queries_path: &Path,
-    words_path: &Path,
-    output_path: &Path,
-    show_progress: bool,
-) {
+pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, output_path: &Path, show_progress: bool) {
     let word_ids: hashbrown::HashMap<_, _> = {
         let word_file = File::open(&words_path).unwrap();
         let word_file = BufReader::new(word_file);
@@ -33,15 +28,12 @@ pub fn parse_queries_and_save_to_disk(
             .collect()
     };
 
-    let queries =
-        parsing::parse_queries_in_directory_or_file(queries_path, &word_ids, show_progress);
+    let queries = parsing::parse_queries_in_directory_or_file(queries_path, &word_ids, show_progress);
 
     let file = File::create(&output_path).unwrap();
     let mut file = BufWriter::new(file);
 
-    queries
-        .write(&mut file)
-        .expect("Failed to write queries to disk");
+    queries.write(&mut file).expect("Failed to write queries to disk");
 }
 
 pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Send>(
@@ -53,8 +45,7 @@ pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Sen
 ) where
     AngularVectorT<'static, DTYPE>: From<AngularVector<'static>>,
 {
-    let word_embeddings =
-        File::open(word_embeddings_path).expect("Could not open word_embeddings file");
+    let word_embeddings = File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
 
     let queries = File::open(&queries_path).expect("Could not open queries file");
@@ -75,8 +66,7 @@ pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Sen
     let num_chunks = 100;
     let chunk_size = (queries.len() + num_chunks - 1) / num_chunks;
     for i in 0..num_chunks {
-        let chunk =
-            (i * chunk_size..cmp::min((i + 1) * chunk_size, queries.len())).collect::<Vec<_>>();
+        let chunk = (i * chunk_size..cmp::min((i + 1) * chunk_size, queries.len())).collect::<Vec<_>>();
 
         let query_vectors: Vec<AngularVectorT<'static, DTYPE>> =
             chunk.par_iter().map(|&i| queries.at(i).into()).collect();
@@ -113,12 +103,10 @@ pub fn parse_queries_in_directory_or_file(
     let query_parts: Vec<QueryVec> = parts
         .par_iter()
         .map(|part| {
-            let query_file =
-                File::open(&part).expect(&format!("Input file: {:?} not found", &part));
+            let query_file = File::open(&part).expect(&format!("Input file: {:?} not found", &part));
 
             let queries = if part.to_str().unwrap().ends_with(".gz") {
-                let query_file =
-                    flate2::read::GzDecoder::new(query_file).expect("Not a valid gzip file.");
+                let query_file = flate2::read::GzDecoder::new(query_file).expect("Not a valid gzip file.");
                 parse_file(query_file, &word_ids)
             } else {
                 parse_file(query_file, &word_ids)
@@ -157,10 +145,7 @@ pub fn parse_queries_in_directory_or_file(
     queries
 }
 
-fn parse_file<T: Read>(
-    query_file: T,
-    word_ids: &hashbrown::HashMap<String, usize>,
-) -> QueryVec<'static> {
+fn parse_file<T: Read>(query_file: T, word_ids: &hashbrown::HashMap<String, usize>) -> QueryVec<'static> {
     let query_file = BufReader::new(query_file);
 
     let mut queries = QueryVec::new();

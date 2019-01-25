@@ -257,9 +257,7 @@ where
 
         // fresh index build => initialize first layer
         if self.layers.is_empty() {
-            let mut layer = FixedWidthSliceVector::new(
-                self.config.num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME,
-            );
+            let mut layer = FixedWidthSliceVector::new(self.config.num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME);
             layer.resize(1, UNUSED);
             self.layers.push(layer);
         } else {
@@ -283,12 +281,10 @@ where
     }
 
     fn index_elements_in_last_layer(&mut self, max_num_elements: usize) {
-        let layer_multiplier =
-            compute_layer_multiplier(self.elements.len(), self.config.num_layers);
+        let layer_multiplier = compute_layer_multiplier(self.elements.len(), self.config.num_layers);
 
         let layer = self.layers.len() - 1;
-        let ideal_num_elements_in_layer =
-            cmp::min(layer_multiplier.pow(layer as u32), self.elements.len());
+        let ideal_num_elements_in_layer = cmp::min(layer_multiplier.pow(layer as u32), self.elements.len());
         let mut num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
 
         // if last layer index all elements
@@ -348,24 +344,19 @@ where
 
         {
             // create RwLocks for underlying nodes
-            let layer: Vec<RwLock<&mut HnswNode>> =
-                layer.iter_mut().map(|node| RwLock::new(node)).collect();
+            let layer: Vec<RwLock<&mut HnswNode>> = layer.iter_mut().map(|node| RwLock::new(node)).collect();
 
             // index elements, skipping already indexed
-            layer
-                .par_iter()
-                .enumerate()
-                .skip(already_indexed)
-                .for_each(|(idx, _)| {
-                    Self::index_element(config, elements, prev_layers, &layer, idx);
+            layer.par_iter().enumerate().skip(already_indexed).for_each(|(idx, _)| {
+                Self::index_element(config, elements, prev_layers, &layer, idx);
 
-                    // This only shows approximate progress because of par_iter
-                    if idx % step_size == 0 {
-                        if let Some(ref progress_bar) = progress_bar {
-                            progress_bar.lock().add(step_size as u64);
-                        }
+                // This only shows approximate progress because of par_iter
+                if idx % step_size == 0 {
+                    if let Some(ref progress_bar) = progress_bar {
+                        progress_bar.lock().add(step_size as u64);
                     }
-                });
+                }
+            });
         }
 
         if let Some(progress_bar) = progress_bar {
@@ -403,13 +394,7 @@ where
 
         let (entrypoint, _) = prev_layers.search(&element, 1, 1)[0];
 
-        let candidates = Self::search_for_neighbors_index(
-            elements,
-            layer,
-            entrypoint,
-            &element,
-            config.max_search,
-        );
+        let candidates = Self::search_for_neighbors_index(elements, layer, entrypoint, &element, config.max_search);
 
         let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
 
@@ -521,13 +506,7 @@ where
         }
     }
 
-    fn connect_nodes(
-        elements: &Elements,
-        node: &RwLock<&mut HnswNode>,
-        i: usize,
-        j: usize,
-        d: NotNaN<f32>,
-    ) {
+    fn connect_nodes(elements: &Elements, node: &RwLock<&mut HnswNode>, i: usize, j: usize, d: NotNaN<f32>) {
         // Write Lock!
         let mut node = node.write();
 
@@ -603,10 +582,7 @@ where
     }
 
     pub fn add(self: &mut Self, elements: types::AngularVectorsT<'static, T>) {
-        assert!(
-            self.elements.len() + (elements.len() / self.elements.dim)
-                <= <NeighborId>::max_value() as usize
-        );
+        assert!(self.elements.len() + (elements.len() / self.elements.dim) <= <NeighborId>::max_value() as usize);
 
         if self.elements.len() == 0 {
             self.elements = Cow::Owned(elements);
@@ -619,9 +595,7 @@ where
 // Computes a layer multiplier m, s.t. the number of elements in layer i is
 // equal to m^i
 fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
-    (num_elements as f32)
-        .powf(1.0 / (num_layers - 1) as f32)
-        .ceil() as usize
+    (num_elements as f32).powf(1.0 / (num_layers - 1) as f32).ceil() as usize
 }
 
 impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
@@ -650,27 +624,16 @@ where
         }
     }
 
-    pub fn search(
-        &self,
-        element: &Element,
-        num_neighbors: usize,
-        max_search: usize,
-    ) -> Vec<(usize, f32)> {
+    pub fn search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
         let (bottom_layer, top_layers) = self.layers.split_last().unwrap();
 
         let entrypoint = Self::find_entrypoint(&top_layers, element, &self.elements);
 
-        Self::search_for_neighbors(
-            &bottom_layer,
-            entrypoint,
-            &self.elements,
-            element,
-            max_search,
-        )
-        .into_iter()
-        .take(num_neighbors)
-        .map(|(i, d)| (i, d.into_inner()))
-        .collect()
+        Self::search_for_neighbors(&bottom_layer, entrypoint, &self.elements, element, max_search)
+            .into_iter()
+            .take(num_neighbors)
+            .map(|(i, d)| (i, d.into_inner()))
+            .collect()
     }
 
     fn find_entrypoint(
@@ -758,15 +721,14 @@ fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>)> {
         .read_to_end(&mut lib_str)?;
     if String::from_utf8(lib_str).unwrap_or("".to_string()) == LIBRARY_STR {
         // the current version stores metadata as json
-        let metadata: serde_json::Value =
-            serde_json::from_reader(index_reader).expect("Could not read metadata");
+        let metadata: serde_json::Value = serde_json::from_reader(index_reader).expect("Could not read metadata");
 
-        let num_neighbors: usize = serde_json::from_value(metadata["num_neighbors"].clone())
-            .expect("Could not read num_neighbors");
-        let num_layers: usize = serde_json::from_value(metadata["num_layers"].clone())
-            .expect("Could not read num_layers");
-        let layer_counts: Vec<usize> = serde_json::from_value(metadata["layer_counts"].clone())
-            .expect("Could not read layer_counts");
+        let num_neighbors: usize =
+            serde_json::from_value(metadata["num_neighbors"].clone()).expect("Could not read num_neighbors");
+        let num_layers: usize =
+            serde_json::from_value(metadata["num_layers"].clone()).expect("Could not read num_layers");
+        let layer_counts: Vec<usize> =
+            serde_json::from_value(metadata["layer_counts"].clone()).expect("Could not read layer_counts");
         assert_eq!(num_layers, layer_counts.len());
 
         Ok((num_neighbors, layer_counts))
@@ -793,9 +755,7 @@ fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>)> {
     }
 }
 
-fn read_layers<I: Read>(
-    index_reader: I,
-) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
+fn read_layers<I: Read>(index_reader: I) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
     use std::mem::size_of;
 
     let mut index_reader = BufReader::new(index_reader);
