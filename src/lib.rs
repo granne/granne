@@ -12,3 +12,5 @@ pub use crate::types::{
     angular_reference_dist, example, AngularIntVector, AngularIntVectors, AngularVector, AngularVectors, ComparableTo,
     Dense, MmapAngularIntVectors, MmapAngularVectors,
 };
+
+pub use crate::query_embeddings::{QueryEmbeddings, WordEmbeddings};
