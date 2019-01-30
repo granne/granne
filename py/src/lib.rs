@@ -57,6 +57,7 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     try!(m.add_class::<Hnsw>(py));
     try!(m.add_class::<ShardedHnsw>(py));
     try!(m.add_class::<HnswBuilder>(py));
+    try!(m.add_class::<query_embeddings::Embeddings>(py));
     try!(m.add_class::<query_embeddings::QueryHnsw>(py));
     try!(m.add_class::<query_embeddings::QueryHnswBuilder>(py));
     try!(m.add(

@@ -49,6 +49,7 @@ impl<'a> QueryEmbeddings<'a> {
     pub fn get_embedding(self: &Self, idx: usize) -> types::AngularVector<'static> {
         self.word_embeddings
             .get_embedding_internal(self.queries.queries.get(idx))
+            .into()
     }
 
     pub fn get_embedding_for_query(self: &Self, word_ids: &[usize]) -> types::AngularVector<'static> {
@@ -93,13 +94,17 @@ impl<'a> WordEmbeddings<'a> {
     }
 
     pub fn get_embedding(self: &Self, word_ids: &[usize]) -> types::AngularVector<'static> {
+        self.get_raw_embedding(word_ids).into()
+    }
+
+    pub fn get_raw_embedding(self: &Self, word_ids: &[usize]) -> Vec<f32> {
         let word_ids: Vec<WordId> = word_ids.iter().map(|&w| w.into()).collect();
         self.get_embedding_internal(&word_ids)
     }
 
-    fn get_embedding_internal(self: &Self, word_ids: &[WordId]) -> types::AngularVector<'static> {
+    fn get_embedding_internal(self: &Self, word_ids: &[WordId]) -> Vec<f32> {
         if word_ids.is_empty() {
-            return vec![0.0f32; self.embeddings.dim].into();
+            return vec![0.0f32; self.embeddings.dim];
         }
 
         let w: usize = word_ids[0].into();
@@ -121,7 +126,7 @@ impl<'a> WordEmbeddings<'a> {
             };
         }
 
-        data.into()
+        data
     }
 
     pub fn len(self: &Self) -> usize {

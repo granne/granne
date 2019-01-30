@@ -1,7 +1,6 @@
 use cpython::{PyObject, PyResult, Python};
 use granne;
-use granne::query_embeddings::QueryEmbeddings;
-use granne::{At, Dense};
+use granne::{At, ComparableTo, Dense};
 use madvise::{AccessPattern, AdviseMemory};
 use memmap;
 use rayon::prelude::*;
@@ -15,7 +14,7 @@ use std::sync::Arc;
 
 use super::{DEFAULT_MAX_SEARCH, DEFAULT_NUM_NEIGHBORS, DTYPE};
 
-type IndexType<'a> = granne::Hnsw<'a, QueryEmbeddings<'a>, granne::AngularVector<'a>>;
+type IndexType<'a> = granne::Hnsw<'a, granne::QueryEmbeddings<'a>, granne::AngularVector<'a>>;
 type BuilderType = granne::HnswBuilder<'static, MmapQueryEmbeddings, granne::AngularVector<'static>>;
 
 pub struct WordDict {
@@ -43,6 +42,10 @@ impl WordDict {
         }
     }
 
+    pub fn len(self: &Self) -> usize {
+        self.id_to_word.len()
+    }
+
     pub fn get_query(self: &Self, ids: &[usize]) -> String {
         if ids.is_empty() {
             return String::new();
@@ -65,6 +68,94 @@ impl WordDict {
             .collect()
     }
 }
+
+py_class!(pub class Embeddings |py| {
+    data word_embeddings: memmap::Mmap;
+    data word_dict: WordDict;
+    data dimension: usize;
+
+    def __new__(_cls,
+                word_embeddings_path: &str,
+                words_path: &str) -> PyResult<Embeddings> {
+
+
+        let word_dict = WordDict::new(&words_path);
+
+        let word_embeddings = File::open(word_embeddings_path).unwrap();
+        let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
+
+        let dimension = word_embeddings.len() / (::std::mem::size_of::<f32>() * word_dict.len());
+
+        Embeddings::create_instance(py, word_embeddings, word_dict, dimension)
+    }
+
+    def dim(&self) -> PyResult<usize> {
+        Ok(*self.dimension(py))
+    }
+
+    def __len__(&self) -> PyResult<usize> {
+        Ok(self.word_dict(py).len())
+    }
+
+    def __getitem__(&self, idx: usize) -> PyResult<(String, Vec<f32>)> {
+        let word_embeddings = granne::WordEmbeddings::load(*self.dimension(py), &self.word_embeddings(py)[..]);
+
+        let word = self.word_dict(py).get_query(&[idx]);
+        let embedding = word_embeddings.get_embedding(&[idx]).into();
+
+        Ok((word, embedding))
+    }
+
+    def get(&self, q: &str) -> PyResult<Vec<f32>> {
+        let word_embeddings = granne::WordEmbeddings::load(*self.dimension(py), &self.word_embeddings(py)[..]);
+        let embeddings = granne::QueryEmbeddings::new(word_embeddings);
+
+        Ok(embeddings.get_embedding_for_query(&self.word_dict(py).get_word_ids(q)).into())
+    }
+
+    def dist(&self, q0: &str, q1: &str) -> PyResult<f32> {
+        Ok(self.dists(py, q0, vec![q1.to_string()]).unwrap()[0])
+    }
+
+    def dists(&self, query: &str, queries: Vec<String>) -> PyResult<Vec<f32>> {
+        let word_embeddings = granne::WordEmbeddings::load(*self.dimension(py), &self.word_embeddings(py)[..]);
+        let embeddings = granne::QueryEmbeddings::new(word_embeddings);
+
+        let query = embeddings.get_embedding_for_query(&self.word_dict(py).get_word_ids(query));
+
+        let distances = queries.into_iter().map(|q| query.dist(
+            &embeddings.get_embedding_for_query(
+                &self.word_dict(py).get_word_ids(&q)
+            )).into_inner()
+        ).collect();
+
+        Ok(distances)
+    }
+
+    def dists_par(&self, query: &str, queries: Vec<String>) -> PyResult<Vec<f32>> {
+        let word_embeddings = granne::WordEmbeddings::load(*self.dimension(py), &self.word_embeddings(py)[..]);
+        let embeddings = granne::QueryEmbeddings::new(word_embeddings);
+
+        let word_dict = self.word_dict(py);
+        let query = embeddings.get_embedding_for_query(&word_dict.get_word_ids(query));
+
+        let distances = queries.into_par_iter().map(|q| query.dist(
+            &embeddings.get_embedding_for_query(
+                &word_dict.get_word_ids(&q)
+            )).into_inner()
+        ).collect();
+
+        Ok(distances)
+    }
+
+    def get_term_relevances(&self, query: &str) -> PyResult<Vec<f32>> {
+        let word_embeddings = granne::WordEmbeddings::load(*self.dimension(py), &self.word_embeddings(py)[..]);
+
+        let norm = |v: &[f32]| { v.iter().map(|x| x*x).sum::<f32>().sqrt() };
+
+        Ok(self.word_dict(py).get_word_ids(query).into_iter().map(|id| norm(&word_embeddings.get_raw_embedding(&[id]))).collect())
+    }
+});
 
 py_class!(pub class QueryHnsw |py| {
     data word_embeddings: memmap::Mmap;
@@ -93,7 +184,7 @@ py_class!(pub class QueryHnsw |py| {
 
         // sanity check / fail early
         {
-            let elements = QueryEmbeddings::load(dimension, &word_embeddings, &elements);
+            let elements = granne::QueryEmbeddings::load(dimension, &word_embeddings, &elements);
             let _index = IndexType::load(&index, &elements);
         }
 
@@ -110,7 +201,7 @@ py_class!(pub class QueryHnsw |py| {
                num_elements: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
 
         Ok(index.search(
@@ -122,7 +213,7 @@ py_class!(pub class QueryHnsw |py| {
                      num_elements: usize = DEFAULT_NUM_NEIGHBORS,
                      max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<Vec<(usize, f32)>>>
     {
-        let _elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let _elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &_elements);
 
         Ok(elements
@@ -138,7 +229,7 @@ py_class!(pub class QueryHnsw |py| {
                      max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, String, f32)>>
     {
         let word_dict = self.word_dict(py).as_ref().unwrap();
-        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
 
         let element = elements.get_embedding_for_query(&word_dict.get_word_ids(query));
@@ -149,24 +240,24 @@ py_class!(pub class QueryHnsw |py| {
     }
 
     def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         Ok(elements.get_embedding(idx).into())
     }
 
     def get_query(&self, idx: usize) -> PyResult<String> {
         let word_dict = self.word_dict(py).as_ref().unwrap();
-        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
 
         Ok(word_dict.get_query(&elements.get_words(idx)))
     }
 
     def __len__(&self) -> PyResult<usize> {
-        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         Ok(elements.len())
     }
 
     def get_neighbors(&self, idx: usize, layer: usize) -> PyResult<Vec<usize>> {
-        let elements = QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
 
         Ok(index.get_neighbors(idx, layer))
@@ -192,8 +283,8 @@ impl MmapQueryEmbeddings {
     }
 
     #[inline(always)]
-    pub fn load<'a>(self: &'a Self) -> QueryEmbeddings<'a> {
-        QueryEmbeddings::load(self.dimension, &self.word_embeddings[..], &self.queries[..])
+    pub fn load<'a>(self: &'a Self) -> granne::QueryEmbeddings<'a> {
+        granne::QueryEmbeddings::load(self.dimension, &self.word_embeddings[..], &self.queries[..])
     }
 }
 
