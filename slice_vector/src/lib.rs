@@ -124,12 +124,14 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         self: &Self,
         buffer: &mut B,
         mut predicate: P,
-    ) -> Result<()>
+    ) -> Result<usize>
     where
         Offset: From<usize> + Into<usize>,
         B: Write + Seek,
         P: FnMut(&T) -> bool,
     {
+        let initial_pos = buffer.seek(SeekFrom::Current(0))?;
+
         buffer.write_u64::<LittleEndian>(self.len() as u64)?;
 
         let zero_offset: Offset = 0.into();
@@ -139,29 +141,46 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         let mut value_pos = offset_pos + self.len() as u64 * offset_size;
 
         let mut slice_buffer: Vec<T> = Vec::new();
+        let mut offsets: Vec<Offset> = Vec::new();
+
+        // write to file in chunks (better for BufWriter)
+        let mut num_chunks = 100;
+        let chunk_size = std::cmp::max(100, self.len() / num_chunks);
+        num_chunks = (self.len() + chunk_size - 1) / chunk_size;
 
         let mut total_count: usize = 0;
-        for slice in self.iter() {
-            slice_buffer.clear();
-            for val in slice {
-                if predicate(val) {
-                    slice_buffer.push(val.clone());
-                }
-            }
+        for chunk in 0..num_chunks {
+            // starting index for this chunk
+            let chunk_offset = chunk * chunk_size;
 
-            total_count += slice_buffer.len();
+            // chunk_size or whatever is left
+            let chunk_size = std::cmp::min(chunk_size, self.len() - chunk_offset);
 
-            let offset: Offset = total_count.into();
-            buffer.seek(SeekFrom::Start(offset_pos))?;
-            write(&[offset], buffer)?;
-            offset_pos = buffer.seek(SeekFrom::Current(0))?;
-
+            offsets.clear();
             buffer.seek(SeekFrom::Start(value_pos))?;
-            write(slice_buffer.as_slice(), buffer)?;
+            for i in 0..chunk_size {
+                slice_buffer.clear();
+                for val in self.get(chunk_offset + i) {
+                    if predicate(val) {
+                        slice_buffer.push(val.clone());
+                    }
+                }
+                total_count += slice_buffer.len();
+                write(slice_buffer.as_slice(), buffer)?;
+                offsets.push(total_count.into());
+            }
             value_pos = buffer.seek(SeekFrom::Current(0))?;
+
+            buffer.seek(SeekFrom::Start(offset_pos))?;
+            write(offsets.as_slice(), buffer)?;
+            offset_pos = buffer.seek(SeekFrom::Current(0))?;
         }
 
-        Ok(())
+        buffer.seek(SeekFrom::Start(value_pos))?;
+
+        let bytes_written = (value_pos - initial_pos) as usize;
+
+        Ok(bytes_written)
     }
 
     pub fn borrow<'b>(self: &'a Self) -> FixedWidthSliceVector<'b, T>
@@ -580,9 +599,16 @@ mod tests {
         type Offset = usize;
 
         let mut file: File = tempfile::tempfile().unwrap();
-        vec.write_as_variable_width_slice_vector::<Offset, _, _>(&mut file, |_| true)
+        let bytes_written = vec
+            .write_as_variable_width_slice_vector::<Offset, _, _>(&mut file, |_| true)
             .unwrap();
         file.seek(SeekFrom::Start(0)).unwrap();
+
+        use std::mem::size_of;
+        assert_eq!(
+            size_of::<usize>() + (1 + vec.len()) * size_of::<Offset>() + vec.len() * width * size_of::<i16>(),
+            bytes_written
+        );
 
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
@@ -600,7 +626,7 @@ mod tests {
     fn write_fixed_width_vector_as_variable_width_vector_predicate() {
         let width = 7;
         let mut vec = FixedWidthSliceVector::new(width);
-        for i in 0..123 {
+        for i in 0..522 {
             let data: Vec<i16> = (2 * i + 3..).take(width).collect();
             vec.push(&data);
         }
@@ -672,4 +698,5 @@ mod tests {
             assert!(loaded_vec.get(i).is_empty());
         }
     }
+
 }
