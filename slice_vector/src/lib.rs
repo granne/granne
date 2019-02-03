@@ -4,7 +4,7 @@ use rayon::prelude::ParallelSliceMut;
 use rayon::prelude::*;
 
 use std::borrow::Cow;
-use std::io::{Read, Result, Write};
+use std::io::{Read, Result, Seek, SeekFrom, Write};
 
 pub trait SliceVector<'a, T>
 where
@@ -120,6 +120,50 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         Ok(vec)
     }
 
+    pub fn write_as_variable_width_slice_vector<Offset, B, P>(
+        self: &Self,
+        buffer: &mut B,
+        mut predicate: P,
+    ) -> Result<()>
+    where
+        Offset: From<usize> + Into<usize>,
+        B: Write + Seek,
+        P: FnMut(&T) -> bool,
+    {
+        buffer.write_u64::<LittleEndian>(self.len() as u64)?;
+
+        let zero_offset: Offset = 0.into();
+        write(&[zero_offset], buffer)?;
+        let mut offset_pos = buffer.seek(SeekFrom::Current(0))?;
+        let offset_size = ::std::mem::size_of::<Offset>() as u64;
+        let mut value_pos = offset_pos + self.len() as u64 * offset_size;
+
+        let mut slice_buffer: Vec<T> = Vec::new();
+
+        let mut total_count: usize = 0;
+        for slice in self.iter() {
+            slice_buffer.clear();
+            for val in slice {
+                if predicate(val) {
+                    slice_buffer.push(val.clone());
+                }
+            }
+
+            total_count += slice_buffer.len();
+
+            let offset: Offset = total_count.into();
+            buffer.seek(SeekFrom::Start(offset_pos))?;
+            write(&[offset], buffer)?;
+            offset_pos = buffer.seek(SeekFrom::Current(0))?;
+
+            buffer.seek(SeekFrom::Start(value_pos))?;
+            write(slice_buffer.as_slice(), buffer)?;
+            value_pos = buffer.seek(SeekFrom::Current(0))?;
+        }
+
+        Ok(())
+    }
+
     pub fn borrow<'b>(self: &'a Self) -> FixedWidthSliceVector<'b, T>
     where
         'a: 'b,
@@ -183,9 +227,7 @@ impl<'a, T: Clone> SliceVector<'a, T> for FixedWidthSliceVector<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy>
-    VariableWidthSliceVector<'a, T, Offset>
-{
+impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthSliceVector<'a, T, Offset> {
     pub fn new() -> Self {
         Self {
             offsets: vec![0.into()].into(),
@@ -229,9 +271,8 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy>
     pub fn load(buffer: &'a [u8]) -> Self {
         let u64_len = ::std::mem::size_of::<u64>();
         let num_slices = (&buffer[..u64_len])
-            //.clone()
             .read_u64::<LittleEndian>()
-            .expect("Coult not read length") as usize;
+            .expect("Could not read length") as usize;
         let offset_len = ::std::mem::size_of::<Offset>();
         let (offsets, data) = buffer[u64_len..].split_at((1 + num_slices) * offset_len);
 
@@ -296,12 +337,8 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
 }
 
 fn load<T>(buffer: &[u8]) -> &[T] {
-    let elements: &[T] = unsafe {
-        ::std::slice::from_raw_parts(
-            buffer.as_ptr() as *const T,
-            buffer.len() / ::std::mem::size_of::<T>(),
-        )
-    };
+    let elements: &[T] =
+        unsafe { ::std::slice::from_raw_parts(buffer.as_ptr() as *const T, buffer.len() / ::std::mem::size_of::<T>()) };
 
     elements
 }
@@ -320,6 +357,8 @@ fn write<T, B: Write>(elements: &[T], buffer: &mut B) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use tempfile;
 
     #[test]
     fn rwlocks() {
@@ -327,8 +366,7 @@ mod tests {
 
         let mut nodes = FixedWidthSliceVector::<usize>::new(20);
 
-        let _layer: Vec<RwLock<&mut [usize]>> =
-            nodes.iter_mut().map(|node| RwLock::new(node)).collect();
+        let _layer: Vec<RwLock<&mut [usize]>> = nodes.iter_mut().map(|node| RwLock::new(node)).collect();
     }
 
     #[test]
@@ -452,10 +490,7 @@ mod tests {
         test_extend_var(vec0, vec1);
     }
 
-    fn test_extend_var(
-        vec0: VariableWidthSliceVector<i32, usize>,
-        vec1: VariableWidthSliceVector<i32, usize>,
-    ) {
+    fn test_extend_var(vec0: VariableWidthSliceVector<i32, usize>, vec1: VariableWidthSliceVector<i32, usize>) {
         let mut vec_combined = vec0.clone();
 
         vec_combined.extend_from_slice_vector(&vec1);
@@ -530,6 +565,111 @@ mod tests {
 
         for i in 0..vec.len() {
             assert_eq!(vec.get(i), loaded_vec.get(i));
+        }
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_variable_width_vector() {
+        let width = 7;
+        let mut vec = FixedWidthSliceVector::new(width);
+        for i in 0..123 {
+            let data: Vec<i16> = (2 * i + 3..).take(width).collect();
+            vec.push(&data);
+        }
+
+        type Offset = usize;
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        vec.write_as_variable_width_slice_vector::<Offset, _, _>(&mut file, |_| true)
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+
+        assert_eq!(vec.len(), loaded_vec.len());
+
+        for i in 0..vec.len() {
+            assert_eq!(vec.get(i), loaded_vec.get(i));
+        }
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_variable_width_vector_predicate() {
+        let width = 7;
+        let mut vec = FixedWidthSliceVector::new(width);
+        for i in 0..123 {
+            let data: Vec<i16> = (2 * i + 3..).take(width).collect();
+            vec.push(&data);
+        }
+
+        type Offset = usize;
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        vec.write_as_variable_width_slice_vector::<Offset, _, _>(&mut file, |x| x % 3 == 0)
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+
+        assert_eq!(vec.len(), loaded_vec.len());
+
+        for i in 0..vec.len() {
+            let vec_slice: Vec<_> = vec.get(i).iter().filter(|&x| x % 3 == 0).map(|x| *x).collect();
+            assert_eq!(vec_slice.as_slice(), loaded_vec.get(i));
+        }
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_variable_width_vector_empty() {
+        let width = 7;
+        let vec = FixedWidthSliceVector::<i16>::new(width);
+
+        type Offset = usize;
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        vec.write_as_variable_width_slice_vector::<Offset, _, _>(&mut file, |_| true)
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+
+        assert_eq!(0, loaded_vec.len());
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_variable_width_vector_empty_slices() {
+        let width = 1;
+        let mut vec = FixedWidthSliceVector::<i16>::new(width);
+
+        for _ in 0..10 {
+            vec.push(&[0]);
+        }
+
+        type Offset = usize;
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        vec.write_as_variable_width_slice_vector::<Offset, _, _>(&mut file, |&x| x > 0)
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+
+        assert_eq!(vec.len(), loaded_vec.len());
+
+        for i in 0..loaded_vec.len() {
+            assert!(loaded_vec.get(i).is_empty());
         }
     }
 }
