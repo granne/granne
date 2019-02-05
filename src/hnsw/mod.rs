@@ -284,7 +284,8 @@ where
         let layer_multiplier = compute_layer_multiplier(self.elements.len(), self.config.num_layers);
 
         let layer = self.layers.len() - 1;
-        let ideal_num_elements_in_layer = cmp::min(layer_multiplier.pow(layer as u32), self.elements.len());
+        let ideal_num_elements_in_layer =
+            cmp::min(layer_multiplier.powf(layer as f32).ceil() as usize, self.elements.len());
         let mut num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
 
         // if last layer index all elements
@@ -594,8 +595,8 @@ where
 
 // Computes a layer multiplier m, s.t. the number of elements in layer i is
 // equal to m^i
-fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> usize {
-    (num_elements as f32).powf(1.0 / (num_layers - 1) as f32).ceil() as usize
+fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> f32 {
+    (num_elements as f32).powf(1.0 / (num_layers - 1) as f32)
 }
 
 impl<'a, Elements, Element> Hnsw<'a, Elements, Element>

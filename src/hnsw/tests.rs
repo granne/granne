@@ -174,27 +174,27 @@ fn incremental_build_0() {
 
     let mut builder = HnswBuilder::with_borrowed_elements(config, elements.as_slice());
 
-    builder.build_index_part(layer_multiplier + 2);
+    builder.build_index_part(layer_multiplier.ceil() as usize + 2);
 
     assert_eq!(3, builder.layers.len());
-    assert_eq!(layer_multiplier.pow(0), builder.layers[0].len());
-    assert_eq!(layer_multiplier.pow(1), builder.layers[1].len());
-    assert_eq!(layer_multiplier + 2, builder.layers[2].len());
+    assert_eq!(layer_multiplier.powf(0.).ceil() as usize, builder.layers[0].len());
+    assert_eq!(layer_multiplier.powf(1.).ceil() as usize, builder.layers[1].len());
+    assert_eq!(layer_multiplier.ceil() as usize + 2, builder.layers[2].len());
 
-    builder.build_index_part(layer_multiplier.pow(2) + 2);
+    builder.build_index_part(layer_multiplier.powf(2.).ceil() as usize + 2);
 
     assert_eq!(4, builder.layers.len());
-    assert_eq!(layer_multiplier.pow(0), builder.layers[0].len());
-    assert_eq!(layer_multiplier.pow(1), builder.layers[1].len());
-    assert_eq!(layer_multiplier.pow(2), builder.layers[2].len());
-    assert_eq!(layer_multiplier.pow(2) + 2, builder.layers[3].len());
+    assert_eq!(layer_multiplier.powf(0.).ceil() as usize, builder.layers[0].len());
+    assert_eq!(layer_multiplier.powf(1.).ceil() as usize, builder.layers[1].len());
+    assert_eq!(layer_multiplier.powf(2.).ceil() as usize, builder.layers[2].len());
+    assert_eq!(layer_multiplier.powf(2.).ceil() as usize + 2, builder.layers[3].len());
 
     builder.build_index_part(elements.len());
 
     assert_eq!(4, builder.layers.len());
-    assert_eq!(layer_multiplier.pow(0), builder.layers[0].len());
-    assert_eq!(layer_multiplier.pow(1), builder.layers[1].len());
-    assert_eq!(layer_multiplier.pow(2), builder.layers[2].len());
+    assert_eq!(layer_multiplier.powf(0.).ceil() as usize, builder.layers[0].len());
+    assert_eq!(layer_multiplier.powf(1.).ceil() as usize, builder.layers[1].len());
+    assert_eq!(layer_multiplier.powf(2.).ceil() as usize, builder.layers[2].len());
     assert_eq!(elements.len(), builder.layers[3].len());
 
     verify_search(&builder.get_index(), 0.95, 40);
@@ -347,11 +347,11 @@ fn empty_build() {
 
 #[test]
 fn test_layer_multiplier() {
-    assert_eq!(2, compute_layer_multiplier(10, 5));
-    assert_eq!(14, compute_layer_multiplier(400000, 6));
-    assert_eq!(22, compute_layer_multiplier(2000000000, 8));
-    assert_eq!(555, compute_layer_multiplier(555, 2));
-    assert_eq!(25, compute_layer_multiplier(625, 3));
+    assert_eq!(2, compute_layer_multiplier(10, 5).ceil() as usize);
+    assert_eq!(14, compute_layer_multiplier(400000, 6).ceil() as usize);
+    assert_eq!(22, compute_layer_multiplier(2000000000, 8).ceil() as usize);
+    assert_eq!(555, compute_layer_multiplier(555, 2).ceil() as usize);
+    assert_eq!(25, compute_layer_multiplier(625, 3).ceil() as usize);
 }
 
 #[test]
