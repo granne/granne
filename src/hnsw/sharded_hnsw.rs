@@ -101,6 +101,8 @@ mod tests {
     use crate::hnsw::*;
     use crate::types::example::*;
     use crate::types::AngularVector;
+    use std::io::{Seek, SeekFrom};
+    use tempfile;
 
     type ElementType = AngularVector<'static>;
 
@@ -121,8 +123,12 @@ mod tests {
                 );
 
                 builder.build_index();
+                let mut file: File = tempfile::tempfile().unwrap();
+                builder.write(&mut file).unwrap();
+                file.seek(SeekFrom::Start(0)).unwrap();
                 let mut data = Vec::new();
-                builder.write(&mut data).unwrap();
+                file.read_to_end(&mut data).unwrap();
+
                 (data, chunk.to_vec())
             })
             .collect();

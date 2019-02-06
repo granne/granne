@@ -12,3 +12,4 @@ terraform
 *.pyc
 /wheels/
 /wheelhouse/
+example_data/

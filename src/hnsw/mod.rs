@@ -1,38 +1,37 @@
-use byteorder::{LittleEndian, ReadBytesExt};
 use hashbrown;
 use ordered_float::NotNaN;
 use parking_lot::{Mutex, RwLock};
 use pbr::ProgressBar;
 use rayon::prelude::*;
 use revord::RevOrd;
-use serde_json;
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::BinaryHeap;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Result, Write};
+use std::io::{BufWriter, Read, Result, Write};
 use time::PreciseTime;
 
-use slice_vector::{FixedWidthSliceVector, SliceVector};
+use slice_vector::{FixedWidthSliceVector, SliceVector, VariableWidthSliceVector};
 
 use crate::file_io;
 use crate::types;
 use crate::types::ComparableTo;
 
+mod io;
 mod neighborid;
 mod sharded_hnsw;
 #[cfg(test)]
 mod tests;
 
+pub use self::io::compress_index;
 pub use self::sharded_hnsw::ShardedHnsw;
 
-use self::neighborid::NeighborId;
+use self::neighborid::{NeighborId, UNUSED};
 
 const EXTRA_NEIGHBORS_AT_BUILD_TIME: usize = 0;
-const UNUSED: NeighborId = NeighborId([<u8>::max_value(); 5]);
 const METADATA_LEN: usize = 1024;
 const LIBRARY_STR: &str = "granne";
-const SERIALIZATION_VERSION: usize = 0;
+const SERIALIZATION_VERSION: usize = 1;
 
 type HnswNode = [NeighborId];
 
@@ -101,15 +100,6 @@ impl<T> Writeable for [T] {
     }
 }
 
-pub struct Hnsw<'a, Elements, Element>
-where
-    Elements: 'a + At<Output = Element> + ?Sized,
-    Element: 'a + ComparableTo<Element>,
-{
-    layers: Vec<FixedWidthSliceVector<'a, NeighborId>>,
-    elements: &'a Elements,
-}
-
 impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 where
     Elements: 'a + At<Output = Element> + Sync + Send + ToOwned + ?Sized,
@@ -138,7 +128,7 @@ where
     ) -> Result<Self> {
         let elements: Cow<Elements> = Cow::Owned(elements);
 
-        let layers = read_layers(index_reader, Some((config.num_layers, elements.len())))?;
+        let layers = io::read_layers(index_reader, Some((config.num_layers, elements.len())))?;
 
         if let Some(ref last_layer) = layers.last() {
             assert!(last_layer.len() <= elements.len());
@@ -156,7 +146,7 @@ where
         index_reader: &mut I,
         elements: &'a Elements,
     ) -> Result<Self> {
-        let layers = read_layers(index_reader, Some((config.num_layers, elements.len())))?;
+        let layers = io::read_layers(index_reader, Some((config.num_layers, elements.len())))?;
 
         if let Some(ref last_layer) = layers.last() {
             assert!(last_layer.len() <= elements.len());
@@ -182,51 +172,22 @@ where
     }
 
     pub fn save_index_to_disk(self: &Self, path: &str) -> Result<()> {
-        let file = File::create(path)?;
-        let mut file = BufWriter::new(file);
+        let mut file = File::create(path)?;
+        io::save_index_to_disk(&self.layers, &mut file, false)
+    }
+
+    pub fn save_compressed_index_to_disk(self: &Self, path: &str) -> Result<()> {
+        let mut file = File::create(path)?;
         self.write(&mut file)
     }
 
-    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        let mut metadata = String::with_capacity(METADATA_LEN);
-        metadata.push_str(LIBRARY_STR);
-
-        metadata.push_str(
-            &serde_json::to_string(&json!({
-                "version": SERIALIZATION_VERSION,
-                "num_neighbors": self.config.num_neighbors,
-                "num_extra_neighbors_at_build_time": EXTRA_NEIGHBORS_AT_BUILD_TIME,
-                "num_elements": self.len(),
-                "num_indexed_elements": self.indexed_elements(),
-                "num_layers": self.layers.len(),
-                "layer_counts": self.layers.iter().map(|layer| layer.len()).collect::<Vec<_>>(),
-            }))
-            .expect("Could not create metadata json"),
-        );
-
-        let mut metadata = metadata.into_bytes();
-        assert!(metadata.len() <= METADATA_LEN);
-        metadata.resize(METADATA_LEN, ' ' as u8);
-
-        buffer.write_all(metadata.as_slice())?;
-
-        // write graph
-        for layer in &self.layers {
-            if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
-                for node in layer.iter() {
-                    file_io::write(&node[..self.config.num_neighbors], buffer)?;
-                }
-            } else {
-                layer.write(buffer)?;
-            }
-        }
-
-        Ok(())
+    pub fn write(self: &Self, file: &mut File) -> Result<()> {
+        io::save_index_to_disk(&self.layers, file, false)
     }
 
     pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, Elements, Element> {
         Hnsw {
-            layers: self.layers.iter().map(|layer| layer.borrow()).collect(),
+            layers: Layers::Standard(self.layers.iter().map(|layer| layer.borrow()).collect()),
             elements: self.elements.as_ref(),
         }
     }
@@ -326,7 +287,7 @@ where
         let (progress_bar, start_time) = {
             if config.show_progress {
                 let mut progress_bar = ProgressBar::new(elements.len() as u64);
-                let info_text = format!("Layer {}: ", prev_layers.layers.len());
+                let info_text = format!("Layer {}: ", prev_layers.num_layers());
                 progress_bar.message(&info_text);
                 progress_bar.set((step_size * (already_indexed / step_size)) as u64);
 
@@ -599,52 +560,69 @@ fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> f32 {
     (num_elements as f32).powf(1.0 / (num_layers - 1) as f32)
 }
 
+pub enum Layers<'a> {
+    Standard(Vec<FixedWidthSliceVector<'a, NeighborId>>),
+    Compressed(Vec<VariableWidthSliceVector<'a, NeighborId, NeighborId>>),
+}
+
+pub struct Hnsw<'a, Elements, Element>
+where
+    Elements: 'a + At<Output = Element> + ?Sized,
+    Element: 'a + ComparableTo<Element>,
+{
+    layers: Layers<'a>,
+    elements: &'a Elements,
+}
+
 impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
 where
     Elements: 'a + At<Output = Element> + ?Sized,
     Element: 'a + ComparableTo<Element>,
 {
     pub fn load(buffer: &'a [u8], elements: &'a Elements) -> Self {
-        let (num_neighbors, layer_counts) = read_metadata(buffer).expect("Could not read metadata");
-
-        // load graph
-        let mut layers = Vec::new();
-        let node_size = num_neighbors * std::mem::size_of::<NeighborId>();
-
-        let mut start = METADATA_LEN;
-        for count in layer_counts {
-            let end = start + count * node_size;
-            let layer = &buffer[start..end];
-            layers.push(FixedWidthSliceVector::load(layer, num_neighbors));
-            start = end;
-        }
-
         Self {
-            layers: layers,
+            layers: io::load_layers(buffer),
             elements: elements,
         }
     }
 
     pub fn search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
-        let (bottom_layer, top_layers) = self.layers.split_last().unwrap();
+        match self.layers {
+            Layers::Standard(ref layers) => {
+                Self::search_internal(layers, &self.elements, element, num_neighbors, max_search)
+            }
+            Layers::Compressed(ref layers) => {
+                Self::search_internal(layers, &self.elements, element, num_neighbors, max_search)
+            }
+        }
+    }
 
-        let entrypoint = Self::find_entrypoint(&top_layers, element, &self.elements);
+    fn search_internal<Layer: SliceVector<'a, NeighborId>>(
+        layers: &[Layer],
+        elements: &Elements,
+        element: &Element,
+        num_neighbors: usize,
+        max_search: usize,
+    ) -> Vec<(usize, f32)> {
+        let (bottom_layer, top_layers) = layers.split_last().unwrap();
 
-        Self::search_for_neighbors(&bottom_layer, entrypoint, &self.elements, element, max_search)
+        let entrypoint = Self::find_entrypoint(&top_layers, element, elements);
+
+        Self::search_for_neighbors(bottom_layer, entrypoint, elements, element, max_search)
             .into_iter()
             .take(num_neighbors)
             .map(|(i, d)| (i, d.into_inner()))
             .collect()
     }
 
-    fn find_entrypoint(
-        layers: &[FixedWidthSliceVector<'a, NeighborId>],
+    fn find_entrypoint<Layer: SliceVector<'a, NeighborId>>(
+        layers: &[Layer],
         element: &Element,
         elements: &Elements,
     ) -> usize {
         let mut entrypoint = 0;
         for layer in layers {
-            let res = Self::search_for_neighbors(&layer, entrypoint, elements, &element, 1);
+            let res = Self::search_for_neighbors(layer, entrypoint, elements, &element, 1);
 
             entrypoint = res[0].0;
         }
@@ -652,8 +630,8 @@ where
         entrypoint
     }
 
-    fn search_for_neighbors(
-        layer: &FixedWidthSliceVector<'a, NeighborId>,
+    fn search_for_neighbors<Layer: SliceVector<'a, NeighborId>>(
+        layer: &Layer,
         entrypoint: usize,
         elements: &Elements,
         goal: &Element,
@@ -702,121 +680,23 @@ where
         self.elements.len()
     }
 
+    pub fn num_layers(self: &Self) -> usize {
+        match self.layers {
+            Layers::Standard(ref layers) => layers.len(),
+            Layers::Compressed(ref layers) => layers.len(),
+        }
+    }
+
     pub fn get_element(self: &Self, index: usize) -> Element {
         self.elements.at(index)
     }
 
     pub fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
-        iter_neighbors(self.layers[layer].get(index)).collect()
-    }
-}
-
-fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>)> {
-    let mut index_reader = index_reader.take(METADATA_LEN as u64);
-
-    // Check if the file is a current or old version of an granne index
-    let mut lib_str = Vec::new();
-    index_reader
-        .by_ref()
-        .take(LIBRARY_STR.len() as u64)
-        .read_to_end(&mut lib_str)?;
-    if String::from_utf8(lib_str).unwrap_or("".to_string()) == LIBRARY_STR {
-        // the current version stores metadata as json
-        let metadata: serde_json::Value = serde_json::from_reader(index_reader).expect("Could not read metadata");
-
-        let num_neighbors: usize =
-            serde_json::from_value(metadata["num_neighbors"].clone()).expect("Could not read num_neighbors");
-        let num_layers: usize =
-            serde_json::from_value(metadata["num_layers"].clone()).expect("Could not read num_layers");
-        let layer_counts: Vec<usize> =
-            serde_json::from_value(metadata["layer_counts"].clone()).expect("Could not read layer_counts");
-        assert_eq!(num_layers, layer_counts.len());
-
-        Ok((num_neighbors, layer_counts))
-    } else {
-        // Read legacy index
-        // First 8 bytes are num_nodes. We can ignore these.
-        // Note that "granne".len() bytes were already read.
-        const LIBRARY_STR_LEN: usize = 6;
-        assert_eq!(LIBRARY_STR_LEN, LIBRARY_STR.len());
-        const BYTES_LEFT_FOR_NUM_NODES: usize = std::mem::size_of::<usize>() - LIBRARY_STR_LEN;
-
-        index_reader.read_exact(&mut [0; BYTES_LEFT_FOR_NUM_NODES])?;
-
-        let num_layers = index_reader.read_u64::<LittleEndian>()? as usize;
-
-        let mut layer_counts = Vec::new();
-        for _ in 0..num_layers {
-            layer_counts.push(index_reader.read_u64::<LittleEndian>()? as usize);
+        match self.layers {
+            Layers::Standard(ref layers) => iter_neighbors(layers[layer].get(index)).collect(),
+            Layers::Compressed(ref layers) => iter_neighbors(layers[layer].get(index)).collect(),
         }
-
-        let num_neighbors = 20;
-
-        Ok((num_neighbors, layer_counts))
     }
-}
-
-fn read_layers<I: Read>(
-    index_reader: I,
-    num_layers_and_size: Option<(usize, usize)>,
-) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
-    use std::mem::size_of;
-
-    let mut index_reader = BufReader::new(index_reader);
-
-    let (num_neighbors, layer_counts) = read_metadata(index_reader.by_ref())?;
-
-    // read graph
-    let mut layers = Vec::new();
-    let node_size = num_neighbors * size_of::<NeighborId>();
-
-    // if last layer idx and size was passed in, we use this to allocate the full layer before reading
-    let (last_layer_idx, last_layer_size) = if let Some((num_layers, last_layer_size)) = num_layers_and_size {
-        (num_layers - 1, last_layer_size)
-    } else {
-        (<usize>::max_value(), 0)
-    };
-
-    for (layer_idx, count) in layer_counts.into_iter().enumerate() {
-        let mut layer_reader = index_reader.by_ref().take((node_size * count) as u64);
-
-        let layer = if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
-            let num_neighbors_at_build_time = num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME;
-
-            let mut vec = if layer_idx != last_layer_idx {
-                FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, count)
-            } else {
-                FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, last_layer_size)
-            };
-
-            let mut buffer = Vec::new();
-            buffer.resize(num_neighbors_at_build_time * size_of::<NeighborId>(), 0);
-
-            while let Ok(()) = layer_reader.read_exact(&mut buffer[..node_size]) {
-                vec.push(file_io::load(&buffer));
-            }
-
-            vec.par_iter_mut().for_each(|node| {
-                for i in num_neighbors..num_neighbors_at_build_time {
-                    node[i] = UNUSED;
-                }
-            });
-
-            vec
-        } else {
-            if layer_idx != last_layer_idx {
-                FixedWidthSliceVector::read(layer_reader, num_neighbors)?
-            } else {
-                FixedWidthSliceVector::read_with_capacity(layer_reader, num_neighbors, last_layer_size)?
-            }
-        };
-
-        assert_eq!(count, layer.len());
-
-        layers.push(layer);
-    }
-
-    Ok(layers)
 }
 
 struct MaxSizeHeap<T> {

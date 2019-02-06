@@ -1,6 +1,7 @@
 use bytes::{ByteOrder, LittleEndian};
 
 const BYTES_PER_NEIGHBOR_ID: usize = 5;
+pub const UNUSED: NeighborId = NeighborId([<u8>::max_value(); BYTES_PER_NEIGHBOR_ID]);
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,5 +37,14 @@ mod tests {
     #[test]
     fn hnsw_node_size() {
         assert_eq!(BYTES_PER_NEIGHBOR_ID, mem::size_of::<NeighborId>());
+    }
+
+    #[test]
+    fn into_into() {
+        let original: usize = 123456;
+        let neighborid: NeighborId = original.into();
+        let converted: usize = neighborid.into();
+
+        assert_eq!(original, converted);
     }
 }

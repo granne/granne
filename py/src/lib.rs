@@ -16,7 +16,9 @@ use std::fs::File;
 use std::io::BufReader;
 
 mod query_embeddings;
-use query_embeddings::{py_compute_query_vectors_and_save_to_disk, py_parse_queries_and_save_to_disk};
+use query_embeddings::{
+    py_compress_index, py_compute_query_vectors_and_save_to_disk, py_parse_queries_and_save_to_disk,
+};
 
 const DEFAULT_NUM_NEIGHBORS: usize = 20;
 const DEFAULT_MAX_SEARCH: usize = 200;
@@ -62,6 +64,11 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     try!(m.add_class::<query_embeddings::QueryHnswBuilder>(py));
     try!(m.add(
         py,
+        "compress_index",
+        py_fn!(py, py_compress_index(input_path: String, output_path: String))
+    ));
+    try!(m.add(
+        py,
         "parse_queries_and_save_to_disk",
         py_fn!(
             py,
@@ -83,12 +90,13 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
                 queries_path: String,
                 word_embeddings_path: String,
                 output_path: String,
+                begin: usize = 0,
+                end: usize = <usize>::max_value(),
                 dtype: DTYPE = DTYPE::default(),
                 show_progress: bool = true
             )
         )
     ));
-
     Ok(())
 });
 
@@ -478,12 +486,21 @@ py_class!(class HnswBuilder |py| {
     }
 
 
-    def save_index(&self, path: &str) -> PyResult<PyObject> {
-        match *self.builder(py).borrow() {
-            BuilderType::AngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
-            BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path),
-            BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
-            BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path),
+    def save_index(&self, path: &str, compress: bool = false) -> PyResult<PyObject> {
+        if compress {
+            match *self.builder(py).borrow() {
+                BuilderType::AngularVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
+                BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
+                BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
+                BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
+            }
+        } else {
+            match *self.builder(py).borrow() {
+                BuilderType::AngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
+                BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path),
+                BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
+                BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path),
+            }
         }.expect("Could not save index to disk");
 
         Ok(py.None())

@@ -263,6 +263,13 @@ py_class!(pub class QueryHnsw |py| {
         Ok(index.get_neighbors(idx, layer))
     }
 
+    def count_all_neighbors(&self, layer: usize) -> PyResult<usize> {
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &elements);
+
+        Ok((0..index.len()).into_par_iter().map(|i| index.get_neighbors(i, layer).len()).sum())
+    }
+
 });
 
 /// A wrapper around granne::QueryEmbeddings to allow building indexes from python
@@ -298,6 +305,12 @@ impl At for MmapQueryEmbeddings {
     fn len(self: &Self) -> usize {
         self.load().len()
     }
+}
+
+pub fn py_compress_index(py: Python, input_path: String, output_path: String) -> PyResult<PyObject> {
+    granne::compress_index(&input_path, &output_path).expect("Could not write index");
+
+    Ok(py.None())
 }
 
 pub fn py_parse_queries_and_save_to_disk(
@@ -425,9 +438,14 @@ py_class!(pub class QueryHnswBuilder |py| {
         Ok(py.None())
     }
 
-    def save_index(&self, path: &str) -> PyResult<PyObject> {
+    def save_index(&self, path: &str, compress: bool = false) -> PyResult<PyObject> {
         let builder = self.builder(py).borrow();
-        builder.save_index_to_disk(path).expect("Could not save index to disk");
+
+        if compress {
+            builder.save_compressed_index_to_disk(path).expect("Could not save compressed index");
+        } else {
+            builder.save_index_to_disk(path).expect("Could not save index to disk");
+        }
 
         return Ok(py.None())
     }

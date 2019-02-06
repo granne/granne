@@ -66,7 +66,8 @@ pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Sen
     let num_chunks = 100;
     let chunk_size = (queries.len() + num_chunks - 1) / num_chunks;
     for i in 0..num_chunks {
-        let chunk = (i * chunk_size..cmp::min((i + 1) * chunk_size, queries.len())).collect::<Vec<_>>();
+
+        let chunk = ((begin + i * chunk_size)..cmp::min(begin + (i + 1) * chunk_size, end)).collect::<Vec<_>>();
 
         let query_vectors: Vec<AngularVectorT<'static, DTYPE>> =
             chunk.par_iter().map(|&i| queries.at(i).into()).collect();

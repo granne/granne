@@ -3,6 +3,9 @@ use super::*;
 use crate::types::example::*;
 use crate::types::*;
 
+use std::io::{Seek, SeekFrom};
+use tempfile;
+
 #[test]
 fn neighbor_id_conversions() {
     for &integer in &[
@@ -246,27 +249,32 @@ fn incremental_build_with_write_and_read() {
     let chunk_size = elements.len() / num_chunks;
     assert_eq!(elements.len(), num_chunks * chunk_size);
 
-    let mut data = Vec::new();
+    let mut file: File = tempfile::tempfile().unwrap();
     {
         let builder = HnswBuilder::with_borrowed_elements(config.clone(), &elements);
-        builder.write(&mut data).unwrap();
+
+        builder.write(&mut file).unwrap();
     }
 
     for i in 0..num_chunks {
-        let mut builder =
-            HnswBuilder::read_index_with_borrowed_elements(config.clone(), &mut data.as_slice(), &elements).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut builder = HnswBuilder::read_index_with_borrowed_elements(config.clone(), &mut file, &elements).unwrap();
         assert_eq!(i * chunk_size, builder.indexed_elements());
 
         builder.build_index_part((i + 1) * chunk_size);
 
         assert_eq!((i + 1) * chunk_size, builder.indexed_elements());
 
-        data.clear();
-        builder.write(&mut data).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        builder.write(&mut file).unwrap();
     }
 
-    let index = Hnsw::<AngularVectors, AngularVector>::load(data.as_slice(), &elements);
-    assert_eq!(config.num_layers, index.layers.len());
+    file.seek(SeekFrom::Start(0)).unwrap();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+
+    let index = Hnsw::<AngularVectors, AngularVector>::load(buffer.as_slice(), &elements);
+    assert_eq!(config.num_layers, index.num_layers());
     assert_eq!(elements.len(), index.len());
 
     verify_search(&index, 0.95, 40);
@@ -292,12 +300,13 @@ fn read_index_with_owned_elements() {
 
         let mut builder = HnswBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
         builder.build_index_part(num_elements / 2);
-        let mut data = Vec::new();
-        builder.write(&mut data).unwrap();
 
+        let mut file: File = tempfile::tempfile().unwrap();
+        builder.write(&mut file).unwrap();
+
+        file.seek(SeekFrom::Start(0)).unwrap();
         let owning_builder: HnswBuilder<[Element], Element> =
-            HnswBuilder::read_index_with_owned_elements(config.clone(), &mut data.as_slice(), elements.clone())
-                .unwrap();
+            HnswBuilder::read_index_with_owned_elements(config.clone(), &mut file, elements.clone()).unwrap();
 
         assert_eq!(num_elements / 2, builder.indexed_elements());
         assert_eq!(num_elements / 2, owning_builder.indexed_elements());
@@ -322,7 +331,7 @@ fn read_index_with_owned_elements() {
 fn read_legacy_index() {
     let file = File::open("example_data/legacy_index.granne").expect("Could not open file with legacy index");
 
-    let layers = read_layers(file, None).expect("Could not read index");
+    let layers = io::read_layers(file, None).expect("Could not read index");
 
     assert_eq!(8, layers.len());
     assert_eq!(100, layers.last().unwrap().len());
@@ -369,29 +378,68 @@ fn write_and_load() {
     let mut builder = HnswBuilder::with_borrowed_elements(config, &elements);
     builder.build_index();
 
+    let mut file: File = tempfile::tempfile().unwrap();
+    builder.write(&mut file).unwrap();
+
+    file.seek(SeekFrom::Start(0)).unwrap();
     let mut data = Vec::new();
-    builder.write(&mut data).unwrap();
+    file.read_to_end(&mut data).unwrap();
+    assert!(data.len() > 2000);
 
     let index = Hnsw::<AngularVectors, AngularVector>::load(&data[..], &elements);
 
-    assert_eq!(builder.layers.len(), index.layers.len());
+    assert_eq!(builder.layers.len(), index.num_layers());
 
     for layer in 0..builder.layers.len() {
-        assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
+        //assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
 
         for i in 0..builder.layers[layer].len() {
-            let builder_neighbors: Vec<_> = builder.layers[layer]
-                .get(i)
-                .iter()
-                .take_while(|&&n| n != UNUSED)
-                .collect();
-            let index_neighbors: Vec<_> = index.layers[layer]
-                .get(i)
-                .iter()
-                .take_while(|&&n| n != UNUSED)
-                .collect();
+            let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
 
-            assert_eq!(builder_neighbors, index_neighbors);
+            assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
+        }
+    }
+
+    assert_eq!(builder.elements.len(), index.len());
+
+    for i in 0..builder.elements.len() {
+        assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+    }
+}
+
+#[test]
+fn write_and_load_compressed() {
+    const DIM: usize = 50;
+    let elements: AngularVectors = (0..100).map(|_| random_dense_element(DIM)).collect();
+
+    let config = Config {
+        num_layers: 4,
+        num_neighbors: 20,
+        max_search: 10,
+        show_progress: false,
+    };
+
+    let mut builder = HnswBuilder::with_borrowed_elements(config, &elements);
+    builder.build_index();
+
+    let mut file: File = tempfile::tempfile().unwrap();
+    io::save_index_to_disk(&builder.layers, &mut file, true).unwrap();
+
+    file.seek(SeekFrom::Start(0)).unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).unwrap();
+
+    let index = Hnsw::<AngularVectors, AngularVector>::load(&data[..], &elements);
+
+    assert_eq!(builder.layers.len(), index.num_layers());
+
+    for layer in 0..builder.layers.len() {
+        //assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
+
+        for i in 0..builder.layers[layer].len() {
+            let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
+
+            assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
         }
     }
 
@@ -420,13 +468,13 @@ fn write_and_read() {
     let mut original = HnswBuilder::with_borrowed_elements(config.clone(), &elements);
     original.build_index();
 
-    let mut data = Vec::new();
-    original.write(&mut data).unwrap();
+    let mut file: File = tempfile::tempfile().unwrap();
+    original.write(&mut file).unwrap();
+
+    file.seek(SeekFrom::Start(0)).unwrap();
 
     let copy = HnswBuilder::<AngularIntVectors, AngularIntVector>::read_index_with_borrowed_elements(
-        config,
-        &mut data.as_slice(),
-        &elements,
+        config, &mut file, &elements,
     )
     .unwrap();
 
