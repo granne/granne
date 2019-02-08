@@ -69,6 +69,7 @@ fn build_and_search<T: ComparableTo<T> + Sync + Send + Clone>(elements: Vec<T>) 
         num_layers: 5,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -103,6 +104,7 @@ fn with_borrowed_elements() {
         num_layers: 5,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -125,6 +127,7 @@ fn with_elements_and_add() {
         num_layers: 5,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -170,6 +173,7 @@ fn incremental_build_0() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -211,6 +215,7 @@ fn incremental_build_1() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -242,6 +247,7 @@ fn incremental_build_with_write_and_read() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -295,6 +301,7 @@ fn read_index_with_owned_elements() {
             num_layers: 4,
             num_neighbors: 20,
             max_search: 50,
+            reinsert_elements: true,
             show_progress: false,
         };
 
@@ -346,6 +353,7 @@ fn empty_build() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -372,6 +380,7 @@ fn write_and_load() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 10,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -416,6 +425,7 @@ fn write_and_load_compressed() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 10,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -462,6 +472,7 @@ fn write_and_read() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 10,
+        reinsert_elements: true,
         show_progress: false,
     };
 
@@ -508,6 +519,7 @@ fn append_elements() {
         num_layers: 4,
         num_neighbors: 20,
         max_search: 50,
+        reinsert_elements: true,
         show_progress: false,
     };
 

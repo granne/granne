@@ -263,11 +263,25 @@ py_class!(pub class QueryHnsw |py| {
         Ok(index.get_neighbors(idx, layer))
     }
 
-    def count_all_neighbors(&self, layer: usize) -> PyResult<usize> {
+    def layer_len(&self, layer: usize) -> PyResult<usize> {
         let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
 
-        Ok((0..index.len()).into_par_iter().map(|i| index.get_neighbors(i, layer).len()).sum())
+        Ok(index.layer_len(layer))
+    }
+
+    def count_neighbors(&self, layer: usize) -> PyResult<usize> {
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &elements);
+
+        Ok(index.count_neighbors(layer))
+    }
+
+    def count_some_neighbors(&self, layer: usize, start: usize, stop: usize) -> PyResult<usize> {
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &elements);
+
+        Ok(index.count_some_neighbors(layer, start, stop))
     }
 
 });
@@ -336,22 +350,28 @@ pub fn py_compute_query_vectors_and_save_to_disk(
     queries_path: String,
     word_embeddings_path: String,
     output_path: String,
+    begin: usize,
+    end: usize,
     dtype: DTYPE,
     show_progress: bool,
 ) -> PyResult<PyObject> {
     match dtype {
-        DTYPE::F32 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<f32>(
+        DTYPE::F32 => granne::query_embeddings::parsing::compute_range_of_query_vectors_and_save_to_disk::<f32>(
             dimension,
             &Path::new(&queries_path),
             &Path::new(&word_embeddings_path),
             &Path::new(&output_path),
+            begin,
+            end,
             show_progress,
         ),
-        DTYPE::I8 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<i8>(
+        DTYPE::I8 => granne::query_embeddings::parsing::compute_range_of_query_vectors_and_save_to_disk::<i8>(
             dimension,
             &Path::new(&queries_path),
             &Path::new(&word_embeddings_path),
             &Path::new(&output_path),
+            begin,
+            end,
             show_progress,
         ),
     };
@@ -371,12 +391,14 @@ py_class!(pub class QueryHnswBuilder |py| {
                               index_path: Option<String> = None,
                               num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                               max_search: usize = DEFAULT_MAX_SEARCH,
+                              reinsert_elements: bool = true,
                               show_progress: bool = true) -> PyResult<QueryHnswBuilder>
     {
         let config = granne::Config {
             num_layers: num_layers,
             num_neighbors: num_neighbors,
             max_search: max_search,
+            reinsert_elements: reinsert_elements,
             show_progress: show_progress
         };
 

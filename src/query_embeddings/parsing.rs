@@ -45,6 +45,40 @@ pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Sen
 ) where
     AngularVectorT<'static, DTYPE>: From<AngularVector<'static>>,
 {
+    let num_queries = {
+        let word_embeddings = File::open(word_embeddings_path).expect("Could not open word_embeddings file");
+        let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
+
+        let queries = File::open(&queries_path).expect("Could not open queries file");
+        let queries = unsafe { memmap::Mmap::map(&queries).unwrap() };
+
+        let queries = QueryEmbeddings::load(dimension, &word_embeddings, &queries);
+
+        queries.len()
+    };
+
+    compute_range_of_query_vectors_and_save_to_disk(
+        dimension,
+        queries_path,
+        word_embeddings_path,
+        output_path,
+        0,
+        num_queries,
+        show_progress,
+    );
+}
+
+pub fn compute_range_of_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Send>(
+    dimension: usize,
+    queries_path: &Path,
+    word_embeddings_path: &Path,
+    output_path: &Path,
+    begin: usize,
+    end: usize,
+    show_progress: bool,
+) where
+    AngularVectorT<'static, DTYPE>: From<AngularVector<'static>>,
+{
     let word_embeddings = File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
 
@@ -53,22 +87,23 @@ pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Sen
 
     let queries = QueryEmbeddings::load(dimension, &word_embeddings, &queries);
 
+    let begin = cmp::min(begin, queries.len());
+    let end = cmp::min(end, queries.len());
+
     let file = File::create(&output_path).expect("Could not create output file");
     let mut file = BufWriter::new(file);
 
     let mut progress_bar = if show_progress {
-        Some(pbr::ProgressBar::new(queries.len() as u64))
+        Some(pbr::ProgressBar::new((end - begin) as u64))
     } else {
         None
     };
 
     // generate vectors in chunks to limit memory usage
     let num_chunks = 100;
-    let chunk_size = (queries.len() + num_chunks - 1) / num_chunks;
+    let chunk_size = (end - begin + num_chunks - 1) / num_chunks;
     for i in 0..num_chunks {
-
         let chunk = ((begin + i * chunk_size)..cmp::min(begin + (i + 1) * chunk_size, end)).collect::<Vec<_>>();
-
         let query_vectors: Vec<AngularVectorT<'static, DTYPE>> =
             chunk.par_iter().map(|&i| queries.at(i).into()).collect();
 

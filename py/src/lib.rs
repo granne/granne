@@ -262,12 +262,14 @@ py_class!(class HnswBuilder |py| {
                 num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                 max_search: usize = DEFAULT_MAX_SEARCH,
                 dtype: DTYPE = DTYPE::default(),
+                reinsert_elements: bool = true,
                 show_progress: bool = true) -> PyResult<HnswBuilder> {
 
         let config = granne::Config {
             num_layers: num_layers,
             num_neighbors: num_neighbors,
             max_search: max_search,
+            reinsert_elements: reinsert_elements,
             show_progress: show_progress
         };
 
@@ -293,6 +295,7 @@ py_class!(class HnswBuilder |py| {
         num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
         max_search: usize = DEFAULT_MAX_SEARCH,
         dtype: DTYPE = DTYPE::default(),
+        reinsert_elements: bool = true,
         show_progress: bool = true) -> PyResult<HnswBuilder>
     {
         let elements = File::open(elements_path).expect("Could not open elements file");
@@ -303,6 +306,7 @@ py_class!(class HnswBuilder |py| {
             num_layers: num_layers,
             num_neighbors: num_neighbors,
             max_search: max_search,
+            reinsert_elements: reinsert_elements,
             show_progress: show_progress
         };
 
@@ -360,12 +364,14 @@ py_class!(class HnswBuilder |py| {
         num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
         max_search: usize = DEFAULT_MAX_SEARCH,
         dtype: DTYPE = DTYPE::default(),
+        reinsert_elements: bool = true,
         show_progress: bool = true) -> PyResult<HnswBuilder>
     {
         let config = granne::Config {
             num_layers: num_layers,
             num_neighbors: num_neighbors,
             max_search: max_search,
+            reinsert_elements: reinsert_elements,
             show_progress: show_progress
         };
 

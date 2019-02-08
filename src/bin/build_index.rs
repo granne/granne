@@ -110,6 +110,7 @@ fn main() {
                 num_layers: settings.num_layers,
                 max_search: settings.max_search,
                 show_progress: true,
+                reinsert_elements: true,
                 num_neighbors: 20,
             };
 

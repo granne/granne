@@ -44,6 +44,7 @@ pub struct Config {
     pub num_layers: usize,
     pub num_neighbors: usize,
     pub max_search: usize,
+    pub reinsert_elements: bool,
     pub show_progress: bool,
 }
 
@@ -53,6 +54,7 @@ impl Config {
             num_layers: 7,
             num_neighbors: 20,
             max_search: 200,
+            reinsert_elements: true,
             show_progress: true,
         }
     }
@@ -178,7 +180,7 @@ where
 
     pub fn save_compressed_index_to_disk(self: &Self, path: &str) -> Result<()> {
         let mut file = File::create(path)?;
-        self.write(&mut file)
+        io::save_index_to_disk(&self.layers, &mut file, true)
     }
 
     pub fn write(self: &Self, file: &mut File) -> Result<()> {
@@ -249,9 +251,14 @@ where
             cmp::min(layer_multiplier.powf(layer as f32).ceil() as usize, self.elements.len());
         let mut num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
 
-        // if last layer index all elements
+        let mut config = self.config.clone();
+
         if layer == self.config.num_layers - 1 {
+            // if last layer index all elements
             num_elements_in_layer = max_num_elements;
+        } else {
+            // use half num_neighbors on upper layers
+            config.num_neighbors = std::cmp::max(1, config.num_neighbors / 2);
         }
 
         let mut layer = self.layers.pop().unwrap();
@@ -259,13 +266,43 @@ where
         let additional = ideal_num_elements_in_layer - layer.len();
         layer.reserve_exact(additional);
 
+        let prev_layers = self.get_index();
+
+        if self.config.show_progress {
+            println!(
+                "Building layer {} with {} elements...",
+                prev_layers.num_layers(),
+                num_elements_in_layer
+            );
+        }
+
         Self::index_elements(
-            &self.config,
+            &config,
             &self.elements,
             num_elements_in_layer,
-            &self.get_index(),
+            &prev_layers,
             &mut layer,
+            false,
         );
+
+        if self.config.reinsert_elements {
+            if self.config.show_progress {
+                println!("Reinserting elements...");
+            }
+
+            // use half max_search when reindexing
+            config.max_search = std::cmp::max(1, config.max_search / 2);
+
+            // reinsert elements to improve index quality
+            Self::index_elements(
+                &config,
+                &self.elements,
+                num_elements_in_layer,
+                &prev_layers,
+                &mut layer,
+                true,
+            );
+        }
 
         self.layers.push(layer);
     }
@@ -276,12 +313,17 @@ where
         num_elements: usize,
         prev_layers: &Hnsw<Elements, Element>,
         layer: &mut FixedWidthSliceVector<'static, NeighborId>,
+        reinsert_elements: bool,
     ) {
         assert!(layer.len() <= num_elements);
 
-        let already_indexed = layer.len();
+        let mut already_indexed = layer.len();
+        if reinsert_elements {
+            already_indexed = 0;
+        } else {
+            layer.resize(num_elements, UNUSED);
+        }
 
-        layer.resize(num_elements, UNUSED);
         // set up progress bar
         let step_size = cmp::max(100, num_elements / 400);
         let (progress_bar, start_time) = {
@@ -308,8 +350,7 @@ where
             // create RwLocks for underlying nodes
             let layer: Vec<RwLock<&mut HnswNode>> = layer.iter_mut().map(|node| RwLock::new(node)).collect();
 
-            // index elements, skipping already indexed
-            layer.par_iter().enumerate().skip(already_indexed).for_each(|(idx, _)| {
+            let insert_element = |(idx, _)| {
                 Self::index_element(config, elements, prev_layers, &layer, idx);
 
                 // This only shows approximate progress because of par_iter
@@ -318,25 +359,33 @@ where
                         progress_bar.lock().add(step_size as u64);
                     }
                 }
-            });
+            };
+
+            if reinsert_elements {
+                // reinserting elements is done in reverse order
+                layer.par_iter().enumerate().rev().for_each(insert_element);
+            } else {
+                // index elements, skipping already indexed
+                layer
+                    .par_iter()
+                    .enumerate()
+                    .skip(already_indexed)
+                    .for_each(insert_element);
+            };
         }
 
         if let Some(progress_bar) = progress_bar {
             progress_bar.lock().set(layer.len() as u64);
-
-            if let Some(start_time) = start_time {
-                let end_time = PreciseTime::now();
-                println!("Time: {} s", start_time.to(end_time).num_seconds());
-            }
         }
 
-        // make sure all nodes have at most config.num_neighbors neighbors
-        if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
-            layer.par_iter_mut().enumerate().for_each(|(i, node)| {
-                if node.len() > config.num_neighbors {
-                    Self::add_and_limit_neighbors(elements, node, i, &[], config.num_neighbors);
-                }
-            });
+        // limit number of neighbors (i.e. apply heuristic for neighbor selection)
+        layer.par_iter_mut().enumerate().for_each(|(i, node)| {
+            Self::add_and_limit_neighbors(elements, node, i, &[], config.num_neighbors);
+        });
+
+        if let Some(start_time) = start_time {
+            let end_time = PreciseTime::now();
+            println!("Time: {} s", start_time.to(end_time).num_seconds());
         }
     }
 
@@ -358,6 +407,8 @@ where
 
         let candidates = Self::search_for_neighbors_index(elements, layer, entrypoint, &element, config.max_search);
 
+        let candidates: Vec<_> = candidates.into_iter().filter(|&(id, _)| id != idx).collect();
+
         let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
 
         // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
@@ -368,7 +419,15 @@ where
             }
         }
 
-        Self::initialize_node(&layer[idx], &neighbors[..]);
+        // if current node is empty, initialize it with the neighbors
+        let unused: usize = UNUSED.into();
+        if iter_neighbors(&layer[idx].read()).next().unwrap_or(unused) == unused {
+            Self::initialize_node(&layer[idx], &neighbors[..]);
+        } else {
+            for &(neighbor, d) in &neighbors {
+                Self::connect_nodes(elements, &layer[idx], idx, neighbor, d);
+            }
+        }
 
         for (neighbor, d) in neighbors {
             Self::connect_nodes(elements, &layer[neighbor], neighbor, idx, d);
@@ -469,11 +528,17 @@ where
     }
 
     fn connect_nodes(elements: &Elements, node: &RwLock<&mut HnswNode>, i: usize, j: usize, d: NotNaN<f32>) {
+        if i == j {
+            return;
+        }
+
         // Write Lock!
         let mut node = node.write();
 
-        if let Some(free_pos) = node.iter().position(|x| *x == UNUSED) {
-            node[free_pos] = j.into();
+        // Do not insert duplicates
+        let j_id: NeighborId = j.into();
+        if let Some(free_pos) = node.iter().position(|x| *x == UNUSED || *x == j_id) {
+            node[free_pos] = j_id;
         } else {
             let num_neighbors = node.len() - EXTRA_NEIGHBORS_AT_BUILD_TIME;
             Self::add_and_limit_neighbors(elements, &mut node, i, &[(j, d)], num_neighbors);
@@ -695,6 +760,34 @@ where
         match self.layers {
             Layers::Standard(ref layers) => iter_neighbors(layers[layer].get(index)).collect(),
             Layers::Compressed(ref layers) => iter_neighbors(layers[layer].get(index)).collect(),
+        }
+    }
+
+    pub fn layer_len(self: &Self, layer: usize) -> usize {
+        match self.layers {
+            Layers::Standard(ref layers) => layers[layer].len(),
+            Layers::Compressed(ref layers) => layers[layer].len(),
+        }
+    }
+
+    pub fn count_neighbors(self: &Self, layer: usize) -> usize {
+        self.count_some_neighbors(layer, 0, self.layer_len(layer))
+    }
+
+    pub fn count_some_neighbors(self: &Self, layer: usize, start: usize, stop: usize) -> usize {
+        match self.layers {
+            Layers::Standard(ref layers) => layers[layer]
+                .par_iter()
+                .skip(start)
+                .take(stop - start)
+                .map(|node| iter_neighbors(node).count())
+                .sum(),
+            Layers::Compressed(ref layers) => layers[layer]
+                .iter()
+                .skip(start)
+                .take(stop - start)
+                .map(|node| iter_neighbors(node).count())
+                .sum(),
         }
     }
 }
