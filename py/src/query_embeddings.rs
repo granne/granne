@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{DEFAULT_MAX_SEARCH, DEFAULT_NUM_NEIGHBORS, DTYPE};
@@ -328,20 +328,38 @@ pub fn py_compress_index(py: Python, input_path: String, output_path: String) ->
 }
 
 pub fn py_parse_queries_and_save_to_disk(
-    py: Python,
+    _py: Python,
     queries_path: String,
     words_path: String,
     output_path: String,
+    num_shards: usize,
     show_progress: bool,
-) -> PyResult<PyObject> {
-    granne::query_embeddings::parsing::parse_queries_and_save_to_disk(
-        &Path::new(&queries_path),
-        &Path::new(&words_path),
-        &Path::new(&output_path),
-        show_progress,
-    );
+) -> PyResult<usize> {
+    let output_path: PathBuf = output_path.into();
+    let num_queries = if num_shards == 1 {
+        let output_path = if output_path.is_dir() {
+            output_path.join("queries.bin")
+        } else {
+            output_path
+        };
 
-    Ok(py.None())
+        granne::query_embeddings::parsing::parse_queries_and_save_to_disk(
+            &Path::new(&queries_path),
+            &Path::new(&words_path),
+            &output_path,
+            show_progress,
+        )
+    } else {
+        granne::query_embeddings::parsing::parse_queries_and_save_shards_to_disk(
+            &Path::new(&queries_path),
+            &Path::new(&words_path),
+            &output_path,
+            num_shards,
+            show_progress,
+        )
+    };
+
+    Ok(num_queries)
 }
 
 pub fn py_compute_query_vectors_and_save_to_disk(

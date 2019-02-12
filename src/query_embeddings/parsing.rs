@@ -11,29 +11,90 @@ use serde_json;
 use std::cmp;
 use std::fs::{read_dir, File};
 use std::io::{BufRead, BufReader, BufWriter, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-pub fn parse_queries_and_save_to_disk(queries_path: &Path, words_path: &Path, output_path: &Path, show_progress: bool) {
-    let word_ids: hashbrown::HashMap<_, _> = {
-        let word_file = File::open(&words_path).unwrap();
-        let word_file = BufReader::new(word_file);
+pub fn parse_words(words_path: &Path) -> hashbrown::HashMap<String, usize> {
+    let word_file = File::open(&words_path).unwrap();
+    let word_file = BufReader::new(word_file);
 
-        word_file
-            .lines()
-            .enumerate()
-            .map(|(i, w)| {
-                let w = w.unwrap();
-                (serde_json::from_str::<String>(&w).unwrap(), i)
-            })
-            .collect()
-    };
+    word_file
+        .lines()
+        .enumerate()
+        .map(|(i, w)| {
+            let w = w.unwrap();
+            (serde_json::from_str::<String>(&w).unwrap(), i)
+        })
+        .collect()
+}
 
+pub fn parse_queries_and_save_to_disk(
+    queries_path: &Path,
+    words_path: &Path,
+    output_path: &Path,
+    show_progress: bool,
+) -> usize {
+    let word_ids = parse_words(words_path);
     let queries = parsing::parse_queries_in_directory_or_file(queries_path, &word_ids, show_progress);
 
     let file = File::create(&output_path).unwrap();
     let mut file = BufWriter::new(file);
 
     queries.write(&mut file).expect("Failed to write queries to disk");
+
+    queries.len()
+}
+
+fn get_shard_name(output_path: &Path, shard_id: usize) -> PathBuf {
+    if output_path.is_dir() {
+        output_path.join(format!("queries-{}.bin", shard_id))
+    } else {
+        output_path.with_file_name(format!(
+            "{}-{}.{}",
+            output_path.file_stem().map(|x| x.to_str().unwrap()).unwrap(),
+            shard_id,
+            output_path.extension().map(|x| x.to_str().unwrap()).unwrap_or("bin")
+        ))
+    }
+}
+
+pub fn parse_queries_and_save_shards_to_disk(
+    queries_path: &Path,
+    words_path: &Path,
+    output_path: &Path,
+    num_shards: usize,
+    show_progress: bool,
+) -> usize {
+    let word_ids = parse_words(words_path);
+
+    let queries = parsing::parse_queries_in_directory_or_file(queries_path, &word_ids, show_progress);
+
+    let shard_size = (queries.len() + num_shards - 1) / num_shards;
+
+    for shard in 0..num_shards {
+        let output_path = get_shard_name(output_path, shard);
+
+        let begin = shard * shard_size;
+        let end = std::cmp::min((shard + 1) * shard_size, queries.len());
+        if show_progress {
+            println!(
+                "Writing queries [{}, {}] to {}",
+                begin,
+                end,
+                output_path.to_str().unwrap()
+            );
+        }
+
+        let file =
+            File::create(&output_path).expect(&format!("Could not create file at {}", output_path.to_str().unwrap()));
+        let mut file = BufWriter::new(file);
+
+        queries
+            .queries
+            .write_range(&mut file, begin, end)
+            .expect("Failed to write queries to disk");
+    }
+
+    queries.len()
 }
 
 pub fn compute_query_vectors_and_save_to_disk<DTYPE: 'static + Copy + Sync + Send>(
@@ -202,4 +263,34 @@ fn parse_file<T: Read>(query_file: T, word_ids: &hashbrown::HashMap<String, usiz
     }
 
     queries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn get_shard_name_empty() {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
+        assert_eq!(path.join("queries-4.bin"), get_shard_name(&path, 4));
+    }
+
+    #[test]
+    fn get_shard_name_with_filename() {
+        assert_eq!(
+            Path::new("/output/directory/hello-4.world"),
+            get_shard_name(&Path::new("/output/directory/hello.world"), 4)
+        );
+    }
+
+    #[test]
+    fn get_shard_name_with_filestem() {
+        assert_eq!(
+            Path::new("/output/directory/hello-9.bin"),
+            get_shard_name(&Path::new("/output/directory/hello"), 9)
+        );
+    }
+
 }

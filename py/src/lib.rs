@@ -76,6 +76,7 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
                 queries_path: String,
                 words_path: String,
                 output_path: String,
+                num_shards: usize = 1,
                 show_progress: bool = true
             )
         )

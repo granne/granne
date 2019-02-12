@@ -310,6 +310,28 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
             data: Cow::Borrowed(&self.data),
         }
     }
+
+    pub fn write_range<B: Write>(self: &Self, buffer: &mut B, begin: usize, end: usize) -> Result<()> {
+        assert!(begin <= end);
+        assert!(begin <= self.len());
+        assert!(end <= self.len());
+
+        // write metadata
+        buffer
+            .write_u64::<LittleEndian>((end - begin) as u64)
+            .expect("Could not write length");
+
+        let offset_begin: usize = self.offsets[begin].into();
+        for i in begin..(end + 1) {
+            let offset: usize = self.offsets[i].into();
+            let offset: Offset = (offset - offset_begin).into();
+            write(&[offset], buffer)?;
+        }
+
+        let data_begin: usize = self.offsets[begin].into();
+        let data_end: usize = self.offsets[end].into();
+        write(&self.data[data_begin..data_end], buffer)
+    }
 }
 
 impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
@@ -699,4 +721,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn variable_width_write_range_and_load() {
+        let mut vec = VariableWidthSliceVector::<usize, usize>::new();
+        for i in 0..19 {
+            let data: Vec<usize> = (i..).take(1 + (i % 3) as usize).collect();
+            vec.push(&data);
+        }
+
+        for begin in 0..vec.len() {
+            for end in begin..vec.len() {
+                let mut buffer = Vec::new();
+                vec.write_range(&mut buffer, begin, end).unwrap();
+
+                let loaded_vec = VariableWidthSliceVector::<usize, usize>::load(&buffer);
+
+                assert_eq!(end - begin, loaded_vec.len());
+
+                for i in begin..end {
+                    assert_eq!(vec.get(i), loaded_vec.get(i - begin));
+                }
+            }
+        }
+    }
 }

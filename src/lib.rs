@@ -13,4 +13,4 @@ pub use crate::types::{
     Dense, MmapAngularIntVectors, MmapAngularVectors,
 };
 
-pub use crate::query_embeddings::{QueryEmbeddings, WordEmbeddings};
+pub use crate::query_embeddings::{QueryEmbeddings, QueryVec, WordEmbeddings};
