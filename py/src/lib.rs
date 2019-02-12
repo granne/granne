@@ -91,8 +91,6 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
                 queries_path: String,
                 word_embeddings_path: String,
                 output_path: String,
-                begin: usize = 0,
-                end: usize = <usize>::max_value(),
                 dtype: DTYPE = DTYPE::default(),
                 show_progress: bool = true
             )
@@ -494,20 +492,11 @@ py_class!(class HnswBuilder |py| {
 
 
     def save_index(&self, path: &str, compress: bool = false) -> PyResult<PyObject> {
-        if compress {
-            match *self.builder(py).borrow() {
-                BuilderType::AngularVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
-                BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
-                BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
-                BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_compressed_index_to_disk(path),
-            }
-        } else {
-            match *self.builder(py).borrow() {
-                BuilderType::AngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
-                BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path),
-                BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_index_to_disk(path),
-                BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path),
-            }
+        match *self.builder(py).borrow() {
+            BuilderType::AngularVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
+            BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
+            BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
+            BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
         }.expect("Could not save index to disk");
 
         Ok(py.None())

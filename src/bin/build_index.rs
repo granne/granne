@@ -226,7 +226,7 @@ where
         println!("Index built.");
 
         println!("Saving index to {}", settings.output_file);
-        builder.save_index_to_disk(&settings.output_file).unwrap();
+        builder.save_index_to_disk(&settings.output_file, false).unwrap();
         println!("Completed!");
     } else {
         let chunk_size = (builder.len() + settings.num_build_chunks - 1) / settings.num_build_chunks;
@@ -237,7 +237,7 @@ where
             builder.build_index_part(i * chunk_size);
 
             println!("Saving index part {} to {}", i - 1, settings.output_file);
-            builder.save_index_to_disk(&settings.output_file).unwrap();
+            builder.save_index_to_disk(&settings.output_file, false).unwrap();
         }
 
         // complete index by inserting the rest of the elements
@@ -245,7 +245,7 @@ where
         println!("Index built.");
 
         println!("Saving complete index to {}", settings.output_file);
-        builder.save_index_to_disk(&settings.output_file).unwrap();
+        builder.save_index_to_disk(&settings.output_file, false).unwrap();
         println!("Completed!");
     }
 }

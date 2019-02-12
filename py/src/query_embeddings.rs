@@ -263,6 +263,13 @@ py_class!(pub class QueryHnsw |py| {
         Ok(index.get_neighbors(idx, layer))
     }
 
+    def num_layers(&self) -> PyResult<usize> {
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &elements);
+
+        Ok(index.num_layers())
+    }
+
     def layer_len(&self, layer: usize) -> PyResult<usize> {
         let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
@@ -270,18 +277,12 @@ py_class!(pub class QueryHnsw |py| {
         Ok(index.layer_len(layer))
     }
 
-    def count_neighbors(&self, layer: usize) -> PyResult<usize> {
+    def count_neighbors(&self, layer: usize, begin: usize = 0, end: usize = <usize>::max_value()) -> PyResult<usize> {
         let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
         let index = IndexType::load(&self.index(py), &elements);
 
-        Ok(index.count_neighbors(layer))
-    }
-
-    def count_some_neighbors(&self, layer: usize, start: usize, stop: usize) -> PyResult<usize> {
-        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
-        let index = IndexType::load(&self.index(py), &elements);
-
-        Ok(index.count_some_neighbors(layer, start, stop))
+        let end = std::cmp::min(end, index.layer_len(layer));
+        Ok(index.count_neighbors(layer, begin, end))
     }
 
 });
@@ -368,28 +369,22 @@ pub fn py_compute_query_vectors_and_save_to_disk(
     queries_path: String,
     word_embeddings_path: String,
     output_path: String,
-    begin: usize,
-    end: usize,
     dtype: DTYPE,
     show_progress: bool,
 ) -> PyResult<PyObject> {
     match dtype {
-        DTYPE::F32 => granne::query_embeddings::parsing::compute_range_of_query_vectors_and_save_to_disk::<f32>(
+        DTYPE::F32 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<f32>(
             dimension,
             &Path::new(&queries_path),
             &Path::new(&word_embeddings_path),
             &Path::new(&output_path),
-            begin,
-            end,
             show_progress,
         ),
-        DTYPE::I8 => granne::query_embeddings::parsing::compute_range_of_query_vectors_and_save_to_disk::<i8>(
+        DTYPE::I8 => granne::query_embeddings::parsing::compute_query_vectors_and_save_to_disk::<i8>(
             dimension,
             &Path::new(&queries_path),
             &Path::new(&word_embeddings_path),
             &Path::new(&output_path),
-            begin,
-            end,
             show_progress,
         ),
     };
@@ -481,11 +476,7 @@ py_class!(pub class QueryHnswBuilder |py| {
     def save_index(&self, path: &str, compress: bool = false) -> PyResult<PyObject> {
         let builder = self.builder(py).borrow();
 
-        if compress {
-            builder.save_compressed_index_to_disk(path).expect("Could not save compressed index");
-        } else {
-            builder.save_index_to_disk(path).expect("Could not save index to disk");
-        }
+        builder.save_index_to_disk(path, compress).expect("Could not save index to disk");
 
         return Ok(py.None())
     }

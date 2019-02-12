@@ -5,7 +5,6 @@ use serde_json;
 use std::io::{BufReader, BufWriter, Read, Result, Seek, SeekFrom, Write};
 
 pub fn save_index_to_disk(layers: &[FixedWidthSliceVector<NeighborId>], file: &mut File, compress: bool) -> Result<()> {
-    //let file = File::create(path)?;
     let mut file = BufWriter::new(file);
 
     // We would like to write metadata first, but the size of each layer needs to be
@@ -15,10 +14,7 @@ pub fn save_index_to_disk(layers: &[FixedWidthSliceVector<NeighborId>], file: &m
 
     let mut layer_sizes = Vec::new();
     let (num_neighbors, num_elements) = if !layers.is_empty() {
-        (
-            layers[0].get(0).len() - EXTRA_NEIGHBORS_AT_BUILD_TIME,
-            layers.last().unwrap().len(),
-        )
+        (layers[0].get(0).len(), layers.last().unwrap().len())
     } else {
         (0, 0)
     };
@@ -34,14 +30,7 @@ pub fn save_index_to_disk(layers: &[FixedWidthSliceVector<NeighborId>], file: &m
         for layer in layers {
             let layer_size = layer.len() * num_neighbors * std::mem::size_of::<NeighborId>();
             layer_sizes.push(layer_size);
-
-            if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
-                for node in layer.iter() {
-                    file_io::write(&node[..num_neighbors], &mut file)?;
-                }
-            } else {
-                layer.write(&mut file)?;
-            }
+            layer.write(&mut file)?;
         }
     }
 
@@ -55,7 +44,6 @@ pub fn save_index_to_disk(layers: &[FixedWidthSliceVector<NeighborId>], file: &m
         &serde_json::to_string(&json!({
             "version": SERIALIZATION_VERSION,
             "num_elements": num_elements,
-            "num_extra_neighbors_at_build_time": EXTRA_NEIGHBORS_AT_BUILD_TIME,
             "num_layers": layers.len(),
             "num_neighbors": num_neighbors,
             "layer_counts": layers.iter().map(|layer| layer.len()).collect::<Vec<_>>(),
@@ -139,37 +127,12 @@ pub fn read_layers<I: Read>(
     };
 
     for (layer_idx, layer_size) in layer_sizes.into_iter().enumerate() {
-        let mut layer_reader = index_reader.by_ref().take(layer_size as u64);
+        let layer_reader = index_reader.by_ref().take(layer_size as u64);
 
-        let layer = if EXTRA_NEIGHBORS_AT_BUILD_TIME > 0 {
-            let num_neighbors_at_build_time = num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME;
-
-            let mut vec = if layer_idx != last_layer_idx {
-                FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, layer_size / node_size)
-            } else {
-                FixedWidthSliceVector::with_capacity(num_neighbors_at_build_time, last_layer_count)
-            };
-
-            let mut buffer = Vec::new();
-            buffer.resize(num_neighbors_at_build_time * size_of::<NeighborId>(), 0);
-
-            while let Ok(()) = layer_reader.read_exact(&mut buffer[..node_size]) {
-                vec.push(file_io::load(&buffer));
-            }
-
-            vec.par_iter_mut().for_each(|node| {
-                for i in num_neighbors..num_neighbors_at_build_time {
-                    node[i] = UNUSED;
-                }
-            });
-
-            vec
+        let layer = if layer_idx != last_layer_idx {
+            FixedWidthSliceVector::read(layer_reader, num_neighbors)?
         } else {
-            if layer_idx != last_layer_idx {
-                FixedWidthSliceVector::read(layer_reader, num_neighbors)?
-            } else {
-                FixedWidthSliceVector::read_with_capacity(layer_reader, num_neighbors, last_layer_count)?
-            }
+            FixedWidthSliceVector::read_with_capacity(layer_reader, num_neighbors, last_layer_count)?
         };
 
         assert_eq!(layer_size / node_size, layer.len());

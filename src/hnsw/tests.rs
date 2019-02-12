@@ -342,7 +342,7 @@ fn read_legacy_index() {
 
     assert_eq!(8, layers.len());
     assert_eq!(100, layers.last().unwrap().len());
-    assert_eq!(20 + EXTRA_NEIGHBORS_AT_BUILD_TIME, layers.last().unwrap().get(0).len());
+    assert_eq!(20, layers.last().unwrap().get(0).len());
 }
 
 #[test]
@@ -400,7 +400,7 @@ fn write_and_load() {
     assert_eq!(builder.layers.len(), index.num_layers());
 
     for layer in 0..builder.layers.len() {
-        //assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
+        assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
 
         for i in 0..builder.layers[layer].len() {
             let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
@@ -444,7 +444,7 @@ fn write_and_load_compressed() {
     assert_eq!(builder.layers.len(), index.num_layers());
 
     for layer in 0..builder.layers.len() {
-        //assert_eq!(builder.layers[layer].len(), index.layers[layer].len());
+        assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
 
         for i in 0..builder.layers[layer].len() {
             let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();

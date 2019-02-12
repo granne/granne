@@ -28,7 +28,6 @@ pub use self::sharded_hnsw::ShardedHnsw;
 
 use self::neighborid::{NeighborId, UNUSED};
 
-const EXTRA_NEIGHBORS_AT_BUILD_TIME: usize = 0;
 const METADATA_LEN: usize = 1024;
 const LIBRARY_STR: &str = "granne";
 const SERIALIZATION_VERSION: usize = 1;
@@ -173,14 +172,9 @@ where
         }
     }
 
-    pub fn save_index_to_disk(self: &Self, path: &str) -> Result<()> {
+    pub fn save_index_to_disk(self: &Self, path: &str, compress: bool) -> Result<()> {
         let mut file = File::create(path)?;
-        io::save_index_to_disk(&self.layers, &mut file, false)
-    }
-
-    pub fn save_compressed_index_to_disk(self: &Self, path: &str) -> Result<()> {
-        let mut file = File::create(path)?;
-        io::save_index_to_disk(&self.layers, &mut file, true)
+        io::save_index_to_disk(&self.layers, &mut file, compress)
     }
 
     pub fn write(self: &Self, file: &mut File) -> Result<()> {
@@ -220,7 +214,7 @@ where
 
         // fresh index build => initialize first layer
         if self.layers.is_empty() {
-            let mut layer = FixedWidthSliceVector::new(self.config.num_neighbors + EXTRA_NEIGHBORS_AT_BUILD_TIME);
+            let mut layer = FixedWidthSliceVector::new(self.config.num_neighbors);
             layer.resize(1, UNUSED);
             self.layers.push(layer);
         } else {
@@ -540,7 +534,7 @@ where
         if let Some(free_pos) = node.iter().position(|x| *x == UNUSED || *x == j_id) {
             node[free_pos] = j_id;
         } else {
-            let num_neighbors = node.len() - EXTRA_NEIGHBORS_AT_BUILD_TIME;
+            let num_neighbors = node.len();
             Self::add_and_limit_neighbors(elements, &mut node, i, &[(j, d)], num_neighbors);
         }
     }
@@ -770,22 +764,19 @@ where
         }
     }
 
-    pub fn count_neighbors(self: &Self, layer: usize) -> usize {
-        self.count_some_neighbors(layer, 0, self.layer_len(layer))
-    }
-
-    pub fn count_some_neighbors(self: &Self, layer: usize, start: usize, stop: usize) -> usize {
+    pub fn count_neighbors(self: &Self, layer: usize, begin: usize, end: usize) -> usize {
         match self.layers {
             Layers::Standard(ref layers) => layers[layer]
                 .par_iter()
-                .skip(start)
-                .take(stop - start)
+                .skip(begin)
+                .take(end - begin)
                 .map(|node| iter_neighbors(node).count())
                 .sum(),
+            // todo: this can be done in constant time for Layers::Compressed
             Layers::Compressed(ref layers) => layers[layer]
                 .iter()
-                .skip(start)
-                .take(stop - start)
+                .skip(begin)
+                .take(end - begin)
                 .map(|node| iter_neighbors(node).count())
                 .sum(),
         }

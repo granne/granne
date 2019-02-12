@@ -1,6 +1,6 @@
 [package]
 name = "granne"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
 license = "MIT"
 links = "blas"
