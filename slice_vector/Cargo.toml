@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 byteorder = "1.2.1"
 rayon = "1.0"
+stream-vbyte = "0.3.2"
