@@ -115,6 +115,7 @@ py_class!(class Hnsw |py| {
 
         let elements = File::open(elements_path).unwrap();
         let elements = unsafe { Mmap::map(&elements).unwrap() };
+        elements.advise_memory_access(AccessPattern::Random).expect("Error with madvise");
 
         {
             let elements = granne::AngularVectors::load(dimension, &elements[..]);

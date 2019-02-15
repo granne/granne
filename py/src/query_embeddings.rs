@@ -182,6 +182,8 @@ py_class!(pub class QueryHnsw |py| {
         let elements = File::open(elements_path).unwrap();
         let elements = unsafe { memmap::Mmap::map(&elements).unwrap() };
 
+        elements.advise_memory_access(AccessPattern::Random).expect("Error with madvise");
+
         // sanity check / fail early
         {
             let elements = granne::QueryEmbeddings::load(dimension, &word_embeddings, &elements);
@@ -420,6 +422,8 @@ py_class!(pub class QueryHnswBuilder |py| {
 
         let queries = File::open(queries_path).unwrap();
         let queries = unsafe { memmap::Mmap::map(&queries).unwrap() };
+
+        queries.advise_memory_access(AccessPattern::Random).expect("Error with madvise");
 
         let elements = MmapQueryEmbeddings::new(dimension, word_embeddings, queries);
 
