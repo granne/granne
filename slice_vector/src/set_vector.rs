@@ -6,14 +6,22 @@ use std::io::{Result, Write};
 use stream_vbyte::{decode, encode, Scalar};
 
 #[derive(Clone)]
-pub struct MultiSetVector<'a> {
-    data: VariableWidthSliceVector<'a, u8, usize>,
+pub struct MultiSetVectorT<'a, Offset>
+where
+    Offset: Copy + Into<usize> + From<usize>,
+{
+    data: VariableWidthSliceVector<'a, u8, Offset>,
     counts: Cow<'a, [u8]>,
 }
 
+pub type MultiSetVector<'a> = MultiSetVectorT<'a, usize>;
+
 const MIN_NUMBERS_TO_ENCODE: usize = 4;
 
-impl<'a> MultiSetVector<'a> {
+impl<'a, Offset> MultiSetVectorT<'a, Offset>
+where
+    Offset: Copy + Into<usize> + From<usize>,
+{
     pub fn new() -> Self {
         Self {
             data: VariableWidthSliceVector::new(),
@@ -39,7 +47,7 @@ impl<'a> MultiSetVector<'a> {
             data.resize(<u8>::max_value() as usize, 0)
         }
 
-        Self::differential_encode(&mut data);
+        differential_encode(&mut data);
 
         self.counts.to_mut().push(data.len() as u8);
 
@@ -56,19 +64,7 @@ impl<'a> MultiSetVector<'a> {
         self.data.push(&encoded_data[..encoded_len]);
     }
 
-    fn differential_encode(data: &mut [u32]) {
-        for i in (1..data.len()).rev() {
-            data[i] -= data[i - 1];
-        }
-    }
-
-    fn differential_decode(data: &mut [u32]) {
-        for i in 1..data.len() {
-            data[i] += data[i - 1];
-        }
-    }
-
-    pub fn extend_from_multi_set_vector(self: &mut Self, other: &MultiSetVector) {
+    pub fn extend_from_multi_set_vector(self: &mut Self, other: &Self) {
         self.data.extend_from_slice_vector(&other.data);
         self.counts.to_mut().extend_from_slice(&other.counts);
     }
@@ -89,7 +85,7 @@ impl<'a> MultiSetVector<'a> {
             decoded_nums.resize(self.counts[idx] as usize, 0);
         }
 
-        Self::differential_decode(&mut decoded_nums);
+        differential_decode(&mut decoded_nums);
 
         decoded_nums
     }
@@ -117,15 +113,27 @@ impl<'a> MultiSetVector<'a> {
     }
 }
 
+fn differential_encode(data: &mut [u32]) {
+    for i in (1..data.len()).rev() {
+        data[i] -= data[i - 1];
+    }
+}
+
+fn differential_decode(data: &mut [u32]) {
+    for i in 1..data.len() {
+        data[i] += data[i - 1];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn differential_encode() {
+    fn test_differential_encode() {
         let mut data = vec![1, 2, 2, 4];
 
-        MultiSetVector::differential_encode(&mut data);
+        differential_encode(&mut data);
 
         assert_eq!(vec![1, 1, 0, 2], data);
     }
@@ -135,8 +143,8 @@ mod tests {
         let data = vec![123, 345, 555, 555, 6999, 7000];
         let mut code = data.clone();
 
-        MultiSetVector::differential_encode(&mut code);
-        MultiSetVector::differential_decode(&mut code);
+        differential_encode(&mut code);
+        differential_decode(&mut code);
 
         assert_eq!(data, code);
     }
