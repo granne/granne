@@ -6,6 +6,10 @@ use rayon::prelude::*;
 use std::borrow::Cow;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 
+mod set_vector;
+
+pub use crate::set_vector::MultiSetVector;
+
 pub trait SliceVector<'a, T>
 where
     Self: Sized,

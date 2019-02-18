@@ -400,7 +400,6 @@ where
         let (entrypoint, _) = prev_layers.search(&element, 1, 1)[0];
 
         let candidates = Self::search_for_neighbors_index(elements, layer, entrypoint, &element, config.max_search);
-
         let candidates: Vec<_> = candidates.into_iter().filter(|&(id, _)| id != idx).collect();
 
         let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
