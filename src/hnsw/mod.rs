@@ -14,7 +14,6 @@ use time::PreciseTime;
 use slice_vector::{FixedWidthSliceVector, SliceVector, VariableWidthSliceVector};
 
 use crate::file_io;
-use crate::types;
 use crate::types::ComparableTo;
 
 mod io;
@@ -98,6 +97,21 @@ pub trait Writeable {
 impl<T> Writeable for [T] {
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
         file_io::write(self, buffer)
+    }
+}
+
+pub trait Appendable<T> {
+    fn empty() -> Self;
+    fn append(self: &mut Self, element: T);
+}
+
+impl<T> Appendable<T> for Vec<T> {
+    fn empty() -> Self {
+        Vec::new()
+    }
+
+    fn append(self: &mut Self, element: T) {
+        self.push(element);
     }
 }
 
@@ -587,28 +601,24 @@ where
     }
 }
 
-// Methods only implemented for AngularVectors
-impl<'a, T> HnswBuilder<'a, types::AngularVectorsT<'static, T>, types::AngularVectorT<'static, T>>
+impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 where
-    T: Copy + Sync + Send,
-    types::AngularVectorT<'static, T>: ComparableTo<types::AngularVectorT<'static, T>>,
+    Elements: At<Output = Element> + Sync + Send + ToOwned + ?Sized,
+    Elements::Owned: Appendable<Element>,
+    Element: ComparableTo<Element> + Sync + Send,
 {
-    pub fn new(dimension: usize, config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         HnswBuilder {
             layers: Vec::new(),
-            elements: Cow::Owned(types::AngularVectorsT::new(dimension)),
+            elements: Cow::Owned(Elements::Owned::empty()),
             config: config,
         }
     }
 
-    pub fn add(self: &mut Self, elements: types::AngularVectorsT<'static, T>) {
-        assert!(self.elements.len() + (elements.len() / self.elements.dim) <= <NeighborId>::max_value() as usize);
+    pub fn append(self: &mut Self, element: Element) {
+        assert!(self.elements.len() + 1 <= <NeighborId>::max_value() as usize);
 
-        if self.elements.len() == 0 {
-            self.elements = Cow::Owned(elements);
-        } else {
-            self.elements.to_mut().extend(elements);
-        }
+        self.elements.to_mut().append(element);
     }
 }
 

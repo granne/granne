@@ -257,7 +257,6 @@ py_class!(class HnswBuilder |py| {
     data builder: RefCell<BuilderType>;
 
     def __new__(_cls,
-                dimension: usize,
                 num_layers: usize,
                 num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                 max_search: usize = DEFAULT_MAX_SEARCH,
@@ -275,11 +274,11 @@ py_class!(class HnswBuilder |py| {
 
         match dtype {
             DTYPE::I8 => {
-                let builder = granne::HnswBuilder::new(dimension, config);
+                let builder = granne::HnswBuilder::new(config);
                 return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularIntVectorBuilder(builder)))
             },
             DTYPE::F32 => {
-                let builder = granne::HnswBuilder::new(dimension, config);
+                let builder = granne::HnswBuilder::new(config);
                 return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularVectorBuilder(builder)))
             }
         }
@@ -407,20 +406,15 @@ py_class!(class HnswBuilder |py| {
         }
     }
 
-
     def add(&self, element: Vec<f32>) -> PyResult<PyObject> {
         match *self.builder(py).borrow_mut() {
             BuilderType::AngularVectorBuilder(ref mut builder) => {
-                let mut elements = granne::AngularVectors::new(0);
-                elements.push(&element.into());
-
-                builder.add(elements);
+                let element = granne::AngularVector::from(element);
+                builder.append(element);
             },
             BuilderType::AngularIntVectorBuilder(ref mut builder) => {
-                let mut elements = granne::AngularIntVectors::new(0);
-                elements.push(&element.into());
-
-                builder.add(elements);
+                let element = granne::AngularIntVector::from(element);
+                builder.append(element);
             },
             _ => panic!("Cannot add element to mmapped builder")
         }

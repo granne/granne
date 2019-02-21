@@ -132,13 +132,15 @@ fn with_elements_and_add() {
     };
 
     let elements: AngularVectors = (0..500).map(|_| random_dense_element::<AngularVector>(25)).collect();
-    let additional_elements: AngularVectors = (0..100).map(|_| random_dense_element::<AngularVector>(25)).collect();
+    let additional_elements: Vec<AngularVector> = (0..100).map(|_| random_dense_element::<AngularVector>(25)).collect();
 
     let mut builder: HnswBuilder<AngularVectors, AngularVector> = HnswBuilder::with_owned_elements(config, elements);
 
     assert_eq!(500, builder.elements.len());
 
-    builder.add(additional_elements);
+    for element in additional_elements {
+        builder.append(element);
+    }
 
     assert_eq!(600, builder.elements.len());
 
@@ -511,9 +513,9 @@ fn write_and_read() {
 
 #[test]
 fn append_elements() {
-    let elements: AngularVectors = (0..500).map(|_| random_dense_element::<AngularVector>(50)).collect();
+    let elements: Vec<AngularVector> = (0..500).map(|_| random_dense_element::<AngularVector>(50)).collect();
 
-    let additional_elements: AngularVectors = (0..500).map(|_| random_dense_element::<AngularVector>(50)).collect();
+    let additional_elements: Vec<AngularVector> = (0..500).map(|_| random_dense_element::<AngularVector>(50)).collect();
 
     let config = Config {
         num_layers: 4,
@@ -524,8 +526,10 @@ fn append_elements() {
     };
 
     // insert half of the elements
-    let mut builder = HnswBuilder::new(50, config);
-    builder.add(elements.clone());
+    let mut builder: HnswBuilder<AngularVectors, AngularVector> = HnswBuilder::new(config);
+    for element in &elements {
+        builder.append(element.clone());
+    }
     builder.build_index();
 
     assert_eq!(4, builder.layers.len());
@@ -544,7 +548,9 @@ fn append_elements() {
     }
 
     // insert rest of the elements
-    builder.add(additional_elements.clone());
+    for element in &additional_elements {
+        builder.append(element.clone());
+    }
     builder.build_index();
 
     assert_eq!(4, builder.layers.len());

@@ -1,5 +1,5 @@
 use crate::file_io;
-use crate::hnsw::{At, Writeable};
+use crate::hnsw::{Appendable, At, Writeable};
 use crate::types::{ComparableTo, Dense};
 
 use blas;
@@ -183,6 +183,16 @@ impl<'a, T: Copy + 'static> At for AngularVectorsT<'a, T> {
 impl<'a, T: Copy> Writeable for AngularVectorsT<'a, T> {
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
         file_io::write(&self.data[..], buffer)
+    }
+}
+
+impl<'a, 'b, T: Copy> Appendable<AngularVectorT<'b, T>> for AngularVectorsT<'a, T> {
+    fn empty() -> Self {
+        Self::new(0)
+    }
+
+    fn append(self: &mut Self, element: AngularVectorT<T>) {
+        self.push(&element);
     }
 }
 
