@@ -4,7 +4,7 @@ use memmap::Mmap;
 use serde_json;
 use std::io::{BufReader, BufWriter, Read, Result, Seek, SeekFrom, Write};
 
-pub fn save_index_to_disk(layers: &[FixedWidthSliceVector<NeighborId>], file: &mut File, compress: bool) -> Result<()> {
+pub fn save_index_to_disk(layers: &Layers, file: &mut File, compress: bool) -> Result<()> {
     let mut file = BufWriter::new(file);
 
     // We would like to write metadata first, but the size of each layer needs to be
@@ -13,26 +13,40 @@ pub fn save_index_to_disk(layers: &[FixedWidthSliceVector<NeighborId>], file: &m
     file.seek(SeekFrom::Current(METADATA_LEN as i64))?;
 
     let mut layer_sizes = Vec::new();
-    let (num_neighbors, num_elements) = if !layers.is_empty() {
-        (layers[0].get(0).len(), layers.last().unwrap().len())
-    } else {
-        (0, 0)
-    };
+    let layer_counts;
+    let mut compress = compress;
+    let num_neighbors;
 
     // write graph
-    if compress {
-        for layer in layers {
-            let layer_size =
-                layer.write_as_variable_width_slice_vector::<NeighborId, _, _>(&mut file, |&x| x != UNUSED)?;
-            layer_sizes.push(layer_size);
+    match *layers {
+        Layers::Standard(ref layers) => {
+            num_neighbors = if !layers.is_empty() { layers[0].get(0).len() } else { 0 };
+            layer_counts = layers.iter().map(|layer| layer.len()).collect::<Vec<_>>();
+
+            if compress {
+                for layer in layers {
+                    let layer_size =
+                        layer.write_as_variable_width_slice_vector::<NeighborId, _, _>(&mut file, |&x| x != UNUSED)?;
+                    layer_sizes.push(layer_size);
+                }
+            } else {
+                for layer in layers {
+                    let layer_size = layer.write(&mut file)?;
+                    layer_sizes.push(layer_size);
+                }
+            }
         }
-    } else {
-        for layer in layers {
-            let layer_size = layer.len() * num_neighbors * std::mem::size_of::<NeighborId>();
-            layer_sizes.push(layer_size);
-            layer.write(&mut file)?;
+        Layers::Compressed(ref layers) => {
+            num_neighbors = 0;
+            layer_counts = layers.iter().map(|layer| layer.len()).collect::<Vec<_>>();
+            compress = true;
+
+            for layer in layers {
+                let layer_size = layer.write(&mut file)?;
+                layer_sizes.push(layer_size);
+            }
         }
-    }
+    };
 
     // Rewind cursor and write metadata
     file.seek(SeekFrom::Start(metadata_pos))?;
@@ -43,10 +57,10 @@ pub fn save_index_to_disk(layers: &[FixedWidthSliceVector<NeighborId>], file: &m
     metadata.push_str(
         &serde_json::to_string(&json!({
             "version": SERIALIZATION_VERSION,
-            "num_elements": num_elements,
-            "num_layers": layers.len(),
+            "num_elements": *layer_counts.last().unwrap_or(&0),
+            "num_layers": layer_counts.len(),
             "num_neighbors": num_neighbors,
-            "layer_counts": layers.iter().map(|layer| layer.len()).collect::<Vec<_>>(),
+            "layer_counts": layer_counts,
             "layer_sizes": layer_sizes,
             "compressed": compress
         }))
@@ -66,12 +80,9 @@ pub fn compress_index(input: &str, output: &str) -> Result<()> {
     let index = File::open(input)?;
     let index = unsafe { Mmap::map(&index)? };
 
-    if let Layers::Standard(layers) = load_layers(&index[..]) {
-        let mut file = File::create(output)?;
-        save_index_to_disk(&layers, &mut file, true)
-    } else {
-        panic!("Index already compressed");
-    }
+    let layers = load_layers(&index[..]);
+    let mut file = File::create(output)?;
+    save_index_to_disk(&layers, &mut file, true)
 }
 
 pub fn load_layers<'a>(buffer: &'a [u8]) -> Layers<'a> {

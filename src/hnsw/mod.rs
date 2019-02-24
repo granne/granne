@@ -118,7 +118,7 @@ impl<T> Appendable<T> for Vec<T> {
 impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
 where
     Elements: 'a + At<Output = Element> + Sync + Send + ToOwned + ?Sized,
-    Element: 'a + ComparableTo<Element> + Sync + Send + Clone,
+    Element: 'a + ComparableTo<Element> + Sync + Send,
 {
     pub fn with_borrowed_elements(config: Config, elements: &'a Elements) -> Self {
         HnswBuilder {
@@ -187,12 +187,11 @@ where
     }
 
     pub fn save_index_to_disk(self: &Self, path: &str, compress: bool) -> Result<()> {
-        let mut file = File::create(path)?;
-        io::save_index_to_disk(&self.layers, &mut file, compress)
+        self.get_index().save_index_to_disk(path, compress)
     }
 
     pub fn write(self: &Self, file: &mut File) -> Result<()> {
-        io::save_index_to_disk(&self.layers, file, false)
+        io::save_index_to_disk(&self.get_index().layers, file, false)
     }
 
     pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, Elements, Element> {
@@ -594,10 +593,7 @@ where
     Element: 'a + ComparableTo<Element> + Sync + Send,
 {
     pub fn save_elements_to_disk(self: &Self, path: &str) -> Result<()> {
-        let file = File::create(path)?;
-        let mut file = BufWriter::new(file);
-
-        self.elements.write(&mut file)
+        self.get_index().save_elements_to_disk(path)
     }
 }
 
@@ -652,6 +648,11 @@ where
             layers: io::load_layers(buffer),
             elements: elements,
         }
+    }
+
+    pub fn save_index_to_disk(self: &Self, path: &str, compress: bool) -> Result<()> {
+        let mut file = File::create(path)?;
+        io::save_index_to_disk(&self.layers, &mut file, compress)
     }
 
     pub fn search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
@@ -789,6 +790,19 @@ where
                 .map(|node| iter_neighbors(node).count())
                 .sum(),
         }
+    }
+}
+
+impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
+where
+    Elements: Writeable + At<Output = Element> + ToOwned + ?Sized,
+    Element: ComparableTo<Element>,
+{
+    pub fn save_elements_to_disk(self: &Self, path: &str) -> Result<()> {
+        let file = File::create(path)?;
+        let mut file = BufWriter::new(file);
+
+        self.elements.write(&mut file)
     }
 }
 

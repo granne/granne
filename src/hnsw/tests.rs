@@ -434,31 +434,61 @@ fn write_and_load_compressed() {
     let mut builder = HnswBuilder::with_borrowed_elements(config, &elements);
     builder.build_index();
 
-    let mut file: File = tempfile::tempfile().unwrap();
-    io::save_index_to_disk(&builder.layers, &mut file, true).unwrap();
+    {
+        let mut file: File = tempfile::tempfile().unwrap();
+        io::save_index_to_disk(&builder.get_index().layers, &mut file, true).unwrap();
 
-    file.seek(SeekFrom::Start(0)).unwrap();
-    let mut data = Vec::new();
-    file.read_to_end(&mut data).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).unwrap();
 
-    let index = Hnsw::<AngularVectors, AngularVector>::load(&data[..], &elements);
+        let index = Hnsw::<AngularVectors, AngularVector>::load(&data[..], &elements);
 
-    assert_eq!(builder.layers.len(), index.num_layers());
+        assert_eq!(builder.layers.len(), index.num_layers());
 
-    for layer in 0..builder.layers.len() {
-        assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
+        for layer in 0..builder.layers.len() {
+            assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
 
-        for i in 0..builder.layers[layer].len() {
-            let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
+            for i in 0..builder.layers[layer].len() {
+                let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
 
-            assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
+                assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
+            }
         }
-    }
 
-    assert_eq!(builder.elements.len(), index.len());
+        assert_eq!(builder.elements.len(), index.len());
 
-    for i in 0..builder.elements.len() {
-        assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+        for i in 0..builder.elements.len() {
+            assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+        }
+
+        // write the already compressed index to file and reload
+        let mut compressed_file: File = tempfile::tempfile().unwrap();
+        io::save_index_to_disk(&index.layers, &mut compressed_file, true).unwrap();
+
+        compressed_file.seek(SeekFrom::Start(0)).unwrap();
+        let mut data = Vec::new();
+        compressed_file.read_to_end(&mut data).unwrap();
+
+        let index = Hnsw::<AngularVectors, AngularVector>::load(&data[..], &elements);
+
+        assert_eq!(builder.layers.len(), index.num_layers());
+
+        for layer in 0..builder.layers.len() {
+            assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
+
+            for i in 0..builder.layers[layer].len() {
+                let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
+
+                assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
+            }
+        }
+
+        assert_eq!(builder.elements.len(), index.len());
+
+        for i in 0..builder.elements.len() {
+            assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+        }
     }
 }
 

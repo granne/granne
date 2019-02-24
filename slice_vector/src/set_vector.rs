@@ -90,13 +90,18 @@ where
         decoded_nums
     }
 
-    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
         buffer
             .write_u64::<LittleEndian>(self.len() as u64)
             .expect("Could not write length");
 
+        let mut bytes_written = std::mem::size_of::<u64>();
+
         write(&self.counts[..], buffer)?;
-        self.data.write(buffer)
+        bytes_written += self.counts.len();
+        bytes_written += self.data.write(buffer)?;
+
+        Ok(bytes_written)
     }
 
     pub fn load(buffer: &'a [u8]) -> Self {

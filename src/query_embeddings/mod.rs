@@ -214,7 +214,8 @@ impl<'a> QueryVec<'a> {
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        self.queries.write(buffer)
+        self.queries.write(buffer)?;
+        Ok(())
     }
 }
 

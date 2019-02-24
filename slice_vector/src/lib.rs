@@ -25,7 +25,7 @@ where
         self.len() == 0
     }
     fn push(self: &mut Self, data: &[T]);
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()>;
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize>;
 }
 
 #[derive(Clone)]
@@ -245,8 +245,11 @@ impl<'a, T: Clone> SliceVector<'a, T> for FixedWidthSliceVector<'a, T> {
         self.data.len() / self.width
     }
 
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        write(&self.data[..], buffer)
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
+        write(&self.data[..], buffer)?;
+        let bytes_written = self.data.len() * std::mem::size_of::<T>();
+
+        Ok(bytes_written)
     }
 }
 
@@ -370,14 +373,21 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
         self.offsets.to_mut().push(self.data.len().into());
     }
 
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
         // write metadata
         buffer
             .write_u64::<LittleEndian>(self.len() as u64)
             .expect("Could not write length");
 
+        let mut bytes_written = std::mem::size_of::<u64>();
+
         write(&self.offsets[..], buffer)?;
-        write(&self.data[..], buffer)
+        bytes_written += self.offsets.len() * std::mem::size_of::<Offset>();
+
+        write(&self.data[..], buffer)?;
+        bytes_written += self.data.len() * std::mem::size_of::<T>();
+
+        Ok(bytes_written)
     }
 }
 
