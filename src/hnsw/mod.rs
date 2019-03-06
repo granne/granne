@@ -18,6 +18,7 @@ use crate::types::ComparableTo;
 
 mod io;
 mod neighborid;
+pub mod reorder;
 mod sharded_hnsw;
 #[cfg(test)]
 mod tests;
@@ -101,12 +102,12 @@ impl<T> Writeable for [T] {
 }
 
 pub trait Appendable<T> {
-    fn empty() -> Self;
+    fn new() -> Self;
     fn append(self: &mut Self, element: T);
 }
 
 impl<T> Appendable<T> for Vec<T> {
-    fn empty() -> Self {
+    fn new() -> Self {
         Vec::new()
     }
 
@@ -606,7 +607,7 @@ where
     pub fn new(config: Config) -> Self {
         HnswBuilder {
             layers: Vec::new(),
-            elements: Cow::Owned(Elements::Owned::empty()),
+            elements: Cow::Owned(Elements::Owned::new()),
             config: config,
         }
     }
@@ -643,6 +644,10 @@ where
     Elements: 'a + At<Output = Element> + ?Sized,
     Element: 'a + ComparableTo<Element>,
 {
+    pub fn new(layers: Layers<'a>, elements: &'a Elements) -> Self {
+        Self { layers, elements }
+    }
+
     pub fn load(buffer: &'a [u8], elements: &'a Elements) -> Self {
         Self {
             layers: io::load_layers(buffer),
@@ -746,7 +751,7 @@ where
     }
 
     pub fn len(self: &Self) -> usize {
-        self.elements.len()
+        self.layer_len(self.num_layers() - 1)
     }
 
     pub fn num_layers(self: &Self) -> usize {
@@ -819,15 +824,19 @@ impl<T: Ord> MaxSizeHeap<T> {
         }
     }
 
-    pub fn push(self: &mut Self, element: T) {
+    pub fn push(self: &mut Self, element: T) -> bool {
         if !self.is_full() {
             self.heap.push(element);
+            true
         } else if element < *self.heap.peek().unwrap() {
             if self.heap.len() >= self.max_size {
                 self.heap.pop();
             }
 
             self.heap.push(element);
+            true
+        } else {
+            false
         }
     }
 

@@ -1,18 +1,17 @@
 use crate::file_io;
-use crate::hnsw::{At, Writeable};
+use crate::hnsw::{Appendable, At, Writeable};
 use crate::types;
 use crate::types::AngularVector;
 use crate::types::Dense;
 
 use blas;
 use bytes::{ByteOrder, LittleEndian};
-use rand;
-use rand::Rng;
 use slice_vector::{SliceVector, VariableWidthSliceVector};
 use std::convert::Into;
 use std::io::{Result, Write};
 
 pub mod parsing;
+pub mod reorder;
 
 #[derive(Clone)]
 pub struct QueryEmbeddings<'a> {
@@ -79,18 +78,40 @@ impl<'a> Writeable for QueryEmbeddings<'a> {
     }
 }
 
+impl<'a> Appendable<&[usize]> for QueryEmbeddings<'a> {
+    fn new() -> Self {
+        Self::new(WordEmbeddings::new())
+    }
+
+    fn append(self: &mut Self, element: &[usize]) {
+        self.queries.push(element);
+    }
+}
+
 #[derive(Clone)]
 pub struct WordEmbeddings<'a> {
     embeddings: types::AngularVectors<'a>,
 }
 
 impl<'a> WordEmbeddings<'a> {
+    pub fn new() -> Self {
+        Self {
+            embeddings: types::AngularVectors::new(0),
+        }
+    }
+
     pub fn load(dimension: usize, data: &'a [u8]) -> Self {
         assert_eq!(0, data.len() % (dimension * ::std::mem::size_of::<f32>()));
 
         let embeddings = types::AngularVectors::load(dimension, data);
 
         Self { embeddings }
+    }
+
+    fn into_owned(self: Self) -> WordEmbeddings<'static> {
+        WordEmbeddings {
+            embeddings: self.embeddings.into_owned(),
+        }
     }
 
     pub fn get_embedding(self: &Self, word_ids: &[usize]) -> types::AngularVector<'static> {
@@ -219,18 +240,37 @@ impl<'a> QueryVec<'a> {
     }
 }
 
-pub fn get_random_word_embeddings(dimension: usize, num: usize) -> WordEmbeddings<'static> {
-    let mut rng = rand::thread_rng();
+pub mod example {
+    use super::*;
+    use rand;
+    use rand::Rng;
 
-    let embeddings: types::AngularVectors = (0..num)
-        .map(|_| {
-            let element: AngularVector = (0..dimension).map(|_| rng.gen::<f32>() - 0.5).collect();
+    pub fn get_random_word_embeddings(dimension: usize, num: usize) -> WordEmbeddings<'static> {
+        let mut rng = rand::thread_rng();
 
-            element
-        })
-        .collect();
+        let embeddings: types::AngularVectors = (0..num)
+            .map(|_| {
+                let element: AngularVector = (0..dimension).map(|_| rng.gen::<f32>() - 0.5).collect();
 
-    WordEmbeddings { embeddings }
+                element
+            })
+            .collect();
+
+        WordEmbeddings { embeddings }
+    }
+
+    pub fn get_sample_query_embeddings() -> QueryEmbeddings<'static> {
+        let embeddings = get_random_word_embeddings(5, 50);
+        let mut queries = QueryVec::new();
+
+        for i in 0..101 {
+            let len = 2 + i % 8;
+            let query: Vec<_> = (i..(i + len)).map(|j| j % embeddings.len()).collect();
+            queries.push(&query);
+        }
+
+        QueryEmbeddings::from(embeddings, queries)
+    }
 }
 
 #[cfg(test)]
@@ -349,7 +389,7 @@ mod tests {
 
         const DIM: usize = 300;
 
-        let word_embeddings = get_random_word_embeddings(DIM, num_word_embeddings);
+        let word_embeddings = example::get_random_word_embeddings(DIM, num_word_embeddings);
 
         word_embeddings.embeddings.write(&mut buffer).unwrap();
 

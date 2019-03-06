@@ -121,6 +121,13 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
         }
     }
 
+    pub fn into_owned(self: Self) -> AngularVectorsT<'static, T> {
+        AngularVectorsT {
+            data: self.data.into_owned().into(),
+            dim: self.dim,
+        }
+    }
+
     pub fn extend(self: &mut Self, vec: AngularVectorsT<T>) {
         assert_eq!(self.dim, vec.dim);
 
@@ -187,7 +194,7 @@ impl<'a, T: Copy> Writeable for AngularVectorsT<'a, T> {
 }
 
 impl<'a, 'b, T: Copy> Appendable<AngularVectorT<'b, T>> for AngularVectorsT<'a, T> {
-    fn empty() -> Self {
+    fn new() -> Self {
         Self::new(0)
     }
 

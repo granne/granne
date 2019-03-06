@@ -287,6 +287,49 @@ py_class!(pub class QueryHnsw |py| {
         Ok(index.count_neighbors(layer, begin, end))
     }
 
+    def reorder_and_save(&self,
+                         index_output: &str,
+                         queries_output: &str,
+                         show_progress: bool = true) -> PyResult<PyObject>
+    {
+        let elements = granne::QueryEmbeddings::load(*self.dimension(py), &self.word_embeddings(py), &self.elements(py));
+        let index = IndexType::load(&self.index(py), &elements);
+        let layer_counts: Vec<usize> = (0..index.num_layers()).map(|layer| index.layer_len(layer)).collect();
+
+        if show_progress {
+            println!("Finding reordering...");
+        }
+
+        let order = granne::query_embeddings::reorder::find_reordering_based_on_queries(&elements, &layer_counts);
+
+        if show_progress {
+            println!("Creating reordered queries...");
+        }
+
+        let reordered_elements = granne::query_embeddings::reorder::reorder_query_embeddings(&elements, &order, show_progress);
+
+        if show_progress {
+            println!("Creating reordered index...");
+        }
+
+        let reordered_layers = granne::reorder::reorder_index(&index, &order, show_progress);
+
+        let reordered_index = granne::Hnsw::new(reordered_layers, &reordered_elements);
+
+        if show_progress {
+            println!("Saving index to disk...");
+        }
+
+        reordered_index.save_index_to_disk(index_output, false).expect(&format!("Could not save index to: {}", index_output));
+
+        if show_progress {
+            println!("Saving queries to disk...");
+        }
+
+        reordered_index.save_elements_to_disk(queries_output).expect(&format!("Could not save elements to: {}", index_output));
+
+        Ok(py.None())
+    }
 });
 
 /// A wrapper around granne::QueryEmbeddings to allow building indexes from python

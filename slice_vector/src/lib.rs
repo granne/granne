@@ -26,6 +26,7 @@ where
     }
     fn push(self: &mut Self, data: &[T]);
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize>;
+    fn extend_from_slice_vector(self: &mut Self, other: &Self);
 }
 
 #[derive(Clone)]
@@ -251,6 +252,10 @@ impl<'a, T: Clone> SliceVector<'a, T> for FixedWidthSliceVector<'a, T> {
 
         Ok(bytes_written)
     }
+
+    fn extend_from_slice_vector(self: &mut Self, other: &Self) {
+        Self::extend_from_slice_vector(self, other);
+    }
 }
 
 impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthSliceVector<'a, T, Offset> {
@@ -388,6 +393,10 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
         bytes_written += self.data.len() * std::mem::size_of::<T>();
 
         Ok(bytes_written)
+    }
+
+    fn extend_from_slice_vector(self: &mut Self, other: &Self) {
+        Self::extend_from_slice_vector(self, other);
     }
 }
 

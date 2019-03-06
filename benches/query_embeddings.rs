@@ -12,6 +12,7 @@ fn empty(b: &mut Bencher) {
 
 mod query_embeddings {
     use super::*;
+    use granne::query_embeddings::example::*;
     use granne::query_embeddings::*;
 
     #[bench]
