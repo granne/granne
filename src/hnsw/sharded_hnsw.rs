@@ -1,7 +1,7 @@
 use crossbeam;
 use ordered_float::NotNaN;
 
-use super::{At, Hnsw};
+use super::{At, Hnsw, Search};
 
 use crate::types::ComparableTo;
 

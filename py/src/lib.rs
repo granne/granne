@@ -8,6 +8,7 @@ extern crate rayon;
 extern crate serde_json;
 
 use cpython::{PyObject, PyResult, Python};
+use granne::Search;
 use madvise::{AccessPattern, AdviseMemory};
 use memmap::Mmap;
 use rayon::prelude::*;

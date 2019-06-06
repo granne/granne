@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{BufWriter, Read, Result, Write};
 use time::PreciseTime;
 
-use slice_vector::{FixedWidthSliceVector, SliceVector, VariableWidthSliceVector};
+use slice_vector::{FixedWidthSliceVector, VariableWidthSliceVector};
 
 use crate::file_io;
 use crate::types::ComparableTo;
@@ -19,6 +19,7 @@ use crate::types::ComparableTo;
 mod io;
 mod neighborid;
 pub mod reorder;
+pub mod rw_builder;
 mod sharded_hnsw;
 #[cfg(test)]
 mod tests;
@@ -101,12 +102,15 @@ impl<T> Writeable for [T] {
     }
 }
 
-pub trait Appendable<T> {
+pub trait Appendable {
+    type Element;
     fn new() -> Self;
-    fn append(self: &mut Self, element: T);
+    fn append(self: &mut Self, element: Self::Element);
 }
 
-impl<T> Appendable<T> for Vec<T> {
+impl<T> Appendable for Vec<T> {
+    type Element = T;
+
     fn new() -> Self {
         Vec::new()
     }
@@ -114,6 +118,11 @@ impl<T> Appendable<T> for Vec<T> {
     fn append(self: &mut Self, element: T) {
         self.push(element);
     }
+}
+
+pub trait Search {
+    type Element;
+    fn search(self: &Self, element: &Self::Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)>;
 }
 
 impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
@@ -197,7 +206,7 @@ where
 
     pub fn get_index<'b>(self: &'b Self) -> Hnsw<'b, Elements, Element> {
         Hnsw {
-            layers: Layers::Standard(self.layers.iter().map(|layer| layer.borrow()).collect()),
+            layers: Layers::FixWidth(self.layers.iter().map(|layer| layer.borrow()).collect()),
             elements: self.elements.as_ref(),
         }
     }
@@ -397,10 +406,10 @@ where
         }
     }
 
-    fn index_element(
+    fn index_element<Index: Search<Element = Element>>(
         config: &Config,
         elements: &Elements,
-        prev_layers: &Hnsw<Elements, Element>,
+        prev_layers: &Index,
         layer: &[RwLock<&mut HnswNode>],
         idx: usize,
     ) {
@@ -411,33 +420,34 @@ where
             return;
         }
 
-        let (entrypoint, _) = prev_layers.search(&element, 1, 1)[0];
+        if let Some((entrypoint, _)) = prev_layers.search(&element, 1, 1).first() {
+            let candidates =
+                Self::search_for_neighbors_index(elements, layer, *entrypoint, &element, config.max_search);
+            let candidates: Vec<_> = candidates.into_iter().filter(|&(id, _)| id != idx).collect();
 
-        let candidates = Self::search_for_neighbors_index(elements, layer, entrypoint, &element, config.max_search);
-        let candidates: Vec<_> = candidates.into_iter().filter(|&(id, _)| id != idx).collect();
+            let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
 
-        let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
-
-        // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
-        // this effectively creates a dead node
-        if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
-            if *d < Element::eps() {
-                return;
+            // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
+            // this effectively creates a dead node
+            if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
+                if *d < Element::eps() {
+                    return;
+                }
             }
-        }
 
-        // if current node is empty, initialize it with the neighbors
-        let unused: usize = UNUSED.into();
-        if iter_neighbors(&layer[idx].read()).next().unwrap_or(unused) == unused {
-            Self::initialize_node(&layer[idx], &neighbors[..]);
-        } else {
-            for &(neighbor, d) in &neighbors {
-                Self::connect_nodes(elements, &layer[idx], idx, neighbor, d);
+            // if current node is empty, initialize it with the neighbors
+            let unused: usize = UNUSED.into();
+            if iter_neighbors(&layer[idx].read()).next().unwrap_or(unused) == unused {
+                Self::initialize_node(&layer[idx], &neighbors[..]);
+            } else {
+                for &(neighbor, d) in &neighbors {
+                    Self::connect_nodes(elements, &layer[idx], idx, neighbor, d);
+                }
             }
-        }
 
-        for (neighbor, d) in neighbors {
-            Self::connect_nodes(elements, &layer[neighbor], neighbor, idx, d);
+            for (neighbor, d) in neighbors {
+                Self::connect_nodes(elements, &layer[neighbor], neighbor, idx, d);
+            }
         }
     }
 
@@ -598,10 +608,10 @@ where
     }
 }
 
-impl<'a, Elements, Element> HnswBuilder<'a, Elements, Element>
+impl<'a, Elements, Element, QElement> HnswBuilder<'a, Elements, Element>
 where
     Elements: At<Output = Element> + Sync + Send + ToOwned + ?Sized,
-    Elements::Owned: Appendable<Element>,
+    Elements::Owned: Appendable<Element = QElement> + At<Output = Element> + Sync + Send,
     Element: ComparableTo<Element> + Sync + Send,
 {
     pub fn new(config: Config) -> Self {
@@ -612,7 +622,7 @@ where
         }
     }
 
-    pub fn append(self: &mut Self, element: Element) {
+    pub fn append(self: &mut Self, element: QElement) {
         assert!(self.elements.len() + 1 <= <NeighborId>::max_value() as usize);
 
         self.elements.to_mut().append(element);
@@ -626,8 +636,32 @@ fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> f32 {
 }
 
 pub enum Layers<'a> {
-    Standard(Vec<FixedWidthSliceVector<'a, NeighborId>>),
-    Compressed(Vec<VariableWidthSliceVector<'a, NeighborId, NeighborId>>),
+    FixWidth(Vec<FixedWidthSliceVector<'a, NeighborId>>),
+    VarWidth(Vec<VariableWidthSliceVector<'a, NeighborId, NeighborId>>),
+}
+
+impl<'a> At for VariableWidthSliceVector<'a, NeighborId, NeighborId> {
+    type Output = Vec<usize>;
+
+    fn at(self: &Self, index: usize) -> Self::Output {
+        iter_neighbors(self.get(index)).collect()
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
+impl<'a> At for FixedWidthSliceVector<'a, NeighborId> {
+    type Output = Vec<usize>;
+
+    fn at(self: &Self, index: usize) -> Self::Output {
+        iter_neighbors(self.get(index)).collect()
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
 }
 
 pub struct Hnsw<'a, Elements, Element>
@@ -637,6 +671,24 @@ where
 {
     layers: Layers<'a>,
     elements: &'a Elements,
+}
+
+impl<'a, Elements, Element> Search for Hnsw<'a, Elements, Element>
+where
+    Elements: 'a + At<Output = Element> + ?Sized,
+    Element: 'a + ComparableTo<Element>,
+{
+    type Element = Element;
+    fn search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
+        match self.layers {
+            Layers::FixWidth(ref layers) => {
+                Self::search_internal(layers, &self.elements, element, num_neighbors, max_search)
+            }
+            Layers::VarWidth(ref layers) => {
+                Self::search_internal(layers, &self.elements, element, num_neighbors, max_search)
+            }
+        }
+    }
 }
 
 impl<'a, Elements, Element> Hnsw<'a, Elements, Element>
@@ -660,36 +712,27 @@ where
         io::save_index_to_disk(&self.layers, &mut file, compress)
     }
 
-    pub fn search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
-        match self.layers {
-            Layers::Standard(ref layers) => {
-                Self::search_internal(layers, &self.elements, element, num_neighbors, max_search)
-            }
-            Layers::Compressed(ref layers) => {
-                Self::search_internal(layers, &self.elements, element, num_neighbors, max_search)
-            }
-        }
-    }
-
-    fn search_internal<Layer: SliceVector<'a, NeighborId>>(
+    fn search_internal<Layer: At<Output = Vec<usize>>>(
         layers: &[Layer],
         elements: &Elements,
         element: &Element,
         num_neighbors: usize,
         max_search: usize,
     ) -> Vec<(usize, f32)> {
-        let (bottom_layer, top_layers) = layers.split_last().unwrap();
+        if let Some((bottom_layer, top_layers)) = layers.split_last() {
+            let entrypoint = Self::find_entrypoint(&top_layers, element, elements);
 
-        let entrypoint = Self::find_entrypoint(&top_layers, element, elements);
-
-        Self::search_for_neighbors(bottom_layer, entrypoint, elements, element, max_search)
-            .into_iter()
-            .take(num_neighbors)
-            .map(|(i, d)| (i, d.into_inner()))
-            .collect()
+            Self::search_for_neighbors(bottom_layer, entrypoint, elements, element, max_search)
+                .into_iter()
+                .take(num_neighbors)
+                .map(|(i, d)| (i, d.into_inner()))
+                .collect()
+        } else {
+            vec![]
+        }
     }
 
-    fn find_entrypoint<Layer: SliceVector<'a, NeighborId>>(
+    fn find_entrypoint<Layer: At<Output = Vec<usize>>>(
         layers: &[Layer],
         element: &Element,
         elements: &Elements,
@@ -704,7 +747,7 @@ where
         entrypoint
     }
 
-    fn search_for_neighbors<Layer: SliceVector<'a, NeighborId>>(
+    fn search_for_neighbors<Layer: At<Output = Vec<usize>>>(
         layer: &Layer,
         entrypoint: usize,
         elements: &Elements,
@@ -714,7 +757,7 @@ where
         let mut res: MaxSizeHeap<(NotNaN<f32>, usize)> = MaxSizeHeap::new(max_search);
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
 
-        let num_neighbors = layer.get(0).len();
+        let num_neighbors = layer.at(0).len();
         let mut visited = hashbrown::HashSet::with_capacity(max_search * num_neighbors);
 
         let distance = elements.at(entrypoint).dist(&goal);
@@ -730,9 +773,7 @@ where
 
             res.push((d, idx));
 
-            let node = layer.get(idx);
-
-            for neighbor_idx in iter_neighbors(&node) {
+            for neighbor_idx in layer.at(idx) {
                 if visited.insert(neighbor_idx) {
                     let distance = elements.at(neighbor_idx).dist(&goal);
 
@@ -756,8 +797,8 @@ where
 
     pub fn num_layers(self: &Self) -> usize {
         match self.layers {
-            Layers::Standard(ref layers) => layers.len(),
-            Layers::Compressed(ref layers) => layers.len(),
+            Layers::FixWidth(ref layers) => layers.len(),
+            Layers::VarWidth(ref layers) => layers.len(),
         }
     }
 
@@ -767,28 +808,28 @@ where
 
     pub fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
         match self.layers {
-            Layers::Standard(ref layers) => iter_neighbors(layers[layer].get(index)).collect(),
-            Layers::Compressed(ref layers) => iter_neighbors(layers[layer].get(index)).collect(),
+            Layers::FixWidth(ref layers) => layers[layer].at(index),
+            Layers::VarWidth(ref layers) => layers[layer].at(index),
         }
     }
 
     pub fn layer_len(self: &Self, layer: usize) -> usize {
         match self.layers {
-            Layers::Standard(ref layers) => layers[layer].len(),
-            Layers::Compressed(ref layers) => layers[layer].len(),
+            Layers::FixWidth(ref layers) => layers[layer].len(),
+            Layers::VarWidth(ref layers) => layers[layer].len(),
         }
     }
 
     pub fn count_neighbors(self: &Self, layer: usize, begin: usize, end: usize) -> usize {
         match self.layers {
-            Layers::Standard(ref layers) => layers[layer]
+            Layers::FixWidth(ref layers) => layers[layer]
                 .par_iter()
                 .skip(begin)
                 .take(end - begin)
                 .map(|node| iter_neighbors(node).count())
                 .sum(),
-            // todo: this can be done in constant time for Layers::Compressed
-            Layers::Compressed(ref layers) => layers[layer]
+            // todo: this can be done in constant time for Layers::VarWidth
+            Layers::VarWidth(ref layers) => layers[layer]
                 .iter()
                 .skip(begin)
                 .take(end - begin)

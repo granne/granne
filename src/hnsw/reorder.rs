@@ -27,53 +27,34 @@ where
 fn reorder_layers(layers: &Layers, mapping: &[usize], show_progress: bool) -> Layers<'static> {
     let reverse_mapping = get_reverse_mapping(mapping);
     match layers {
-        Layers::Standard(ref layers) => Layers::Standard(
+        Layers::FixWidth(ref layers) => Layers::VarWidth(
             layers
                 .iter()
-                .map(|layer| {
-                    reorder_layer(
-                        layer,
-                        FixedWidthSliceVector::new(layer.get(0).len()),
-                        mapping,
-                        &reverse_mapping,
-                        show_progress,
-                    )
-                })
+                .map(|layer| reorder_layer(layer, mapping, &reverse_mapping, show_progress))
                 .collect(),
         ),
-        Layers::Compressed(ref layers) => Layers::Compressed(
+        Layers::VarWidth(ref layers) => Layers::VarWidth(
             layers
                 .iter()
-                .map(|layer| {
-                    reorder_layer(
-                        layer,
-                        VariableWidthSliceVector::new(),
-                        mapping,
-                        &reverse_mapping,
-                        show_progress,
-                    )
-                })
+                .map(|layer| reorder_layer(layer, mapping, &reverse_mapping, show_progress))
                 .collect(),
         ),
     }
 }
 
-fn reorder_layer<
-    'a,
-    Layer: SliceVector<'a, NeighborId> + Sync + Send,
-    LayerStatic: SliceVector<'static, NeighborId> + Clone + Sync + Send,
->(
+fn reorder_layer<Layer: At<Output = Vec<usize>> + Sync + Send>(
     layer: &Layer,
-    mut new_layer: LayerStatic,
     mapping: &[usize],
     reverse_mapping: &[usize],
     show_progress: bool,
-) -> LayerStatic {
+) -> VariableWidthSliceVector<'static, NeighborId, NeighborId> {
     let mut progress_bar = if show_progress {
         Some(ProgressBar::new(layer.len() as u64))
     } else {
         None
     };
+
+    let mut new_layer = VariableWidthSliceVector::new();
 
     let chunk_size = std::cmp::max(10_000, layer.len() / 400);
     let chunks: Vec<_> = mapping[..layer.len()]
@@ -82,15 +63,9 @@ fn reorder_layer<
             let mut layer_chunk = new_layer.clone();
 
             for &id in c {
-                let mut node = layer.get(id).to_vec();
-                let neighbors: Vec<usize> = iter_neighbors(&node).collect();
+                let neighbors: Vec<NeighborId> = layer.at(id).into_iter().map(|n| reverse_mapping[n].into()).collect();
 
-                for (i, neighbor) in neighbors.into_iter().enumerate() {
-                    node[i] = reverse_mapping[neighbor].into();
-                    debug_assert!(reverse_mapping[neighbor] < layer.len());
-                }
-
-                layer_chunk.push(&node);
+                layer_chunk.push(&neighbors);
             }
 
             layer_chunk

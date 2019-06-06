@@ -9,4 +9,3 @@ byteorder = "1.2.1"
 rayon = "1.0"
 tempfile = "3.0.5"
 stream-vbyte = "0.3.2"
-

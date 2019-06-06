@@ -6,7 +6,7 @@ use crate::types::Dense;
 
 use blas;
 use bytes::{ByteOrder, LittleEndian};
-use slice_vector::{SliceVector, VariableWidthSliceVector};
+use slice_vector::VariableWidthSliceVector;
 use std::convert::Into;
 use std::io::{Result, Write};
 
@@ -78,13 +78,15 @@ impl<'a> Writeable for QueryEmbeddings<'a> {
     }
 }
 
-impl<'a> Appendable<&[usize]> for QueryEmbeddings<'a> {
+impl<'a> Appendable for QueryEmbeddings<'a> {
+    type Element = Vec<usize>;
+
     fn new() -> Self {
         Self::new(WordEmbeddings::new())
     }
 
-    fn append(self: &mut Self, element: &[usize]) {
-        self.queries.push(element);
+    fn append(self: &mut Self, element: Vec<usize>) {
+        self.queries.push(&element);
     }
 }
 
@@ -108,7 +110,7 @@ impl<'a> WordEmbeddings<'a> {
         Self { embeddings }
     }
 
-    fn into_owned(self: Self) -> WordEmbeddings<'static> {
+    pub fn into_owned(self: Self) -> WordEmbeddings<'static> {
         WordEmbeddings {
             embeddings: self.embeddings.into_owned(),
         }

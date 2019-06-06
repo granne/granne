@@ -1,6 +1,6 @@
 use cpython::{PyObject, PyResult, Python};
 use granne;
-use granne::{At, ComparableTo, Dense};
+use granne::{At, ComparableTo, Dense, Search};
 use madvise::{AccessPattern, AdviseMemory};
 use memmap;
 use rayon::prelude::*;

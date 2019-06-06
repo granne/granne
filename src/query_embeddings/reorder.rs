@@ -24,7 +24,7 @@ pub fn reorder_query_embeddings<'a>(
         .map(|c| {
             let mut qe = QueryEmbeddings::new(WordEmbeddings::new());
             for &id in c {
-                qe.append(&query_embeddings.get_words(id));
+                qe.append(query_embeddings.get_words(id));
             }
             qe
         })

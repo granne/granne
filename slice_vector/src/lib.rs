@@ -10,25 +10,6 @@ mod set_vector;
 
 pub use crate::set_vector::{MultiSetVector, MultiSetVectorT};
 
-pub trait SliceVector<'a, T>
-where
-    Self: Sized,
-{
-    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
-    where
-        'a: 'b;
-    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
-    where
-        'a: 'b;
-    fn len(self: &Self) -> usize;
-    fn is_empty(self: &Self) -> bool {
-        self.len() == 0
-    }
-    fn push(self: &mut Self, data: &[T]);
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize>;
-    fn extend_from_slice_vector(self: &mut Self, other: &Self);
-}
-
 #[derive(Clone)]
 pub struct VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {
     offsets: Cow<'a, [Offset]>,
@@ -39,6 +20,12 @@ pub struct VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {
 pub struct FixedWidthSliceVector<'a, T: 'a + Clone> {
     data: Cow<'a, [T]>,
     width: usize,
+}
+
+impl<'a, T: Clone> Into<Vec<T>> for FixedWidthSliceVector<'a, T> {
+    fn into(self: Self) -> Vec<T> {
+        self.data.into_owned()
+    }
 }
 
 impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
@@ -57,6 +44,16 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         Self {
             data: Vec::with_capacity(width * capacity).into(),
             width: width,
+        }
+    }
+
+    pub fn from_vec(width: usize, data: Vec<T>) -> Self {
+        assert!(width > 0);
+        assert!(data.len() % width == 0);
+
+        Self {
+            data: data.into(),
+            width: width
         }
     }
 
@@ -197,6 +194,47 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
             width: self.width,
         }
     }
+
+    pub fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
+    where
+        'a: 'b,
+    {
+        let begin = idx * self.width;
+        let end = (idx + 1) * self.width;
+
+        &self.data[begin..end]
+    }
+
+    pub fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
+    where
+        'a: 'b,
+    {
+        let begin = idx * self.width;
+        let end = begin + self.width;
+
+        &mut self.data.to_mut()[begin..end]
+    }
+
+    pub fn push(self: &mut Self, data: &[T]) {
+        assert_eq!(self.width, data.len());
+
+        self.data.to_mut().extend_from_slice(data);
+    }
+
+    pub fn len(self: &Self) -> usize {
+        self.data.len() / self.width
+    }
+
+    pub fn width(self: &Self) -> usize {
+        self.width
+    }
+
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
+        write(&self.data[..], buffer)?;
+        let bytes_written = self.data.len() * std::mem::size_of::<T>();
+
+        Ok(bytes_written)
+    }
 }
 
 impl<'a, T: 'a + Clone + Send + Sync> FixedWidthSliceVector<'a, T> {
@@ -212,49 +250,6 @@ impl<'a, T: 'a + Clone + Send + Sync> FixedWidthSliceVector<'a, T> {
         'a: 'b,
     {
         self.data.to_mut().par_chunks_mut(self.width)
-    }
-}
-
-impl<'a, T: Clone> SliceVector<'a, T> for FixedWidthSliceVector<'a, T> {
-    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
-    where
-        'a: 'b,
-    {
-        let begin = idx * self.width;
-        let end = (idx + 1) * self.width;
-
-        &self.data[begin..end]
-    }
-
-    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
-    where
-        'a: 'b,
-    {
-        let begin = idx * self.width;
-        let end = begin + self.width;
-
-        &mut self.data.to_mut()[begin..end]
-    }
-
-    fn push(self: &mut Self, data: &[T]) {
-        assert_eq!(self.width, data.len());
-
-        self.data.to_mut().extend_from_slice(data);
-    }
-
-    fn len(self: &Self) -> usize {
-        self.data.len() / self.width
-    }
-
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
-        write(&self.data[..], buffer)?;
-        let bytes_written = self.data.len() * std::mem::size_of::<T>();
-
-        Ok(bytes_written)
-    }
-
-    fn extend_from_slice_vector(self: &mut Self, other: &Self) {
-        Self::extend_from_slice_vector(self, other);
     }
 }
 
@@ -344,12 +339,8 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
         let data_end: usize = self.offsets[end].into();
         write(&self.data[data_begin..data_end], buffer)
     }
-}
 
-impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
-    for VariableWidthSliceVector<'a, T, Offset>
-{
-    fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
+    pub fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
     where
         'a: 'b,
     {
@@ -359,7 +350,7 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
         &self.data[begin..end]
     }
 
-    fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
+    pub fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
     where
         'a: 'b,
     {
@@ -369,16 +360,16 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
         &mut self.data.to_mut()[begin..end]
     }
 
-    fn len(self: &Self) -> usize {
+    pub fn len(self: &Self) -> usize {
         self.offsets.len() - 1
     }
 
-    fn push(self: &mut Self, data: &[T]) {
+    pub fn push(self: &mut Self, data: &[T]) {
         self.data.to_mut().extend_from_slice(data);
         self.offsets.to_mut().push(self.data.len().into());
     }
 
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
         // write metadata
         buffer
             .write_u64::<LittleEndian>(self.len() as u64)
@@ -393,10 +384,6 @@ impl<'a, T: Clone, Offset: Into<usize> + From<usize> + Copy> SliceVector<'a, T>
         bytes_written += self.data.len() * std::mem::size_of::<T>();
 
         Ok(bytes_written)
-    }
-
-    fn extend_from_slice_vector(self: &mut Self, other: &Self) {
-        Self::extend_from_slice_vector(self, other);
     }
 }
 
@@ -423,15 +410,6 @@ mod tests {
     use super::*;
     use std::fs::File;
     use tempfile;
-
-    #[test]
-    fn rwlocks() {
-        use std::sync::RwLock;
-
-        let mut nodes = FixedWidthSliceVector::<usize>::new(20);
-
-        let _layer: Vec<RwLock<&mut [usize]>> = nodes.iter_mut().map(|node| RwLock::new(node)).collect();
-    }
 
     #[test]
     fn fixed_width_push() {

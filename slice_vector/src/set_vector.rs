@@ -1,5 +1,5 @@
 use super::write;
-use crate::{SliceVector, VariableWidthSliceVector};
+use crate::VariableWidthSliceVector;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::borrow::Cow;
 use std::io::{Result, Write};

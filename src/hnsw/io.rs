@@ -19,7 +19,7 @@ pub fn save_index_to_disk(layers: &Layers, file: &mut File, compress: bool) -> R
 
     // write graph
     match *layers {
-        Layers::Standard(ref layers) => {
+        Layers::FixWidth(ref layers) => {
             num_neighbors = if !layers.is_empty() { layers[0].get(0).len() } else { 0 };
             layer_counts = layers.iter().map(|layer| layer.len()).collect::<Vec<_>>();
 
@@ -36,7 +36,7 @@ pub fn save_index_to_disk(layers: &Layers, file: &mut File, compress: bool) -> R
                 }
             }
         }
-        Layers::Compressed(ref layers) => {
+        Layers::VarWidth(ref layers) => {
             num_neighbors = 0;
             layer_counts = layers.iter().map(|layer| layer.len()).collect::<Vec<_>>();
             compress = true;
@@ -100,7 +100,7 @@ pub fn load_layers<'a>(buffer: &'a [u8]) -> Layers<'a> {
             start = end;
         }
 
-        Layers::Compressed(layers)
+        Layers::VarWidth(layers)
     } else {
         let mut layers = Vec::new();
         for size in layer_sizes {
@@ -110,7 +110,7 @@ pub fn load_layers<'a>(buffer: &'a [u8]) -> Layers<'a> {
             start = end;
         }
 
-        Layers::Standard(layers)
+        Layers::FixWidth(layers)
     }
 }
 

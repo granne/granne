@@ -193,7 +193,9 @@ impl<'a, T: Copy> Writeable for AngularVectorsT<'a, T> {
     }
 }
 
-impl<'a, 'b, T: Copy> Appendable<AngularVectorT<'b, T>> for AngularVectorsT<'a, T> {
+impl<'a, T: Copy> Appendable for AngularVectorsT<'a, T> {
+    type Element = AngularVectorT<'static, T>;
+
     fn new() -> Self {
         Self::new(0)
     }
