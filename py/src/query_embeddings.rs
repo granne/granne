@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use super::{DEFAULT_MAX_SEARCH, DEFAULT_NUM_NEIGHBORS, DTYPE};
 
-type IndexType<'a> = granne::Hnsw<'a, granne::QueryEmbeddings<'a>, granne::AngularVector<'a>>;
+type IndexType<'a, 'b> = granne::Hnsw<'a, granne::QueryEmbeddings<'a>, granne::AngularVector<'b>>;
 type BuilderType = granne::HnswBuilder<'static, MmapQueryEmbeddings, granne::AngularVector<'static>>;
 
 pub struct WordDict {

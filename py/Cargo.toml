@@ -2,13 +2,14 @@
 name = "granne-py"
 version = "0.3.0"
 authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
+edition = "2018"
 
 [lib]
 name = "granne"
 crate-type = ["cdylib"]
 
 [dependencies.cpython]
-version = "0.2.0"
+version = "0.3.0"
 default-features = false
 features = ["extension-module"]
 

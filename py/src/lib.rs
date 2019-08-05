@@ -52,23 +52,23 @@ impl<'source> cpython::FromPyObject<'source> for DTYPE {
 }
 
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
-    try!(m.add(
+    m.add(
         py,
         "__doc__",
-        "granne - Graph-based Retrieval of Approximate Nearest Neighbors"
-    ));
-    try!(m.add_class::<Hnsw>(py));
-    try!(m.add_class::<ShardedHnsw>(py));
-    try!(m.add_class::<HnswBuilder>(py));
-    try!(m.add_class::<query_embeddings::Embeddings>(py));
-    try!(m.add_class::<query_embeddings::QueryHnsw>(py));
-    try!(m.add_class::<query_embeddings::QueryHnswBuilder>(py));
-    try!(m.add(
+        "granne - Graph-based Retrieval of Approximate Nearest Neighbors",
+    )?;
+    m.add_class::<Hnsw>(py)?;
+    m.add_class::<ShardedHnsw>(py)?;
+    m.add_class::<HnswBuilder>(py)?;
+    m.add_class::<query_embeddings::Embeddings>(py)?;
+    m.add_class::<query_embeddings::QueryHnsw>(py)?;
+    m.add_class::<query_embeddings::QueryHnswBuilder>(py)?;
+    m.add(
         py,
         "compress_index",
-        py_fn!(py, py_compress_index(input_path: String, output_path: String))
-    ));
-    try!(m.add(
+        py_fn!(py, py_compress_index(input_path: String, output_path: String)),
+    )?;
+    m.add(
         py,
         "parse_queries_and_save_to_disk",
         py_fn!(
@@ -80,9 +80,9 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
                 num_shards: usize = 1,
                 show_progress: bool = true
             )
-        )
-    ));
-    try!(m.add(
+        ),
+    )?;
+    m.add(
         py,
         "compute_query_vectors_and_save_to_disk",
         py_fn!(
@@ -95,8 +95,8 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
                 dtype: DTYPE = DTYPE::default(),
                 show_progress: bool = true
             )
-        )
-    ));
+        ),
+    )?;
     Ok(())
 });
 
