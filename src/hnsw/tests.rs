@@ -602,3 +602,66 @@ fn append_elements() {
             .any(|&(idx, _)| elements.len() + 123 == idx,));
     }
 }
+
+#[test]
+fn append_elements_with_expected_size() {
+    let elements: Vec<AngularVector> = (0..10).map(|_| random_dense_element::<AngularVector>(50)).collect();
+
+    let additional_elements: Vec<AngularVector> =
+        (10..1000).map(|_| random_dense_element::<AngularVector>(50)).collect();
+
+    let config = Config {
+        num_layers: 4,
+        num_neighbors: 20,
+        max_search: 50,
+        reinsert_elements: true,
+        show_progress: false,
+    };
+
+    // insert half of the elements
+    let mut builder: HnswBuilder<AngularVectors, AngularVector> = HnswBuilder::with_expected_size(config, 1000);
+    for element in &elements {
+        builder.append(element.clone());
+    }
+    builder.build_index();
+
+    assert_eq!(2, builder.layers.len());
+    assert_eq!(10, builder.layers.last().unwrap().len());
+
+    let max_search = 10;
+
+    // assert that one arbitrary element is findable
+    {
+        let index = builder.get_index();
+
+        assert!(index
+            .search(&elements.at(7), 1, max_search)
+            .iter()
+            .any(|&(idx, _)| 7 == idx,));
+    }
+
+    // insert rest of the elements
+    for element in &additional_elements {
+        builder.append(element.clone());
+    }
+    builder.build_index();
+
+    assert_eq!(4, builder.layers.len());
+    assert_eq!(1000, builder.layers[3].len());
+
+    // assert that the same arbitrary element and a newly added one
+    // is findable
+    {
+        let index = builder.get_index();
+
+        assert!(index
+            .search(&elements.at(7), 1, max_search)
+            .iter()
+            .any(|&(idx, _)| 7 == idx,));
+
+        assert!(index
+            .search(&additional_elements.at(123), 1, max_search)
+            .iter()
+            .any(|&(idx, _)| elements.len() + 123 == idx,));
+    }
+}

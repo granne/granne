@@ -68,6 +68,7 @@ where
     layers: Vec<FixedWidthSliceVector<'static, NeighborId>>,
     elements: Cow<'a, Elements>,
     config: Config,
+    layer_multiplier: Option<f32>,
 }
 
 /// The At trait is similar to std::ops::Index. The latter however always returns a reference which makes it impossible
@@ -135,6 +136,7 @@ where
             layers: Vec::new(),
             elements: Cow::Borrowed(elements),
             config: config,
+            layer_multiplier: None,
         }
     }
 
@@ -143,6 +145,7 @@ where
             layers: Vec::new(),
             elements: Cow::Owned(elements),
             config: config,
+            layer_multiplier: None,
         }
     }
 
@@ -163,6 +166,7 @@ where
             layers: layers,
             elements: elements,
             config: config,
+            layer_multiplier: None,
         })
     }
 
@@ -181,6 +185,7 @@ where
             layers: layers,
             elements: Cow::Borrowed(elements),
             config: config,
+            layer_multiplier: None,
         })
     }
 
@@ -261,7 +266,9 @@ where
     }
 
     fn index_elements_in_last_layer(&mut self, max_num_elements: usize) {
-        let layer_multiplier = compute_layer_multiplier(self.elements.len(), self.config.num_layers);
+        let layer_multiplier = self
+            .layer_multiplier
+            .unwrap_or(compute_layer_multiplier(self.elements.len(), self.config.num_layers));
 
         let layer = self.layers.len() - 1;
         let ideal_num_elements_in_layer =
@@ -278,9 +285,15 @@ where
             config.num_neighbors = std::cmp::max(1, config.num_neighbors / 2);
         }
 
+        let additional = ideal_num_elements_in_layer - self.layers.last().unwrap().len();
+
+        if additional == 0 {
+            // nothing to index in this layer
+            return;
+        }
+
         let mut layer = self.layers.pop().unwrap();
 
-        let additional = ideal_num_elements_in_layer - layer.len();
         layer.reserve_exact(additional);
 
         let prev_layers = self.get_index();
@@ -618,6 +631,16 @@ where
         HnswBuilder {
             layers: Vec::new(),
             elements: Cow::Owned(Elements::Owned::new()),
+            config: config,
+            layer_multiplier: None,
+        }
+    }
+
+    pub fn with_expected_size(config: Config, expected_size: usize) -> Self {
+        HnswBuilder {
+            layers: Vec::new(),
+            elements: Cow::Owned(Elements::Owned::new()),
+            layer_multiplier: Some(compute_layer_multiplier(expected_size, config.num_layers)),
             config: config,
         }
     }

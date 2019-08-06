@@ -263,6 +263,7 @@ py_class!(class HnswBuilder |py| {
                 max_search: usize = DEFAULT_MAX_SEARCH,
                 dtype: DTYPE = DTYPE::default(),
                 reinsert_elements: bool = true,
+                expected_size: usize = 0,
                 show_progress: bool = true) -> PyResult<HnswBuilder> {
 
         let config = granne::Config {
@@ -275,11 +276,21 @@ py_class!(class HnswBuilder |py| {
 
         match dtype {
             DTYPE::I8 => {
-                let builder = granne::HnswBuilder::new(config);
+                let builder = if expected_size == 0 {
+                    granne::HnswBuilder::new(config)
+                } else {
+                    granne::HnswBuilder::with_expected_size(config, expected_size)
+                };
+
                 return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularIntVectorBuilder(builder)))
             },
             DTYPE::F32 => {
-                let builder = granne::HnswBuilder::new(config);
+                let builder = if expected_size == 0 {
+                    granne::HnswBuilder::new(config)
+                } else {
+                    granne::HnswBuilder::with_expected_size(config, expected_size)
+                };
+
                 return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularVectorBuilder(builder)))
             }
         }
