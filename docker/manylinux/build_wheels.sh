@@ -4,7 +4,8 @@ set -e -x
 
 GRANNE_DIR="/granne/"
 
-for PYBIN in /opt/python/cp{27,35,36,37}*/bin; do
+export LD_LIBRARY_PATH=/usr/local/lib/:$LD_LIBRARY_PATH
+for PYBIN in /opt/python/cp{37,36}*/bin; do
     (
         export PATH="$PYBIN:$PATH"
         pip install setuptools setuptools-rust
