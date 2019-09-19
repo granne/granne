@@ -106,19 +106,13 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
 
         assert_eq!(0, data.len() % dim);
 
-        Self {
-            data: data.into(),
-            dim: dim,
-        }
+        Self { data: data.into(), dim }
     }
 
     pub fn from_vec(dim: usize, vec: Vec<T>) -> Self {
         assert_eq!(0, vec.len() % dim);
 
-        Self {
-            data: vec.into(),
-            dim: dim,
-        }
+        Self { data: vec.into(), dim }
     }
 
     pub fn into_owned(self: Self) -> AngularVectorsT<'static, T> {
@@ -230,7 +224,7 @@ impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
 
 impl<'a> From<AngularIntVector<'a>> for AngularVector<'static> {
     fn from(vec: AngularIntVector<'a>) -> Self {
-        vec.0.into_iter().map(|&x| x as f32).collect::<Vec<f32>>().into()
+        vec.0.iter().map(|&x| f32::from(x)).collect::<Vec<f32>>().into()
     }
 }
 
@@ -263,7 +257,7 @@ impl<'a> ComparableTo<Self> for AngularIntVector<'a> {
             let mut dx = 0i32;
             let mut dy = 0i32;
 
-            for (xi, yi) in x.iter().map(|&xi| xi as i32).zip(y.iter().map(|&yi| yi as i32)) {
+            for (xi, yi) in x.iter().map(|&xi| i32::from(xi)).zip(y.iter().map(|&yi| i32::from(yi))) {
                 r += xi * yi;
                 dx += xi * xi;
                 dy += yi * yi;

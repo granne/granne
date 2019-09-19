@@ -22,15 +22,15 @@ pub struct QueryEmbeddings<'a> {
 impl<'a> QueryEmbeddings<'a> {
     pub fn new(word_embeddings: WordEmbeddings<'a>) -> Self {
         Self {
-            word_embeddings: word_embeddings,
+            word_embeddings,
             queries: QueryVec::new(),
         }
     }
 
     pub fn from(word_embeddings: WordEmbeddings<'a>, queries: QueryVec<'a>) -> Self {
         Self {
-            word_embeddings: word_embeddings,
-            queries: queries,
+            word_embeddings,
+            queries,
         }
     }
 
@@ -42,7 +42,7 @@ impl<'a> QueryEmbeddings<'a> {
     }
 
     pub fn get_words(self: &Self, idx: usize) -> Vec<usize> {
-        self.queries.get(idx).iter().map(|&x| x.into()).collect()
+        self.queries.get(idx)
     }
 
     pub fn get_embedding(self: &Self, idx: usize) -> types::AngularVector<'static> {

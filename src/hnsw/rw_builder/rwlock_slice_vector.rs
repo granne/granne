@@ -19,11 +19,11 @@ impl<T: Clone> From<FixedWidthSliceVector<'static, T>> for RwLockSliceVector<T> 
         // into_boxed_slice will drop any excess capacity
         let rw_data = Box::leak(data.into_boxed_slice())
             .chunks_mut(width)
-            .map(|elem| RwLock::new(elem))
+            .map(RwLock::new)
             .collect();
 
         Self {
-            width: width,
+            width,
             data: rw_data,
             data_ptr,
         }
@@ -32,7 +32,7 @@ impl<T: Clone> From<FixedWidthSliceVector<'static, T>> for RwLockSliceVector<T> 
 
 impl<T: Clone> Into<FixedWidthSliceVector<'static, T>> for RwLockSliceVector<T> {
     fn into(self: Self) -> FixedWidthSliceVector<'static, T> {
-        FixedWidthSliceVector::from_vec(self.width, self.drain().into())
+        FixedWidthSliceVector::from_vec(self.width, self.drain())
     }
 }
 

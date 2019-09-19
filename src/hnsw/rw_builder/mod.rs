@@ -62,7 +62,7 @@ where
             layers: RwLock::new((current_layer.into(), builder.layers)),
             elements: RwLock::new(builder.elements.into_owned()),
             config: builder.config,
-            max_elements: max_elements,
+            max_elements,
             pool: rayon::ThreadPoolBuilder::new()
                 .num_threads(num_threads)
                 .build()
@@ -187,6 +187,10 @@ where
     pub fn len(self: &Self) -> usize {
         self.elements.read().len()
     }
+
+    pub fn is_empty(self: &Self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[cfg(test)]
@@ -288,7 +292,7 @@ mod tests {
         for num_layers in vec![2, 5, 6] {
             for max_elements in vec![13, 66, 199, 719] {
                 let config = Config {
-                    num_layers: num_layers,
+                    num_layers,
                     num_neighbors: 10,
                     max_search: 50,
                     reinsert_elements: false,

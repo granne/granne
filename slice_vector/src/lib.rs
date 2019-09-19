@@ -1,3 +1,5 @@
+#![allow(clippy::new_without_default)]
+
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use rayon::prelude::ParallelSliceMut;
@@ -34,7 +36,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
 
         Self {
             data: Vec::new().into(),
-            width: width,
+            width,
         }
     }
 
@@ -43,7 +45,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
 
         Self {
             data: Vec::with_capacity(width * capacity).into(),
-            width: width,
+            width,
         }
     }
 
@@ -53,7 +55,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
 
         Self {
             data: data.into(),
-            width: width
+            width,
         }
     }
 
@@ -92,7 +94,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     pub fn load(buffer: &'a [u8], width: usize) -> Self {
         Self {
             data: Cow::from(load(&buffer[..])),
-            width: width,
+            width,
         }
     }
 
@@ -225,6 +227,10 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         self.data.len() / self.width
     }
 
+    pub fn is_empty(self: &Self) -> bool {
+        self.len() == 0
+    }
+
     pub fn width(self: &Self) -> usize {
         self.width
     }
@@ -329,7 +335,7 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
             .expect("Could not write length");
 
         let offset_begin: usize = self.offsets[begin].into();
-        for i in begin..(end + 1) {
+        for i in begin..=end {
             let offset: usize = self.offsets[i].into();
             let offset: Offset = (offset - offset_begin).into();
             write(&[offset], buffer)?;
@@ -362,6 +368,10 @@ impl<'a, T: 'a + Clone, Offset: Into<usize> + From<usize> + Copy> VariableWidthS
 
     pub fn len(self: &Self) -> usize {
         self.offsets.len() - 1
+    }
+
+    pub fn is_empty(self: &Self) -> bool {
+        self.len() == 0
     }
 
     pub fn push(self: &mut Self, data: &[T]) {
@@ -414,20 +424,27 @@ mod tests {
     #[test]
     fn fixed_width_push() {
         let vec = FixedWidthSliceVector::new(5);
-        let data = (0..20).map(|i| (i..).take(5).collect()).collect();
+        let data: Vec<Vec<usize>> = (0..20).map(|i| (i..).take(5).collect()).collect();
 
-        test_push(vec, data);
+        assert_eq!(0, vec.len());
+
+        let mut vec = vec;
+        for d in data.iter() {
+            vec.push(&d[..]);
+        }
+
+        assert_eq!(data.len(), vec.len());
+
+        for (i, d) in data.iter().enumerate() {
+            assert_eq!(&d[..], vec.get(i));
+        }
     }
 
     #[test]
     fn variable_width_push() {
         let vec = VariableWidthSliceVector::<_, usize>::new();
-        let data = (0..20).map(|i| (i..).take(1 + i % 7).collect()).collect();
+        let data: Vec<Vec<usize>> = (0..20).map(|i| (i..).take(1 + i % 7).collect()).collect();
 
-        test_push(vec, data);
-    }
-
-    fn test_push<'a, T: SliceVector<'a, usize>>(vec: T, data: Vec<Vec<usize>>) {
         assert_eq!(0, vec.len());
 
         let mut vec = vec;

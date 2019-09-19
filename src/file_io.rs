@@ -20,7 +20,7 @@ fn read_line<T: FromIterator<F>, F: FromStr>(line: &str) -> (String, T) {
         })
         .collect();
 
-    return (word, element);
+    (word, element)
 }
 
 pub fn read<P, T, F>(path: P) -> Result<(Vec<T>, Vec<String>)>
@@ -43,7 +43,7 @@ where
     elements.shrink_to_fit();
     words.shrink_to_fit();
 
-    return Ok((elements, words));
+    Ok((elements, words))
 }
 
 pub fn write<T, B: Write>(vectors: &[T], buffer: &mut B) -> Result<()> {
@@ -93,7 +93,7 @@ pub fn read_elements<T: Clone, B: Read>(reader: &mut B, max_number_of_elements: 
 
     elements.shrink_to_fit();
 
-    return Ok(elements);
+    Ok(elements)
 }
 
 pub fn read_f32<P: AsRef<path::Path>>(path: P) -> Result<(Vec<f32>, Vec<String>)> {
@@ -131,7 +131,7 @@ pub fn read_f32<P: AsRef<path::Path>>(path: P) -> Result<(Vec<f32>, Vec<String>)
         words.push(word);
     }
 
-    return Ok((element_data, words));
+    Ok((element_data, words))
 }
 
 #[cfg(test)]

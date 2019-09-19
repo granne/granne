@@ -1,5 +1,4 @@
-use super::write;
-use crate::VariableWidthSliceVector;
+use crate::{write, VariableWidthSliceVector};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::borrow::Cow;
 use std::io::{Result, Write};
@@ -31,6 +30,10 @@ where
 
     pub fn len(self: &Self) -> usize {
         self.data.len()
+    }
+
+    pub fn is_empty(self: &Self) -> bool {
+        self.len() == 0
     }
 
     pub fn push(self: &mut Self, data: &[u32]) {

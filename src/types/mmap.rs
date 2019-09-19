@@ -29,8 +29,8 @@ impl<T: Copy> MmapAngularVectorsT<T> {
 
         Self {
             path: path.to_string(),
-            data: data,
-            dim: dim,
+            data,
+            dim,
             _marker: marker::PhantomData,
         }
     }

@@ -69,7 +69,7 @@ pub fn save_index_to_disk(layers: &Layers, file: &mut File, compress: bool) -> R
 
     let mut metadata = metadata.into_bytes();
     assert!(metadata.len() <= METADATA_LEN);
-    metadata.resize(METADATA_LEN, ' ' as u8);
+    metadata.resize(METADATA_LEN, b' ');
 
     file.write_all(metadata.as_slice())?;
 
@@ -85,7 +85,7 @@ pub fn compress_index(input: &str, output: &str) -> Result<()> {
     save_index_to_disk(&layers, &mut file, true)
 }
 
-pub fn load_layers<'a>(buffer: &'a [u8]) -> Layers<'a> {
+pub fn load_layers(buffer: &'_ [u8]) -> Layers<'_> {
     let (num_neighbors, layer_sizes, compressed) = read_metadata(buffer).expect("Could not read metadata");
 
     let mut start = METADATA_LEN;
@@ -163,7 +163,7 @@ fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>, bool)> 
         .by_ref()
         .take(LIBRARY_STR.len() as u64)
         .read_to_end(&mut lib_str)?;
-    if String::from_utf8(lib_str).unwrap_or("".to_string()) == LIBRARY_STR {
+    if String::from_utf8(lib_str).unwrap_or_else(|_| "".to_string()) == LIBRARY_STR {
         // the current version stores metadata as json
         let metadata: serde_json::Value = serde_json::from_reader(index_reader).expect("Could not read metadata");
 

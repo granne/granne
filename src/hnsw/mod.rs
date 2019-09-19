@@ -1,4 +1,3 @@
-use hashbrown;
 use ordered_float::NotNaN;
 use parking_lot::{Mutex, RwLock};
 use pbr::ProgressBar;
@@ -6,7 +5,7 @@ use rayon::prelude::*;
 use revord::RevOrd;
 use std::borrow::Cow;
 use std::cmp;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Read, Result, Write};
 use time::PreciseTime;
@@ -135,7 +134,7 @@ where
         HnswBuilder {
             layers: Vec::new(),
             elements: Cow::Borrowed(elements),
-            config: config,
+            config,
             layer_multiplier: None,
         }
     }
@@ -144,7 +143,7 @@ where
         HnswBuilder {
             layers: Vec::new(),
             elements: Cow::Owned(elements),
-            config: config,
+            config,
             layer_multiplier: None,
         }
     }
@@ -163,9 +162,9 @@ where
         }
 
         Ok(Self {
-            layers: layers,
-            elements: elements,
-            config: config,
+            layers,
+            elements,
+            config,
             layer_multiplier: None,
         })
     }
@@ -182,9 +181,9 @@ where
         }
 
         Ok(Self {
-            layers: layers,
+            layers,
             elements: Cow::Borrowed(elements),
-            config: config,
+            config,
             layer_multiplier: None,
         })
     }
@@ -378,7 +377,7 @@ where
 
         {
             // create RwLocks for underlying nodes
-            let layer: Vec<RwLock<&mut HnswNode>> = layer.iter_mut().map(|node| RwLock::new(node)).collect();
+            let layer: Vec<RwLock<&mut HnswNode>> = layer.iter_mut().map(RwLock::new).collect();
 
             let insert_element = |(idx, _)| {
                 Self::index_element(config, elements, prev_layers, &layer, idx);
@@ -477,7 +476,7 @@ where
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
 
         let num_neighbors = layer[entrypoint].read().len();
-        let mut visited = hashbrown::HashSet::with_capacity(max_search * num_neighbors);
+        let mut visited = HashSet::with_capacity(max_search * num_neighbors);
 
         pq.push(RevOrd((elements.at(entrypoint).dist(goal), entrypoint)));
 
@@ -631,7 +630,7 @@ where
         HnswBuilder {
             layers: Vec::new(),
             elements: Cow::Owned(Elements::Owned::new()),
-            config: config,
+            config,
             layer_multiplier: None,
         }
     }
@@ -641,12 +640,12 @@ where
             layers: Vec::new(),
             elements: Cow::Owned(Elements::Owned::new()),
             layer_multiplier: Some(compute_layer_multiplier(expected_size, config.num_layers)),
-            config: config,
+            config,
         }
     }
 
     pub fn append(self: &mut Self, element: QElement) {
-        assert!(self.elements.len() + 1 <= <NeighborId>::max_value() as usize);
+        assert!(self.elements.len() < <NeighborId>::max_value() as usize);
 
         self.elements.to_mut().append(element);
     }
@@ -726,7 +725,7 @@ where
     pub fn load(buffer: &'a [u8], elements: &'a Elements) -> Self {
         Self {
             layers: io::load_layers(buffer),
-            elements: elements,
+            elements,
         }
     }
 
@@ -781,7 +780,7 @@ where
         let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
 
         let num_neighbors = layer.at(0).len();
-        let mut visited = hashbrown::HashSet::with_capacity(max_search * num_neighbors);
+        let mut visited = HashSet::with_capacity(max_search * num_neighbors);
 
         let distance = elements.at(entrypoint).dist(&goal);
 
@@ -884,7 +883,7 @@ impl<T: Ord> MaxSizeHeap<T> {
     pub fn new(max_size: usize) -> Self {
         MaxSizeHeap {
             heap: BinaryHeap::with_capacity(max_size),
-            max_size: max_size,
+            max_size,
         }
     }
 

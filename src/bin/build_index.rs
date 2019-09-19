@@ -168,41 +168,35 @@ fn main() {
                 }
 
                 build_and_save(&mut builder, settings);
-            } else {
-                if let Some(mmapped_elements) = mmapped_elements {
-                    let elements = granne::AngularVectors::load(settings.dimension, mmapped_elements);
+            } else if let Some(mmapped_elements) = mmapped_elements {
+                let elements = granne::AngularVectors::load(settings.dimension, mmapped_elements);
 
-                    let mut builder = if let Some(mut existing_index) = existing_index {
-                        granne::HnswBuilder::read_index_with_borrowed_elements(
-                            build_config,
-                            &mut existing_index,
-                            &elements,
-                        )
+                let mut builder = if let Some(mut existing_index) = existing_index {
+                    granne::HnswBuilder::read_index_with_borrowed_elements(build_config, &mut existing_index, &elements)
                         .expect("Could not read index")
-                    } else {
-                        granne::HnswBuilder::with_borrowed_elements(build_config, &elements)
-                    };
-
-                    build_and_save(&mut builder, settings);
                 } else {
-                    let mut builder = {
-                        println!("Reading elements from {}", &input_file);
+                    granne::HnswBuilder::with_borrowed_elements(build_config, &elements)
+                };
 
-                        let (vector_data, _) = file_io::read_f32(&input_file).unwrap();
+                build_and_save(&mut builder, settings);
+            } else {
+                let mut builder = {
+                    println!("Reading elements from {}", &input_file);
 
-                        let elements = granne::AngularVectors::from_vec(settings.dimension, vector_data);
+                    let (vector_data, _) = file_io::read_f32(&input_file).unwrap();
 
-                        granne::HnswBuilder::<granne::AngularVectors, granne::AngularVector>::with_owned_elements(
-                            build_config,
-                            elements,
-                        )
-                    };
+                    let elements = granne::AngularVectors::from_vec(settings.dimension, vector_data);
 
-                    println!("Saving vectors to {}", settings.output_file);
-                    builder.save_elements_to_disk(&settings.vectors_output_file).unwrap();
+                    granne::HnswBuilder::<granne::AngularVectors, granne::AngularVector>::with_owned_elements(
+                        build_config,
+                        elements,
+                    )
+                };
 
-                    build_and_save(&mut builder, settings);
-                }
+                println!("Saving vectors to {}", settings.output_file);
+                builder.save_elements_to_disk(&settings.vectors_output_file).unwrap();
+
+                build_and_save(&mut builder, settings);
             };
 
             let end_time = PreciseTime::now();

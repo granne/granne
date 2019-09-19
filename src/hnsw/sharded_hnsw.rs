@@ -30,7 +30,7 @@ where
             })
             .collect();
 
-        Self { indexes: indexes }
+        Self { indexes }
     }
 
     pub fn search(&self, element: &Element, num_neighbors: usize, max_search: usize) -> Vec<(usize, f32)> {
