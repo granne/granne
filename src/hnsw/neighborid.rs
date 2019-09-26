@@ -9,7 +9,7 @@ pub struct NeighborId(pub [u8; BYTES_PER_NEIGHBOR_ID]);
 
 impl From<usize> for NeighborId {
     fn from(integer: usize) -> Self {
-        let mut data: [u8; BYTES_PER_NEIGHBOR_ID] = unsafe { ::std::mem::uninitialized() };
+        let mut data = [0u8; BYTES_PER_NEIGHBOR_ID];
         LittleEndian::write_uint(&mut data, integer as u64, BYTES_PER_NEIGHBOR_ID);
         NeighborId(data)
     }

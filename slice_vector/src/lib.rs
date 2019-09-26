@@ -49,14 +49,13 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         }
     }
 
-    pub fn from_vec(width: usize, data: Vec<T>) -> Self {
+    pub fn with_data(data: impl Into<Cow<'a, [T]>>, width: usize) -> Self {
+        let data = data.into();
+
         assert!(width > 0);
         assert!(data.len() % width == 0);
 
-        Self {
-            data: data.into(),
-            width,
-        }
+        Self { data, width }
     }
 
     pub fn iter<'b>(self: &'b Self) -> impl Iterator<Item = &'b [T]>
@@ -71,6 +70,13 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         'a: 'b,
     {
         self.data.to_mut().chunks_mut(self.width)
+    }
+
+    pub fn subslice(self: &'_ Self, begin: usize, end: usize) -> FixedWidthSliceVector<'_, T> {
+        let begin = begin * self.width;
+        let end = end * self.width;
+
+        FixedWidthSliceVector::with_data(&self.data[begin..end], self.width)
     }
 
     pub fn reserve(self: &mut Self, additional: usize) {

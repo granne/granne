@@ -157,6 +157,12 @@ impl<'a> WordEmbeddings<'a> {
     }
 }
 
+impl<'a> Writeable for WordEmbeddings<'a> {
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
+        self.embeddings.write(buffer)
+    }
+}
+
 const BYTES_PER_OFFSET: usize = 5;
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -165,7 +171,7 @@ pub struct Offset([u8; BYTES_PER_OFFSET]);
 impl From<usize> for Offset {
     #[inline(always)]
     fn from(integer: usize) -> Self {
-        let mut data: [u8; BYTES_PER_OFFSET] = unsafe { ::std::mem::uninitialized() };
+        let mut data = [0u8; BYTES_PER_OFFSET];
         LittleEndian::write_uint(&mut data, integer as u64, BYTES_PER_OFFSET);
         Offset(data)
     }
@@ -187,7 +193,7 @@ pub struct WordId([u8; BYTES_PER_WORD_ID]);
 impl From<usize> for WordId {
     #[inline(always)]
     fn from(integer: usize) -> Self {
-        let mut data: [u8; BYTES_PER_WORD_ID] = unsafe { ::std::mem::uninitialized() };
+        let mut data = [0u8; BYTES_PER_WORD_ID];
         LittleEndian::write_uint(&mut data, integer as u64, BYTES_PER_WORD_ID);
         WordId(data)
     }

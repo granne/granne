@@ -4,7 +4,7 @@ use memmap::Mmap;
 use serde_json;
 use std::io::{BufReader, BufWriter, Read, Result, Seek, SeekFrom, Write};
 
-pub fn save_index_to_disk(layers: &Layers, file: &mut File, compress: bool) -> Result<()> {
+pub fn save_index_to_disk(layers: &Layers, file: impl Write + Seek, compress: bool) -> Result<()> {
     let mut file = BufWriter::new(file);
 
     // We would like to write metadata first, but the size of each layer needs to be

@@ -255,5 +255,4 @@ mod tests {
             get_shard_name(&Path::new("/output/directory/hello"), 9)
         );
     }
-
 }
