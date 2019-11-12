@@ -1,0 +1,24 @@
+[package]
+name = "granne-2"
+version = "0.1.0"
+authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
+license = "MIT"
+edition = "2018"
+
+[dependencies]
+madvise = "0.1.0"
+memmap = "0.6.2"
+ordered-float = "*"
+parking_lot = "*"#0.9"
+pbr = "1.0.0"
+rayon = "1.2"
+revord = "0.0.2"
+#slice_vector = {path = "slice_vector/"}
+time = "0.1"
+toml = "0.4"
+byteorder = "*"
+
+jemallocator = "0.3.2"
+
+[dev-dependencies]
+tempfile = "3.0.5"
