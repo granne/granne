@@ -20,20 +20,30 @@ impl<'a, T: Copy> AngularVectorT<'a, T> {
         AngularVectorT(self.0.into_owned().into())
     }
 }
-/*
-impl<T> FromIterator<f32> for AngularVectorT<'static, T>
-where
-    T: Copy,
-    AngularVectorT<'static, T>: From<Vec<f32>>,
-{
-    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
-        let vec: Vec<f32> = iter.into_iter().collect();
-        vec.into()
-    }
-}
-*/
+
 pub type AngularVector<'a> = AngularVectorT<'a, f32>;
 pub type AngularIntVector<'a> = AngularVectorT<'a, i8>;
+
+impl FromIterator<f32> for AngularVector<'static> {
+    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
+        let mut v: Vec<f32> = iter.into_iter().collect();
+
+        // todo speedup
+        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        v.iter_mut().for_each(|x| *x /= norm);
+
+        Self(Cow::from(v))
+    }
+}
+
+impl FromIterator<f32> for AngularIntVector<'static> {
+    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
+        let v: Vec<f32> = iter.into_iter().collect();
+
+        Self::quantize(&v)
+    }
+}
+
 /*
 impl From<Vec<f32>> for AngularVector<'static> {
     fn from(vec: Vec<f32>) -> Self {
@@ -251,23 +261,28 @@ impl<'a, T: Copy> Appendable for AngularVectorsT<'a, T> {
     }
 }
 */
-const MAX_QVALUE: usize = 127;
-/*
-impl From<Vec<f32>> for AngularIntVector<'static> {
-    fn from(vec: Vec<f32>) -> Self {
-        let n = vec.len() as i32;
-        let max_ind = unsafe { blas::isamax(n as i32, vec.as_slice(), 1) - 1 };
-        let max_value: f32 = vec[max_ind].abs();
+const MAX_QVALUE: f32 = 127.0;
 
-        let mut vec = vec;
-        if max_value > 0.0 {
-            unsafe { blas::sscal(n, MAX_QVALUE as f32 / max_value, vec.as_mut_slice(), 1) };
+impl AngularIntVector<'static> {
+    fn quantize(s: &[f32]) -> Self {
+        let max_value = s
+            .iter()
+            .map(|s| NotNan::new(s.abs()).unwrap())
+            .max()
+            .unwrap_or_else(|| NotNan::new(MAX_QVALUE).unwrap());
+
+        let mut v = Vec::with_capacity(s.len());
+
+        for x in s {
+            let vi = x * MAX_QVALUE / *max_value;
+            debug_assert!(-MAX_QVALUE <= vi && vi <= MAX_QVALUE);
+            v.push(vi as i8);
         }
 
-        AngularVectorT(vec.into_iter().map(|x| x as i8).collect::<Vec<i8>>().into())
+        Self(Cow::from(v))
     }
 }
-*/
+
 /*
 impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
     fn from(vec: AngularVector<'a>) -> Self {
@@ -281,7 +296,7 @@ impl<'a> From<AngularIntVector<'a>> for AngularVector<'static> {
         vec.0.iter().map(|&x| f32::from(x)).collect::<Vec<f32>>().into()
     }
 }
-*/
+ */
 impl<'a, 'b> Dist<AngularIntVector<'b>> for AngularIntVector<'a> {
     fn dist(self: &Self, other: &AngularIntVector<'b>) -> NotNan<f32> {
         // optimized code to compute r, dx, and dy for systems supporting avx2

@@ -8,86 +8,23 @@ use std::collections::{BinaryHeap, HashSet};
 use std::convert::TryFrom;
 use time;
 
-use crate::slice_vector::FixedWidthSliceVector;
-use crate::{max_size_heap, slice_vector};
-use crate::{ElementContainer, SimpleElementContainer};
+use crate::{
+    elements::ElementContainer,
+    max_size_heap,
+    slice_vector::{FixedWidthSliceVector, VariableWidthSliceVector},
+};
 
 type NeighborId = usize;
 const UNUSED: usize = usize::max_value();
-/*
-pub enum Layer<'a> {
-    FixWidth(slice_vector::FixedWidthSliceVector<'a, usize>),
-    RwVec(&'a [parking_lot::RwLock<&'a mut [usize]>]),
-}
-
-impl Layer<'_> {
-    fn get_ids(self: &Self, idx: usize) -> Vec<usize> {
-        match self {
-            Layer::FixWidth(vec) => vec
-                .get(idx)
-                .iter()
-                .copied()
-                .take_while(|&x| x != UNUSED)
-                .collect(),
-            Layer::RwVec(rw_vec) => rw_vec[idx]
-                .read()
-                .iter()
-                .copied()
-                .take_while(|&x| x != UNUSED)
-                .collect(),
-        }
-    }
-
-    fn len(self: &Self) -> usize {
-        match self {
-            Layer::FixWidth(vec) => vec.len(),
-            Layer::RwVec(rw_vec) => rw_vec.len(),
-        }
-    }
-}
-*/
-pub trait Graph {
-    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize>;
-    fn len(self: &Self) -> usize;
-}
-
-impl<'a> Graph for FixedWidthSliceVector<'a, usize> {
-    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
-        self.get(idx)
-            .iter()
-            .copied()
-            .take_while(|&x| x != UNUSED)
-            .collect()
-    }
-
-    fn len(self: &Self) -> usize {
-        self.len()
-    }
-}
-
-impl<'a> Graph for [parking_lot::RwLock<&'a mut [usize]>] {
-    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
-        self[idx]
-            .read()
-            .iter()
-            .copied()
-            .take_while(|&x| x != UNUSED)
-            .collect()
-    }
-
-    fn len(self: &Self) -> usize {
-        self.len()
-    }
-}
 
 /// An index for fast approximate nearest neighbor search.
 /// The index is built by using `GranneBuilder` and can be stored to disk.
-pub struct Granne<'a, Layer: Graph, Elements: SimpleElementContainer> {
-    layers: &'a [Layer],
+pub struct Granne<'a, Elements: ElementContainer> {
+    layers: Layers<'a>,
     elements: &'a Elements,
 }
 
-impl<'a, Layer: Graph, Elements: SimpleElementContainer> Granne<'a, Layer, Elements> {
+impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     /// Searches for the `num_neighbors` neighbors closest to `element` in this index.
     /// `max_search` controls the number of nodes visited during the search. Returns a
     /// `Vec` containing the id and distance from `element`.
@@ -97,34 +34,43 @@ impl<'a, Layer: Graph, Elements: SimpleElementContainer> Granne<'a, Layer, Eleme
         max_search: usize,
         num_neighbors: usize,
     ) -> Vec<(usize, f32)> {
-        if let Some((bottom_layer, top_layers)) = self.layers.split_last() {
-            let entrypoint = find_entrypoint(top_layers, self.elements, element);
-
-            search_for_neighbors(bottom_layer, entrypoint, self.elements, element, max_search)
-                .into_iter()
-                .take(num_neighbors)
-                .map(|(i, d)| (i, d.into_inner()))
-                .collect()
-        } else {
-            Vec::new()
+        match self.layers {
+            Layers::FixWidth(layers) => {
+                self.search_internal(layers, element, max_search, num_neighbors)
+            }
+            Layers::VarWidth(layers) => {
+                self.search_internal(layers, element, max_search, num_neighbors)
+            }
         }
     }
 }
 
 #[derive(Clone)]
 pub struct Config {
+    /// Number of layers in the final graph. Each new layer will have exponentially more nodes than the one below. E.g.
+    /// layer 0: 1 node, layer 1: 10 nodes, layer 2: 100 nodes, ...
+    ///
+    /// Choosing the number layers so that the .. (use layer multiplier instead)
     pub num_layers: usize,
+    pub layer_multiplier: f32,
+
+    /// The maximum number of neighbors per node and layer.
     pub num_neighbors: usize,
+
+    /// The `max_search` parameter used during build time (see `granne::search`).
     pub max_search: usize,
+
+    /// Whether to reinsert all the elements in each layers. Takes more time, but improves recall.
     pub reinsert_elements: bool,
+
+    /// Whether to output progress information to STDOUT while building.
     pub show_progress: bool,
 }
 
-type BuilderLayer = slice_vector::FixedWidthSliceVector<'static, usize>;
-
+/// A builder for creating an index to be searched using `Granne`
 pub struct GranneBuilder<Elements: ElementContainer> {
     elements: Elements,
-    layers: Vec<BuilderLayer>,
+    layers: Vec<FixedWidthSliceVector<'static, usize>>,
     config: Config,
 }
 
@@ -141,8 +87,8 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         self.layers.last().map_or(0, |l| l.len())
     }
 
-    pub fn get_index(self: &Self) -> Granne<BuilderLayer, Elements> {
-        Granne::from_parts(&self.layers, &self.elements)
+    pub fn get_index(self: &Self) -> Granne<Elements> {
+        Granne::from_parts(self.layers.as_slice(), &self.elements)
     }
 
     /// Builds the search index for the first num_elements elements
@@ -165,7 +111,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
         // fresh index build => initialize first layer
         if self.layers.is_empty() {
-            let mut layer = BuilderLayer::new(self.config.num_neighbors);
+            let mut layer = FixedWidthSliceVector::new(self.config.num_neighbors);
             layer.resize(1, UNUSED);
             self.layers.push(layer);
         } else {
@@ -191,6 +137,70 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 }
 
 // implementation
+
+trait Graph {
+    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize>;
+    fn len(self: &Self) -> usize;
+}
+
+impl<'a> Graph for FixedWidthSliceVector<'a, usize> {
+    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
+        self.get(idx)
+            .iter()
+            .copied()
+            .take_while(|&x| x != UNUSED)
+            .collect()
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
+impl<'a> Graph for VariableWidthSliceVector<'a, usize, usize> {
+    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
+        self.get(idx).iter().copied().collect()
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
+impl<'a> Graph for [parking_lot::RwLock<&'a mut [usize]>] {
+    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
+        self[idx]
+            .read()
+            .iter()
+            .copied()
+            .take_while(|&x| x != UNUSED)
+            .collect()
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
+enum Layers<'a> {
+    FixWidth(&'a [FixedWidthSliceVector<'a, usize>]),
+    VarWidth(&'a [VariableWidthSliceVector<'a, usize, usize>]),
+}
+
+impl<'a> Layers<'a> {
+    fn len(self: &Self) -> usize {
+        match self {
+            Self::FixWidth(layers) => layers.len(),
+            Self::VarWidth(layers) => layers.len(),
+        }
+    }
+}
+
+impl<'a> From<&'a [FixedWidthSliceVector<'a, usize>]> for Layers<'a> {
+    fn from(fix_width: &'a [FixedWidthSliceVector<'a, usize>]) -> Self {
+        Self::FixWidth(fix_width)
+    }
+}
 
 /// Computes a layer multiplier `m`, s.t. the number of elements in layer `i` is
 /// equal to `m^i` and `m^num_layers ~= num_elements`
@@ -280,8 +290,8 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         config: &Config,
         elements: &Elements,
         num_elements: usize,
-        prev_layers: &Granne<BuilderLayer, Elements>,
-        layer: &mut BuilderLayer,
+        prev_layers: &Granne<Elements>,
+        layer: &mut FixedWidthSliceVector<'static, usize>,
         reinsert_elements: bool,
     ) {
         assert!(layer.len() <= num_elements);
@@ -365,7 +375,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     fn index_element<'a>(
         config: &Config,
         elements: &Elements,
-        prev_layers: &Granne<BuilderLayer, Elements>,
+        prev_layers: &Granne<Elements>,
         layer: &'a [parking_lot::RwLock<&'a mut [NeighborId]>],
         idx: usize,
     ) {
@@ -512,13 +522,36 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     }
 }
 
-impl<'a, Layer: Graph, Elements: SimpleElementContainer> Granne<'a, Layer, Elements> {
-    fn from_parts(layers: &'a [Layer], elements: &'a Elements) -> Self {
-        Self { layers, elements }
+impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
+    fn from_parts<L: Into<Layers<'a>>>(layers: L, elements: &'a Elements) -> Self {
+        Self {
+            layers: layers.into(),
+            elements,
+        }
+    }
+
+    fn search_internal(
+        self: &Self,
+        layers: &[impl Graph],
+        element: &Elements::Element,
+        max_search: usize,
+        num_neighbors: usize,
+    ) -> Vec<(usize, f32)> {
+        if let Some((bottom_layer, top_layers)) = layers.split_last() {
+            let entrypoint = find_entrypoint(top_layers, self.elements, element);
+
+            search_for_neighbors(bottom_layer, entrypoint, self.elements, element, max_search)
+                .into_iter()
+                .take(num_neighbors)
+                .map(|(i, d)| (i, d.into_inner()))
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
 }
 
-fn find_entrypoint<Layer: Graph, Elements: SimpleElementContainer>(
+fn find_entrypoint<Layer: Graph, Elements: ElementContainer>(
     layers: &[Layer],
     elements: &Elements,
     element: &Elements::Element,
@@ -533,7 +566,7 @@ fn find_entrypoint<Layer: Graph, Elements: SimpleElementContainer>(
     entrypoint
 }
 
-fn search_for_neighbors<Layer: Graph + ?Sized, Elements: SimpleElementContainer>(
+fn search_for_neighbors<Layer: Graph + ?Sized, Elements: ElementContainer>(
     layer: &Layer,
     entrypoint: usize,
     elements: &Elements,
