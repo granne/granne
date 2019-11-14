@@ -1,4 +1,4 @@
-use super::{Dist, ElementContainer};
+use super::{Dist, ElementContainer, ExtendableElementContainer};
 use crate::io;
 
 use ordered_float::NotNan;
@@ -30,7 +30,9 @@ impl FromIterator<f32> for AngularVector<'static> {
 
         // todo speedup
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        v.iter_mut().for_each(|x| *x /= norm);
+        if norm >= 0.0 {
+            v.iter_mut().for_each(|x| *x /= norm);
+        }
 
         Self(Cow::from(v))
     }
@@ -92,7 +94,14 @@ impl<'a> ComparableTo<Self> for AngularVector<'a> {
 
 impl<'a, 'b> Dist<AngularVector<'b>> for AngularVector<'a> {
     fn dist(self: &Self, other: &AngularVector<'b>) -> NotNan<f32> {
-        angular_reference_dist(self, other)
+        let &AngularVectorT(ref x) = self;
+        let &AngularVectorT(ref y) = other;
+
+        let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi * yi).sum();
+
+        let d = NotNan::new(1.0f32 - r).unwrap();
+
+        cmp::max(0.0f32.into(), d)
     }
 }
 
@@ -214,6 +223,12 @@ impl<'a> ElementContainer for AngularVectors<'a> {
     }
 }
 
+impl<'a> ExtendableElementContainer for AngularVectors<'a> {
+    fn push(self: &mut Self, element: Self::Element) {
+        self.push(&element)
+    }
+}
+
 impl<'a> ElementContainer for AngularIntVectors<'a> {
     type Element = AngularIntVector<'static>;
 
@@ -239,6 +254,12 @@ impl<'a> ElementContainer for AngularIntVectors<'a> {
             .iter()
             .map(|&j| element.dist(&self.get_element(j)))
             .collect()
+    }
+}
+
+impl<'a> ExtendableElementContainer for AngularIntVectors<'a> {
+    fn push(self: &mut Self, element: Self::Element) {
+        self.push(&element)
     }
 }
 /*
@@ -275,7 +296,12 @@ impl AngularIntVector<'static> {
 
         for x in s {
             let vi = x * MAX_QVALUE / *max_value;
-            debug_assert!(-MAX_QVALUE <= vi && vi <= MAX_QVALUE);
+            debug_assert!(
+                -MAX_QVALUE - 0.0001 <= vi && vi <= MAX_QVALUE + 0.0001,
+                "{} -> {}",
+                x,
+                vi
+            );
             v.push(vi as i8);
         }
 
@@ -372,14 +398,16 @@ pub fn angular_reference_dist(first: &AngularVector, second: &AngularVector) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::super::*;
     use super::*;
+    use crate::test_helper;
+
+    const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 
     #[test]
     fn rblas_dist() {
         for _ in 0..100 {
-            let x: AngularVector = example::random_dense_element(100);
-            let y: AngularVector = example::random_dense_element(100);
+            let x: AngularVector = test_helper::random_floats().take(100).collect();
+            let y: AngularVector = test_helper::random_floats().take(100).collect();
 
             assert!((x.dist(&y) - angular_reference_dist(&x, &y)).abs() < DIST_EPSILON);
         }
@@ -388,7 +416,7 @@ mod tests {
     #[test]
     fn dist_between_same_vector() {
         for _ in 0..100 {
-            let x: AngularVector = example::random_dense_element(100);
+            let x: AngularVector = test_helper::random_floats().take(100).collect();
 
             assert!(x.dist(&x).into_inner() < DIST_EPSILON);
         }
@@ -397,7 +425,7 @@ mod tests {
     #[test]
     fn dist_between_opposite_vector() {
         for _ in 0..100 {
-            let x: AngularVector = example::random_dense_element(100);
+            let x: AngularVector = test_helper::random_floats().take(100).collect();
             let y: AngularVector = x.0.clone().into_iter().map(|x| -x).collect();
 
             assert!(x.dist(&y).into_inner() > 2.0f32 - DIST_EPSILON);
@@ -406,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_array() {
-        let a: AngularVector = vec![0f32, 1f32, 2f32].into();
+        let a: AngularVector = vec![0f32, 1f32, 2f32].into_iter().collect();
 
         a.dist(&a);
     }
@@ -415,7 +443,7 @@ mod tests {
     fn test_large_arrays() {
         let x = vec![1.0f32; 100];
 
-        let a: AngularVector = x.into();
+        let a: AngularVector = x.into_iter().collect();
 
         a.dist(&a);
     }

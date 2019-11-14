@@ -6,17 +6,28 @@ pub use angular_vector::{AngularIntVector, AngularIntVectors, AngularVector, Ang
 
 /// A trait for any type containing elements to be indexed using `GranneBuilder` and/or used for
 /// searching with `Granne`.
+///
+/// It should be noted that the provided default implementations of `dist` and `dists` are rarely
+/// the most efficient ones and for improved performance it is recommended to provide specialized
+/// implementations.
 pub trait ElementContainer {
     type Element;
 
+    /// Returns the element with offset/id `idx`.
     fn get(self: &Self, idx: usize) -> Self::Element;
+
+    /// Returns the number of elements.
     fn len(self: &Self) -> usize;
+
+    /// Returns the distance between the element at `idx` and `element`.
     fn dist_to_element(self: &Self, idx: usize, element: &Self::Element) -> NotNan<f32>;
 
+    /// Returns the distance between the elemests at `i` and `j`.
     fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
         self.dist_to_element(i, &self.get(j))
     }
 
+    /// Does a batch computation of distances from `idx` to all elements in `others`.
     fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
         let element = self.get(idx);
         others
@@ -25,16 +36,49 @@ pub trait ElementContainer {
             .collect()
     }
 
+    /// Returns `true` if the container contains no elements.
     fn is_empty(self: &Self) -> bool {
         self.len() == 0
     }
 }
 
+/// A trait for ElementContainers that can be extended with more elements
+pub trait ExtendableElementContainer: ElementContainer {
+    /// Moves an element into the container
+    fn push(self: &mut Self, element: Self::Element);
+}
+
+/// By implementing this trait for a type `E` one gets the `ElementContainer` trait implemented for slices of `E`, i.e., `[E]: ElementContainer`.
 pub trait Dist<Other> {
+    /// Returns the distance between `self` and `other`
     fn dist(self: &Self, other: &Other) -> NotNan<f32>;
 }
 
-impl<E: Dist<E> + Clone> ElementContainer for [E] {
+impl<E: Dist<E> + Clone> ElementContainer for &[E] {
+    type Element = E;
+
+    fn get(self: &Self, idx: usize) -> Self::Element {
+        self[idx].clone()
+    }
+
+    fn len(self: &Self) -> usize {
+        (*self).len()
+    }
+
+    fn dist_to_element(self: &Self, idx: usize, element: &Self::Element) -> NotNan<f32> {
+        self[idx].dist(element)
+    }
+
+    fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
+        self[i].dist(&self[j])
+    }
+
+    fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
+        others.iter().map(|&j| self[idx].dist(&self[j])).collect()
+    }
+}
+
+impl<E: Dist<E> + Clone> ElementContainer for Vec<E> {
     type Element = E;
 
     fn get(self: &Self, idx: usize) -> Self::Element {

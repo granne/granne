@@ -8,8 +8,11 @@ use std::collections::{BinaryHeap, HashSet};
 use std::convert::TryFrom;
 use time;
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
-    elements::ElementContainer,
+    elements::{ElementContainer, ExtendableElementContainer},
     max_size_heap,
     slice_vector::{FixedWidthSliceVector, VariableWidthSliceVector},
 };
@@ -43,6 +46,17 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
             }
         }
     }
+
+    pub fn len(self: &Self) -> usize {
+        match self.layers {
+            Layers::FixWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
+            Layers::VarWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
+        }
+    }
+
+    pub fn get_element(self: &Self, idx: usize) -> Elements::Element {
+        self.elements.get(idx)
+    }
 }
 
 #[derive(Clone)]
@@ -52,8 +66,7 @@ pub struct Config {
     ///
     /// Choosing the number layers so that the .. (use layer multiplier instead)
     pub num_layers: usize,
-    pub layer_multiplier: f32,
-
+    //pub layer_multiplier: f32,
     /// The maximum number of neighbors per node and layer.
     pub num_neighbors: usize,
 
@@ -89,6 +102,10 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
     pub fn get_index(self: &Self) -> Granne<Elements> {
         Granne::from_parts(self.layers.as_slice(), &self.elements)
+    }
+
+    pub fn build_index(&mut self) {
+        self.build_index_part(self.elements.len())
     }
 
     /// Builds the search index for the first num_elements elements
@@ -128,11 +145,16 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
             // create a new layer by copying the current last one
             let new_layer = self.layers.last().expect("There are no layers!").clone();
-
             self.layers.push(new_layer);
 
             self.index_elements_in_last_layer(num_elements);
         }
+    }
+}
+
+impl<Elements: ExtendableElementContainer + Sync> GranneBuilder<Elements> {
+    fn push(self: &mut Self, element: Elements::Element) {
+        self.elements.push(element);
     }
 }
 
@@ -243,6 +265,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         }
 
         let mut layer = self.layers.pop().unwrap();
+
         layer.reserve_exact(additional);
 
         let prev_layers = self.get_index();
@@ -379,13 +402,14 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         layer: &'a [parking_lot::RwLock<&'a mut [NeighborId]>],
         idx: usize,
     ) {
+        // do not index elements that are zero (multiply by 100 as safety margin)
+        if elements.dist(idx, idx) > NotNan::new(0.0001).unwrap() {
+            // * Element::eps() {
+            return;
+        }
+
         let element = elements.get(idx);
-        /*
-                // do not index elements that are zero (multiply by 100 as safety margin)
-                if element.dist(&element) > NotNan::new(100.0).unwrap() * Element::eps() {
-                    return;
-                }
-        */
+
         if let Some((entrypoint, _)) = prev_layers.search(&element, 1, 1).first() {
             let candidates =
                 search_for_neighbors(layer, *entrypoint, elements, &element, config.max_search);
@@ -399,12 +423,12 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
             // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
             // this effectively creates a dead node
-            /*            if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
-                            if *d < Element::eps() {
-                                return;
-                            }
-                        }
-            */
+            if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
+                if *d < NotNan::new(0.000001).unwrap() {
+                    return;
+                }
+            }
+
             // if current node is empty, initialize it with the neighbors
             if layer[idx].read()[0] == UNUSED {
                 Self::initialize_node(&layer[idx], &neighbors[..]);
@@ -444,7 +468,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
             // add j to neighbors if j is closer to idx,
             // than to all previously added neighbors
-            if neighbors.iter().all(|&(n, _)| d < elements.dist(n, j)) {
+            if neighbors.iter().all(|&(n, _)| d <= elements.dist(n, j)) {
                 neighbors.push((j, d));
             }
         }
@@ -498,7 +522,9 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     ) {
         assert!(num_neighbors <= node.len());
 
-        let dists = elements.dists(node_id, node);
+        let neighbors: Vec<usize> = node.iter().take_while(|&&x| x != UNUSED).copied().collect();
+
+        let dists = elements.dists(node_id, &neighbors);
         let mut candidates: Vec<_> = node.iter().copied().zip(dists.into_iter()).collect();
 
         for &(j, d) in extra {
