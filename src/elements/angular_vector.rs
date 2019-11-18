@@ -1,5 +1,5 @@
 use super::{Dist, ElementContainer, ExtendableElementContainer};
-use crate::io;
+use crate::{io, slice_vector::FixedWidthSliceVector};
 
 use ordered_float::NotNan;
 use std::cmp;
@@ -24,11 +24,10 @@ impl<'a, T: Copy> AngularVectorT<'a, T> {
 pub type AngularVector<'a> = AngularVectorT<'a, f32>;
 pub type AngularIntVector<'a> = AngularVectorT<'a, i8>;
 
-impl FromIterator<f32> for AngularVector<'static> {
-    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
-        let mut v: Vec<f32> = iter.into_iter().collect();
-
+impl From<Vec<f32>> for AngularVector<'static> {
+    fn from(v: Vec<f32>) -> Self {
         // todo speedup
+        let mut v = v;
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm >= 0.0 {
             v.iter_mut().for_each(|x| *x /= norm);
@@ -38,149 +37,72 @@ impl FromIterator<f32> for AngularVector<'static> {
     }
 }
 
-impl FromIterator<f32> for AngularIntVector<'static> {
+impl FromIterator<f32> for AngularVector<'static> {
     fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
         let v: Vec<f32> = iter.into_iter().collect();
+        Self::from(v)
+    }
+}
 
+impl From<Vec<f32>> for AngularIntVector<'static> {
+    fn from(v: Vec<f32>) -> Self {
         Self::quantize(&v)
     }
 }
 
-/*
-impl From<Vec<f32>> for AngularVector<'static> {
-    fn from(vec: Vec<f32>) -> Self {
-        let mut vec = vec;
-        let n = vec.len() as i32;
-        let norm = unsafe { blas::snrm2(n, vec.as_slice(), 1) };
-        if norm > 0.0 {
-            unsafe { blas::sscal(n, 1.0 / norm, vec.as_mut_slice(), 1) };
-        }
-
-        AngularVectorT(vec.into())
-    }
-}
- */
-/*
-impl<'a> Into<Vec<f32>> for AngularVector<'a> {
-    fn into(self: Self) -> Vec<f32> {
-        self.0.into_owned()
-    }
-}
-*/
-/*
-impl<'a> Into<Vec<f32>> for AngularIntVector<'a> {
-    fn into(self: Self) -> Vec<f32> {
-        let float_vector: AngularVector = self.into();
-        float_vector.into()
-    }
-}
-*/
-/*
-impl<'a> ComparableTo<Self> for AngularVector<'a> {
-    fn dist(self: &Self, other: &Self) -> NotNan<f32> {
-        assert_eq!(self.len(), other.len());
-
-        let &AngularVectorT(ref x) = self;
-        let &AngularVectorT(ref y) = other;
-
-        let r: f32 = unsafe { blas::sdot(x.len() as i32, x, 1, y, 1) };
-
-        let d = NotNan::new(1.0f32 - r).unwrap();
-
-        cmp::max(0f32.into(), d)
-    }
-}
- */
-
-impl<'a, 'b> Dist<AngularVector<'b>> for AngularVector<'a> {
-    fn dist(self: &Self, other: &AngularVector<'b>) -> NotNan<f32> {
-        let &AngularVectorT(ref x) = self;
-        let &AngularVectorT(ref y) = other;
-
-        let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi * yi).sum();
-
-        let d = NotNan::new(1.0f32 - r).unwrap();
-
-        cmp::max(0.0f32.into(), d)
+impl FromIterator<f32> for AngularIntVector<'static> {
+    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
+        let v: Vec<f32> = iter.into_iter().collect();
+        Self::from(v)
     }
 }
 
-#[derive(Clone, Default)]
-pub struct AngularVectorsT<'a, T: Copy> {
-    data: Cow<'a, [T]>,
-    dim: usize,
-}
+#[derive(Clone)]
+pub struct AngularVectorsT<'a, T: Copy>(FixedWidthSliceVector<'a, T>);
 
+/// A collection of `AngularVector`s
 pub type AngularVectors<'a> = AngularVectorsT<'a, f32>;
+
+/// A collection of `AngularIntVector`s
 pub type AngularIntVectors<'a> = AngularVectorsT<'a, i8>;
 
 impl<'a, T: Copy> AngularVectorsT<'a, T> {
+    /// Create a new collection vector. The dimension will be set once the first vector is pushed
+    /// into the collection.
     pub fn new() -> Self {
-        Self {
-            data: Vec::new().into(),
-            dim: 0,
-        }
+        Self(FixedWidthSliceVector::new())
     }
 
-    pub fn load(dim: usize, buffer: &'a [u8]) -> Self {
-        let data: &[T] = unsafe { crate::io::load_bytes_as(buffer) };
-
-        assert_eq!(0, data.len() % dim);
-
-        Self {
-            data: data.into(),
-            dim,
-        }
+    pub fn load(buffer: &'a [u8], dim: usize) -> Self {
+        Self(FixedWidthSliceVector::load(buffer, dim))
     }
 
-    pub fn from_vec(dim: usize, vec: Vec<T>) -> Self {
-        assert_eq!(0, vec.len() % dim);
-
-        Self {
-            data: vec.into(),
-            dim,
-        }
+    pub fn from_vec(vec: Vec<T>, dim: usize) -> Self {
+        Self(FixedWidthSliceVector::with_data(vec, dim))
     }
 
+    /// Clones the underlying data if not already owned.
     pub fn into_owned(self: Self) -> AngularVectorsT<'static, T> {
-        AngularVectorsT {
-            data: self.data.into_owned().into(),
-            dim: self.dim,
-        }
+        Self(self.0.into_owned())
     }
 
-    pub fn extend(self: &mut Self, vec: AngularVectorsT<T>) {
-        assert_eq!(self.dim, vec.dim);
-
-        self.data.to_mut().extend_from_slice(&vec.data[..]);
+    pub fn extend(self: &mut Self, vec: AngularVectorsT<'_, T>) {
+        self.0.extend_from_slice_vector(&vec.0)
     }
 
-    pub fn push(self: &mut Self, vec: &AngularVectorT<T>) {
-        if self.dim == 0 {
-            self.dim = vec.len();
-        }
-
-        assert_eq!(self.dim, vec.len());
-
-        self.data.to_mut().extend_from_slice(&vec.0[..]);
+    /// Pushes `vec` onto the collection
+    pub fn push(self: &mut Self, vec: &AngularVectorT<'_, T>) {
+        self.0.push(&vec.0[..]);
     }
 
+    /// Returns the number of vectors in this collection.
     pub fn len(self: &Self) -> usize {
-        if self.dim > 0 {
-            self.data.len() / self.dim
-        } else {
-            0
-        }
+        self.0.len()
     }
 
+    /// Returns a reference to the vector at `index`.
     pub fn get_element(self: &'a Self, index: usize) -> AngularVectorT<'a, T> {
-        AngularVectorT(Cow::Borrowed(
-            &self.data[index * self.dim..(index + 1) * self.dim],
-        ))
-    }
-
-    pub fn data(self: &'a Self) -> &'a [T] {
-        &self.data[..]
+        AngularVectorT(Cow::Borrowed(self.0.get(index)))
     }
 }
 
@@ -195,93 +117,66 @@ impl<'a, T: Copy> FromIterator<AngularVectorT<'a, T>> for AngularVectorsT<'stati
     }
 }
 
-impl<'a> ElementContainer for AngularVectors<'a> {
-    type Element = AngularVector<'static>;
-
-    fn get(self: &Self, idx: usize) -> Self::Element {
-        self.get_element(idx).into_owned()
-    }
-
-    fn len(self: &Self) -> usize {
-        self.len()
-    }
-
-    fn dist_to_element(self: &Self, idx: usize, element: &Self::Element) -> NotNan<f32> {
-        self.get_element(idx).dist(element)
-    }
-
-    fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
-        self.get_element(i).dist(&self.get_element(j))
-    }
-
-    fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
-        let element = self.get_element(idx);
-        others
-            .iter()
-            .map(|&j| element.dist(&self.get_element(j)))
-            .collect()
+impl<'a, T: Copy> io::Writeable for AngularVectorsT<'a, T> {
+    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
+        self.0.write(buffer)
     }
 }
 
-impl<'a> ExtendableElementContainer for AngularVectors<'a> {
-    fn push(self: &mut Self, element: Self::Element) {
-        self.push(&element)
+macro_rules! element_container_impl {
+    ($scalar_type:ty) => {
+        impl<'a> ElementContainer for AngularVectorsT<'a, $scalar_type> {
+            type Element = AngularVectorT<'static, $scalar_type>;
+
+            fn get(self: &Self, idx: usize) -> Self::Element {
+                self.get_element(idx).into_owned()
+            }
+
+            fn len(self: &Self) -> usize {
+                self.len()
+            }
+
+            fn dist_to_element(self: &Self, idx: usize, element: &Self::Element) -> NotNan<f32> {
+                self.get_element(idx).dist(element)
+            }
+
+            fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
+                self.get_element(i).dist(&self.get_element(j))
+            }
+
+            fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
+                let element = self.get_element(idx);
+                others
+                    .iter()
+                    .map(|&j| element.dist(&self.get_element(j)))
+                    .collect()
+            }
+        }
+
+        impl<'a> ExtendableElementContainer for AngularVectorsT<'a, $scalar_type> {
+            fn push(self: &mut Self, element: Self::Element) {
+                self.push(&element)
+            }
+        }
+    };
+}
+
+element_container_impl!(f32);
+element_container_impl!(i8);
+
+impl<'a, 'b> Dist<AngularVector<'b>> for AngularVector<'a> {
+    fn dist(self: &Self, other: &AngularVector<'b>) -> NotNan<f32> {
+        let &AngularVectorT(ref x) = self;
+        let &AngularVectorT(ref y) = other;
+
+        let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi * yi).sum();
+
+        let d = NotNan::new(1.0f32 - r).unwrap();
+
+        cmp::max(0.0f32.into(), d)
     }
 }
 
-impl<'a> ElementContainer for AngularIntVectors<'a> {
-    type Element = AngularIntVector<'static>;
-
-    fn get(self: &Self, idx: usize) -> Self::Element {
-        self.get_element(idx).into_owned()
-    }
-
-    fn len(self: &Self) -> usize {
-        self.len()
-    }
-
-    fn dist_to_element(self: &Self, idx: usize, element: &Self::Element) -> NotNan<f32> {
-        self.get_element(idx).dist(element)
-    }
-
-    fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
-        self.get_element(i).dist(&self.get_element(j))
-    }
-
-    fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
-        let element = self.get_element(idx);
-        others
-            .iter()
-            .map(|&j| element.dist(&self.get_element(j)))
-            .collect()
-    }
-}
-
-impl<'a> ExtendableElementContainer for AngularIntVectors<'a> {
-    fn push(self: &mut Self, element: Self::Element) {
-        self.push(&element)
-    }
-}
-/*
-impl<'a, T: Copy> Writeable for AngularVectorsT<'a, T> {
-    fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<()> {
-        buffer.write_all(crate::io::load_as_bytes(self.data.as_slice()))
-
-    }
-}
-
-impl<'a, T: Copy> Appendable for AngularVectorsT<'a, T> {
-    type Element = AngularVectorT<'static, T>;
-
-    fn new() -> Self {
-        Self::new(0)
-    }
-
-    fn append(self: &mut Self, element: AngularVectorT<T>) {
-        self.push(&element);
-    }
-}
-*/
 const MAX_QVALUE: f32 = 127.0;
 
 impl AngularIntVector<'static> {
@@ -296,12 +191,7 @@ impl AngularIntVector<'static> {
 
         for x in s {
             let vi = x * MAX_QVALUE / *max_value;
-            debug_assert!(
-                -MAX_QVALUE - 0.0001 <= vi && vi <= MAX_QVALUE + 0.0001,
-                "{} -> {}",
-                x,
-                vi
-            );
+            debug_assert!(-MAX_QVALUE - 0.0001 <= vi && vi <= MAX_QVALUE + 0.0001);
             v.push(vi as i8);
         }
 
@@ -309,20 +199,6 @@ impl AngularIntVector<'static> {
     }
 }
 
-/*
-impl<'a> From<AngularVector<'a>> for AngularIntVector<'static> {
-    fn from(vec: AngularVector<'a>) -> Self {
-        vec.0.into_owned().into()
-    }
-}
-*/
-/*
-impl<'a> From<AngularIntVector<'a>> for AngularVector<'static> {
-    fn from(vec: AngularIntVector<'a>) -> Self {
-        vec.0.iter().map(|&x| f32::from(x)).collect::<Vec<f32>>().into()
-    }
-}
- */
 impl<'a, 'b> Dist<AngularIntVector<'b>> for AngularIntVector<'a> {
     fn dist(self: &Self, other: &AngularIntVector<'b>) -> NotNan<f32> {
         // optimized code to compute r, dx, and dy for systems supporting avx2
@@ -378,6 +254,7 @@ impl<'a, 'b> Dist<AngularIntVector<'b>> for AngularIntVector<'a> {
     }
 }
 
+#[allow(unused)]
 pub fn angular_reference_dist(first: &AngularVector, second: &AngularVector) -> NotNan<f32> {
     let &AngularVectorT(ref x) = first;
     let &AngularVectorT(ref y) = second;

@@ -128,7 +128,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
         // fresh index build => initialize first layer
         if self.layers.is_empty() {
-            let mut layer = FixedWidthSliceVector::new(self.config.num_neighbors);
+            let mut layer = FixedWidthSliceVector::with_width(self.config.num_neighbors);
             layer.resize(1, UNUSED);
             self.layers.push(layer);
         } else {

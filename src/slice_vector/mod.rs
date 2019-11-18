@@ -31,9 +31,11 @@ impl<'a, T: Clone> Into<Vec<T>> for FixedWidthSliceVector<'a, T> {
 }
 
 impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
-    pub fn new(width: usize) -> Self {
-        assert!(width > 0);
+    pub fn new() -> Self {
+        Self::with_width(0)
+    }
 
+    pub fn with_width(width: usize) -> Self {
         Self {
             data: Vec::new().into(),
             width,
@@ -41,8 +43,6 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     }
 
     pub fn with_capacity(width: usize, capacity: usize) -> Self {
-        assert!(width > 0);
-
         Self {
             data: Vec::with_capacity(width * capacity).into(),
             width,
@@ -92,6 +92,10 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     }
 
     pub fn extend_from_slice_vector(self: &mut Self, other: &FixedWidthSliceVector<T>) {
+        if self.width == 0 {
+            self.width = other.width;
+        }
+
         assert_eq!(self.width, other.width);
 
         self.data.to_mut().extend_from_slice(&other.data);
@@ -108,7 +112,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         let mut buffer = Vec::new();
         buffer.resize(width * ::std::mem::size_of::<T>(), 0);
 
-        let mut vec = Self::new(width);
+        let mut vec = Self::new();
 
         while let Ok(()) = reader.read_exact(&mut buffer) {
             vec.push(unsafe { crate::io::load_bytes_as(&buffer[..]) });
@@ -208,6 +212,13 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         }
     }
 
+    pub fn into_owned(self: Self) -> FixedWidthSliceVector<'static, T> {
+        FixedWidthSliceVector {
+            data: self.data.into_owned().into(),
+            width: self.width,
+        }
+    }
+
     pub fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
     where
         'a: 'b,
@@ -229,13 +240,21 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     }
 
     pub fn push(self: &mut Self, data: &[T]) {
+        if self.width == 0 {
+            self.width = data.len();
+        }
+
         assert_eq!(self.width, data.len());
 
         self.data.to_mut().extend_from_slice(data);
     }
 
     pub fn len(self: &Self) -> usize {
-        self.data.len() / self.width
+        if self.width > 0 {
+            self.data.len() / self.width
+        } else {
+            0
+        }
     }
 
     pub fn is_empty(self: &Self) -> bool {
@@ -440,7 +459,7 @@ mod tests {
 
     #[test]
     fn fixed_width_push() {
-        let vec = FixedWidthSliceVector::new(5);
+        let vec = FixedWidthSliceVector::new();
         let data: Vec<Vec<usize>> = (0..20).map(|i| (i..).take(5).collect()).collect();
 
         assert_eq!(0, vec.len());
@@ -478,8 +497,8 @@ mod tests {
 
     #[test]
     fn fixed_width_extend() {
-        let mut vec0 = FixedWidthSliceVector::new(7);
-        let mut vec1 = FixedWidthSliceVector::new(7);
+        let mut vec0 = FixedWidthSliceVector::new();
+        let mut vec1 = FixedWidthSliceVector::new();
         for i in 0..100 {
             let data: Vec<i32> = (i..).take(7).collect();
             if i < 24 {
@@ -495,8 +514,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn fixed_width_extend_different_widths() {
-        let mut vec0 = FixedWidthSliceVector::new(7);
-        let mut vec1 = FixedWidthSliceVector::new(6);
+        let mut vec0 = FixedWidthSliceVector::with_width(7);
+        let mut vec1 = FixedWidthSliceVector::with_width(6);
         for i in 0..100 {
             if i < 24 {
                 let data: Vec<i32> = (i..).take(7).collect();
@@ -588,7 +607,7 @@ mod tests {
     #[test]
     fn fixed_width_write_and_load() {
         let width = 7;
-        let mut vec = FixedWidthSliceVector::new(width);
+        let mut vec = FixedWidthSliceVector::new();
         for i in 0..123 {
             let data: Vec<i16> = (2 * i + 3..).take(width).collect();
             vec.push(&data);
@@ -609,7 +628,7 @@ mod tests {
     #[test]
     fn fixed_width_write_and_read() {
         let width = 7;
-        let mut vec = FixedWidthSliceVector::new(width);
+        let mut vec = FixedWidthSliceVector::new();
         for i in 0..123 {
             let data: Vec<i16> = (2 * i + 3..).take(7).collect();
             vec.push(&data);
@@ -650,7 +669,7 @@ mod tests {
     #[test]
     fn write_fixed_width_vector_as_variable_width_vector() {
         let width = 7;
-        let mut vec = FixedWidthSliceVector::new(width);
+        let mut vec = FixedWidthSliceVector::new();
         for i in 0..123 {
             let data: Vec<i16> = (2 * i + 3..).take(width).collect();
             vec.push(&data);
@@ -687,7 +706,7 @@ mod tests {
     #[test]
     fn write_fixed_width_vector_as_variable_width_vector_predicate() {
         let width = 7;
-        let mut vec = FixedWidthSliceVector::new(width);
+        let mut vec = FixedWidthSliceVector::new();
         for i in 0..522 {
             let data: Vec<i16> = (2 * i + 3..).take(width).collect();
             vec.push(&data);
@@ -721,7 +740,7 @@ mod tests {
     #[test]
     fn write_fixed_width_vector_as_variable_width_vector_empty() {
         let width = 7;
-        let vec = FixedWidthSliceVector::<i16>::new(width);
+        let vec = FixedWidthSliceVector::<i16>::new();
 
         type Offset = usize;
 
@@ -741,7 +760,7 @@ mod tests {
     #[test]
     fn write_fixed_width_vector_as_variable_width_vector_empty_slices() {
         let width = 1;
-        let mut vec = FixedWidthSliceVector::<i16>::new(width);
+        let mut vec = FixedWidthSliceVector::<i16>::new();
 
         for _ in 0..10 {
             vec.push(&[0]);
