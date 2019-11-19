@@ -81,6 +81,11 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
         Self(FixedWidthSliceVector::with_data(vec, dim))
     }
 
+    /// Borrows the data
+    pub fn borrow(self: &'a Self) -> AngularVectorsT<'a, T> {
+        Self(self.0.borrow())
+    }
+
     /// Clones the underlying data if not already owned.
     pub fn into_owned(self: Self) -> AngularVectorsT<'static, T> {
         Self(self.0.into_owned())
@@ -169,7 +174,15 @@ impl<'a, 'b> Dist<AngularVector<'b>> for AngularVector<'a> {
         let &AngularVectorT(ref x) = self;
         let &AngularVectorT(ref y) = other;
 
-        let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi * yi).sum();
+        // try with chunks_exact in order to force simd
+        // https://rust.godbolt.org/z/G5A2u0
+        // https://news.ycombinator.com/item?id=21342501
+        let mut r = 0.0f32;
+        for (x, y) in x.iter().zip(y.iter()) {
+            r = x.mul_add(*y, r);
+        }
+        // compare to this
+        //let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi * yi).sum();
 
         let d = NotNan::new(1.0f32 - r).unwrap();
 

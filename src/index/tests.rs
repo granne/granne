@@ -5,12 +5,14 @@ use crate::{
 };
 
 use std::fs::File;
-use std::io::{Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use tempfile;
 
 fn random_vector<Element: std::iter::FromIterator<f32>>(dim: usize) -> Element {
     test_helper::random_floats().take(dim).collect()
 }
+
+const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 
 #[test]
 fn select_neighbors() {
@@ -235,8 +237,8 @@ fn incremental_build_0() {
 
 #[test]
 fn incremental_build_1() {
-    let elements: Vec<_> = (0..1000)
-        .map(|_| random_vector::<AngularVector>(25))
+    let elements: AngularIntVectors = (0..1000)
+        .map(|_| random_vector::<AngularIntVector>(25))
         .collect();
 
     let config = Config {
@@ -247,7 +249,7 @@ fn incremental_build_1() {
         show_progress: false,
     };
 
-    let mut builder = GranneBuilder::new(config.clone(), elements.as_slice());
+    let mut builder = GranneBuilder::new(config.clone(), elements.borrow());
 
     let num_chunks = 10;
     let chunk_size = elements.len() / num_chunks;
@@ -264,12 +266,15 @@ fn incremental_build_1() {
 
     verify_search(&builder.get_index(), 0.95, 40);
 }
+
 /*
 #[test]
 fn incremental_build_with_write_and_read() {
     const DIM: usize = 25;
 
-    let elements: AngularVectors = (0..1000).map(|_| random_vector::<AngularVector>(DIM)).collect();
+    let elements: AngularVectors = (0..1000)
+        .map(|_| random_vector::<AngularVector>(DIM))
+        .collect();
 
     let config = Config {
         num_layers: 4,
@@ -285,14 +290,14 @@ fn incremental_build_with_write_and_read() {
 
     let mut file: File = tempfile::tempfile().unwrap();
     {
-        let builder = GranneBuilder::with_borrowed_elements(config.clone(), &elements);
+        let builder = GranneBuilder::new(config.clone(), elements);
 
-        builder.write(&mut file).unwrap();
+        builder.write_index(&mut file).unwrap();
     }
 
     for i in 0..num_chunks {
         file.seek(SeekFrom::Start(0)).unwrap();
-        let mut builder = GranneBuilder::read_index_with_borrowed_elements(config.clone(), &mut file, &elements).unwrap();
+        let mut builder = GranneBuilder::read(config.clone(), &mut file, elements);
         assert_eq!(i * chunk_size, builder.indexed_elements());
 
         builder.build_index_part((i + 1) * chunk_size);
@@ -300,14 +305,14 @@ fn incremental_build_with_write_and_read() {
         assert_eq!((i + 1) * chunk_size, builder.indexed_elements());
 
         file.seek(SeekFrom::Start(0)).unwrap();
-        builder.write(&mut file).unwrap();
+        builder.write_index(&mut file).unwrap();
     }
 
     file.seek(SeekFrom::Start(0)).unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 
-    let index = Granne::<AngularVectors, AngularVector>::load(buffer.as_slice(), &elements);
+    let index = Granne::<AngularVectors>::load(buffer.as_slice(), &elements);
     assert_eq!(config.num_layers, index.num_layers());
     assert_eq!(elements.len(), index.len());
 
@@ -361,10 +366,12 @@ fn read_index_with_owned_elements() {
     assert_eq!(num_elements, owning_builder.indexed_elements());
     assert_eq!(num_elements, owning_builder.len());
 }
-
+*/
 #[test]
 fn empty_build() {
-    let elements: AngularVectors = (0..100).map(|_| random_vector::<AngularVector>(25)).collect();
+    let elements: AngularVectors = (0..100)
+        .map(|_| random_vector::<AngularVector>(25))
+        .collect();
 
     let config = Config {
         num_layers: 4,
@@ -374,7 +381,7 @@ fn empty_build() {
         show_progress: false,
     };
 
-    let mut builder = GranneBuilder::with_borrowed_elements(config.clone(), &elements);
+    let mut builder = GranneBuilder::new(config, elements);
 
     builder.build_index_part(0);
 }
@@ -401,26 +408,25 @@ fn write_and_load() {
         show_progress: false,
     };
 
-    let mut builder = GranneBuilder::with_borrowed_elements(config, &elements);
+    let mut builder = GranneBuilder::new(config, elements.borrow());
     builder.build_index();
 
     let mut file: File = tempfile::tempfile().unwrap();
-    builder.write(&mut file).unwrap();
+    builder.write_index(&mut file).unwrap();
 
     file.seek(SeekFrom::Start(0)).unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
     assert!(data.len() > 2000);
 
-    let index = Granne::<AngularVectors, AngularVector>::load(&data[..], &elements);
+    let index = Granne::load(&data[..], &elements);
 
     assert_eq!(builder.layers.len(), index.num_layers());
+    assert_eq!(builder.indexed_elements(), index.len());
 
     for layer in 0..builder.layers.len() {
-        assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
-
         for i in 0..builder.layers[layer].len() {
-            let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
+            let builder_neighbors: Vec<_> = builder.layers[layer].get_neighbors(i);
 
             assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
         }
@@ -429,7 +435,13 @@ fn write_and_load() {
     assert_eq!(builder.elements.len(), index.len());
 
     for i in 0..builder.elements.len() {
-        assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+        assert!(
+            builder
+                .elements
+                .dist_to_element(i, &index.get_element(i))
+                .into_inner()
+                < DIST_EPSILON
+        );
     }
 }
 
@@ -446,27 +458,27 @@ fn write_and_load_compressed() {
         show_progress: false,
     };
 
-    let mut builder = GranneBuilder::with_borrowed_elements(config, &elements);
+    let mut builder = GranneBuilder::new(config, elements.borrow());
     builder.build_index();
 
     {
         let mut file: File = tempfile::tempfile().unwrap();
-        io::save_index_to_disk(&builder.get_index().layers, &mut file, true).unwrap();
+        builder.write_index(&mut file).unwrap();
 
         file.seek(SeekFrom::Start(0)).unwrap();
         let mut data = Vec::new();
         file.read_to_end(&mut data).unwrap();
 
-        let index = Granne::<AngularVectors, AngularVector>::load(&data[..], &elements);
+        let index = Granne::load(&data[..], &elements);
 
         assert_eq!(builder.layers.len(), index.num_layers());
+        assert_eq!(builder.indexed_elements(), index.len());
 
         for layer in 0..builder.layers.len() {
-            assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
-
             for i in 0..builder.layers[layer].len() {
-                let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
+                let builder_neighbors = builder.layers[layer].get_neighbors(i);
 
+                assert_eq!(builder_neighbors.len(), index.get_neighbors(i, layer).len());
                 assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
             }
         }
@@ -474,39 +486,47 @@ fn write_and_load_compressed() {
         assert_eq!(builder.elements.len(), index.len());
 
         for i in 0..builder.elements.len() {
-            assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+            assert!(
+                builder
+                    .elements
+                    .dist_to_element(i, &index.get_element(i))
+                    .into_inner()
+                    < DIST_EPSILON
+            );
         }
+        /*
+                // write the already compressed index to file and reload
+                let mut compressed_file: File = tempfile::tempfile().unwrap();
 
-        // write the already compressed index to file and reload
-        let mut compressed_file: File = tempfile::tempfile().unwrap();
-        io::save_index_to_disk(&index.layers, &mut compressed_file, true).unwrap();
+                io::save_index_to_disk(&index.layers, &mut compressed_file, true).unwrap();
 
-        compressed_file.seek(SeekFrom::Start(0)).unwrap();
-        let mut data = Vec::new();
-        compressed_file.read_to_end(&mut data).unwrap();
+                compressed_file.seek(SeekFrom::Start(0)).unwrap();
+                let mut data = Vec::new();
+                compressed_file.read_to_end(&mut data).unwrap();
 
-        let index = Granne::<AngularVectors, AngularVector>::load(&data[..], &elements);
+                let index = Granne::<AngularVectors>::load(&data[..], &elements);
 
-        assert_eq!(builder.layers.len(), index.num_layers());
+                assert_eq!(builder.layers.len(), index.num_layers());
 
-        for layer in 0..builder.layers.len() {
-            assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
+                for layer in 0..builder.layers.len() {
+                    assert_eq!(builder.layers[layer].len(), index.layer_len(layer));
 
-            for i in 0..builder.layers[layer].len() {
-                let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
+                    for i in 0..builder.layers[layer].len() {
+                        let builder_neighbors: Vec<_> = iter_neighbors(builder.layers[layer].get(i)).collect();
 
-                assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
-            }
-        }
+                        assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
+                    }
+                }
 
-        assert_eq!(builder.elements.len(), index.len());
+                assert_eq!(builder.elements.len(), index.len());
 
-        for i in 0..builder.elements.len() {
-            assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
-        }
+                for i in 0..builder.elements.len() {
+                    assert!(builder.elements.at(i).dist(&index.get_element(i)).into_inner() < DIST_EPSILON);
+                }
+        */
     }
 }
-
+/*
 #[test]
 fn write_and_read() {
     const DIM: usize = 64;
@@ -555,12 +575,16 @@ fn write_and_read() {
 
     assert_eq!(original.elements.len(), copy.elements.len());
 }
-
+*/
 #[test]
 fn append_elements() {
-    let elements: Vec<AngularVector> = (0..500).map(|_| random_vector::<AngularVector>(50)).collect();
+    let elements: Vec<AngularVector> = (0..500)
+        .map(|_| random_vector::<AngularVector>(50))
+        .collect();
 
-    let additional_elements: Vec<AngularVector> = (0..500).map(|_| random_vector::<AngularVector>(50)).collect();
+    let additional_elements: Vec<AngularVector> = (0..500)
+        .map(|_| random_vector::<AngularVector>(50))
+        .collect();
 
     let config = Config {
         num_layers: 4,
@@ -571,9 +595,9 @@ fn append_elements() {
     };
 
     // insert half of the elements
-    let mut builder: GranneBuilder<AngularVectors, AngularVector> = GranneBuilder::new(config);
+    let mut builder = GranneBuilder::new(config, AngularVectors::new());
     for element in &elements {
-        builder.append(element.clone());
+        builder.push(element.clone());
     }
     builder.build_index();
 
@@ -587,14 +611,14 @@ fn append_elements() {
         let index = builder.get_index();
 
         assert!(index
-            .search(&elements.at(123), 1, max_search)
+            .search(&elements[123], 1, max_search)
             .iter()
             .any(|&(idx, _)| 123 == idx,));
     }
 
     // insert rest of the elements
     for element in &additional_elements {
-        builder.append(element.clone());
+        builder.push(element.clone());
     }
     builder.build_index();
 
@@ -607,17 +631,17 @@ fn append_elements() {
         let index = builder.get_index();
 
         assert!(index
-            .search(&elements.at(123), 1, max_search)
+            .search(&elements[123], 1, max_search)
             .iter()
-            .any(|&(idx, _)| 123 == idx,));
+            .any(|&(idx, _)| 123 == idx));
 
         assert!(index
-            .search(&additional_elements.at(123), 1, max_search)
+            .search(&additional_elements[123], 1, max_search)
             .iter()
-            .any(|&(idx, _)| elements.len() + 123 == idx,));
+            .any(|&(idx, _)| elements.len() + 123 == idx));
     }
 }
-
+/*
 #[test]
 fn append_elements_with_expected_size() {
     let elements: Vec<AngularVector> = (0..10).map(|_| random_vector::<AngularVector>(50)).collect();
@@ -634,7 +658,7 @@ fn append_elements_with_expected_size() {
     };
 
     // insert half of the elements
-    let mut builder: GranneBuilder<AngularVectors, AngularVector> = GranneBuilder::with_expected_size(config, 1000);
+    let mut builder = GranneBuilder::with_expected_size(config, 1000);
     for element in &elements {
         builder.append(element.clone());
     }
@@ -680,4 +704,5 @@ fn append_elements_with_expected_size() {
             .any(|&(idx, _)| elements.len() + 123 == idx,));
     }
 }
+
 */

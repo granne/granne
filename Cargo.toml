@@ -16,6 +16,7 @@ revord = "0.0.2"
 time = "0.1"
 toml = "0.4"
 byteorder = "*"
+serde_json = "*"
 
 jemallocator = "0.3.2"
 

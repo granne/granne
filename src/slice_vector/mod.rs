@@ -223,6 +223,8 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     where
         'a: 'b,
     {
+        debug_assert!(idx < self.len());
+
         let begin = idx * self.width;
         let end = (idx + 1) * self.width;
 
@@ -233,6 +235,8 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     where
         'a: 'b,
     {
+        debug_assert!(idx < self.len());
+
         let begin = idx * self.width;
         let end = begin + self.width;
 

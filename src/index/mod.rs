@@ -11,14 +11,16 @@ use time;
 #[cfg(test)]
 mod tests;
 
+mod io;
+
 use crate::{
     elements::{ElementContainer, ExtendableElementContainer},
     max_size_heap,
     slice_vector::{FixedWidthSliceVector, VariableWidthSliceVector},
 };
 
-type NeighborId = usize;
-const UNUSED: usize = usize::max_value();
+type NeighborId = u32;
+const UNUSED: NeighborId = NeighborId::max_value();
 
 /// An index for fast approximate nearest neighbor search.
 /// The index is built by using `GranneBuilder` and can be stored to disk.
@@ -28,6 +30,14 @@ pub struct Granne<'a, Elements: ElementContainer> {
 }
 
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
+    /// Loads this index lazily
+    pub fn load(index: &'a [u8], elements: &'a Elements) -> Self {
+        Self {
+            layers: io::load_layers(index),
+            elements,
+        }
+    }
+
     /// Searches for the `num_neighbors` neighbors closest to `element` in this index.
     /// `max_search` controls the number of nodes visited during the search. Returns a
     /// `Vec` containing the id and distance from `element`.
@@ -37,25 +47,41 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
         max_search: usize,
         num_neighbors: usize,
     ) -> Vec<(usize, f32)> {
-        match self.layers {
+        match &self.layers {
             Layers::FixWidth(layers) => {
-                self.search_internal(layers, element, max_search, num_neighbors)
+                self.search_internal(&layers, element, max_search, num_neighbors)
             }
             Layers::VarWidth(layers) => {
-                self.search_internal(layers, element, max_search, num_neighbors)
+                self.search_internal(&layers, element, max_search, num_neighbors)
             }
         }
     }
 
+    /// Returns the number of elements in this index.
+    /// Note that it might be less than the number of elements in `elements`.
     pub fn len(self: &Self) -> usize {
-        match self.layers {
+        match &self.layers {
             Layers::FixWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
             Layers::VarWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
         }
     }
 
-    pub fn get_element(self: &Self, idx: usize) -> Elements::Element {
-        self.elements.get(idx)
+    /// Returns the number of layers in this index.
+    pub fn num_layers(self: &Self) -> usize {
+        self.layers.len()
+    }
+
+    /// Returns the element at `index`.
+    pub fn get_element(self: &Self, index: usize) -> Elements::Element {
+        self.elements.get(index)
+    }
+
+    /// Returns the neighbors of the node at `index` in `layer`.
+    pub fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
+        match &self.layers {
+            Layers::FixWidth(layers) => layers[layer].get_neighbors(index),
+            Layers::VarWidth(layers) => layers[layer].get_neighbors(index),
+        }
     }
 }
 
@@ -83,7 +109,7 @@ pub struct Config {
 /// A builder for creating an index to be searched using `Granne`
 pub struct GranneBuilder<Elements: ElementContainer> {
     elements: Elements,
-    layers: Vec<FixedWidthSliceVector<'static, usize>>,
+    layers: Vec<FixedWidthSliceVector<'static, NeighborId>>,
     config: Config,
 }
 
@@ -95,15 +121,30 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
             config,
         }
     }
+    /*
+        /// Creates a `GranneBuilder` by reading an already built index from `buffer` together with `elements`
+        pub fn read(config: Config, buffer: &mut [u8], elements: Elements) -> Self {
+            let mut builder = Self::new(config, elements);
 
+            builder.layers = io::read_layers(buffer, builder.config.num_neighbors);
+
+            builder
+        }
+    */
+    /// Returns the number of already indexed elements.
     pub fn indexed_elements(self: &Self) -> usize {
         self.layers.last().map_or(0, |l| l.len())
     }
 
+    /// Returns a searchable index from this builder.
     pub fn get_index(self: &Self) -> Granne<Elements> {
-        Granne::from_parts(self.layers.as_slice(), &self.elements)
+        Granne::from_parts(
+            self.layers.iter().map(|l| l.borrow()).collect::<Vec<_>>(),
+            &self.elements,
+        )
     }
 
+    /// Builds an index for approximate nearest neighbor search.
     pub fn build_index(&mut self) {
         self.build_index_part(self.elements.len())
     }
@@ -150,10 +191,30 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
             self.index_elements_in_last_layer(num_elements);
         }
     }
+
+    /// Write the index to `buffer`.
+    pub fn write_index<B: std::io::Write + std::io::Seek>(
+        self: &Self,
+        buffer: &mut B,
+    ) -> std::io::Result<()> {
+        io::write_index(&self.layers, buffer)
+    }
 }
 
-impl<Elements: ExtendableElementContainer + Sync> GranneBuilder<Elements> {
-    fn push(self: &mut Self, element: Elements::Element) {
+impl<Elements: ElementContainer + crate::io::Writeable> GranneBuilder<Elements> {
+    /// Write the elements of this builder to `buffer`.
+    pub fn write_elements<B: std::io::Write>(
+        self: &Self,
+        buffer: &mut B,
+    ) -> std::io::Result<usize> {
+        self.elements.write(buffer)
+    }
+}
+
+impl<Elements: ExtendableElementContainer> GranneBuilder<Elements> {
+    /// Push a new element into this builder. In order to insert it into the index
+    /// a call to `build_index` or `build_index_part` is required.
+    pub fn push(self: &mut Self, element: Elements::Element) {
         self.elements.push(element);
     }
 }
@@ -165,12 +226,12 @@ trait Graph {
     fn len(self: &Self) -> usize;
 }
 
-impl<'a> Graph for FixedWidthSliceVector<'a, usize> {
+impl<'a> Graph for FixedWidthSliceVector<'a, NeighborId> {
     fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
         self.get(idx)
             .iter()
-            .copied()
-            .take_while(|&x| x != UNUSED)
+            .take_while(|&&x| x != UNUSED)
+            .map(|&x| usize::try_from(x).unwrap())
             .collect()
     }
 
@@ -179,9 +240,12 @@ impl<'a> Graph for FixedWidthSliceVector<'a, usize> {
     }
 }
 
-impl<'a> Graph for VariableWidthSliceVector<'a, usize, usize> {
+impl<'a> Graph for VariableWidthSliceVector<'a, NeighborId, usize> {
     fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
-        self.get(idx).iter().copied().collect()
+        self.get(idx)
+            .iter()
+            .map(|&x| usize::try_from(x).unwrap())
+            .collect()
     }
 
     fn len(self: &Self) -> usize {
@@ -189,13 +253,13 @@ impl<'a> Graph for VariableWidthSliceVector<'a, usize, usize> {
     }
 }
 
-impl<'a> Graph for [parking_lot::RwLock<&'a mut [usize]>] {
+impl<'a> Graph for [parking_lot::RwLock<&'a mut [NeighborId]>] {
     fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
         self[idx]
             .read()
             .iter()
-            .copied()
-            .take_while(|&x| x != UNUSED)
+            .take_while(|&&x| x != UNUSED)
+            .map(|&x| usize::try_from(x).unwrap())
             .collect()
     }
 
@@ -205,8 +269,8 @@ impl<'a> Graph for [parking_lot::RwLock<&'a mut [usize]>] {
 }
 
 enum Layers<'a> {
-    FixWidth(&'a [FixedWidthSliceVector<'a, usize>]),
-    VarWidth(&'a [VariableWidthSliceVector<'a, usize, usize>]),
+    FixWidth(Vec<FixedWidthSliceVector<'a, NeighborId>>),
+    VarWidth(Vec<VariableWidthSliceVector<'a, NeighborId, usize>>),
 }
 
 impl<'a> Layers<'a> {
@@ -218,8 +282,8 @@ impl<'a> Layers<'a> {
     }
 }
 
-impl<'a> From<&'a [FixedWidthSliceVector<'a, usize>]> for Layers<'a> {
-    fn from(fix_width: &'a [FixedWidthSliceVector<'a, usize>]) -> Self {
+impl<'a> From<Vec<FixedWidthSliceVector<'a, NeighborId>>> for Layers<'a> {
+    fn from(fix_width: Vec<FixedWidthSliceVector<'a, NeighborId>>) -> Self {
         Self::FixWidth(fix_width)
     }
 }
@@ -314,7 +378,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         elements: &Elements,
         num_elements: usize,
         prev_layers: &Granne<Elements>,
-        layer: &mut FixedWidthSliceVector<'static, usize>,
+        layer: &mut FixedWidthSliceVector<'static, NeighborId>,
         reinsert_elements: bool,
     ) {
         assert!(layer.len() <= num_elements);
@@ -402,7 +466,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         layer: &'a [parking_lot::RwLock<&'a mut [NeighborId]>],
         idx: usize,
     ) {
-        // do not index elements that are zero (multiply by 100 as safety margin)
+        // do not index elements that are zero
         if elements.dist(idx, idx) > NotNan::new(0.0001).unwrap() {
             // * Element::eps() {
             return;
@@ -522,10 +586,14 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     ) {
         assert!(num_neighbors <= node.len());
 
-        let neighbors: Vec<usize> = node.iter().take_while(|&&x| x != UNUSED).copied().collect();
+        let neighbors: Vec<usize> = node
+            .iter()
+            .take_while(|&&x| x != UNUSED)
+            .map(|&x| usize::try_from(x).unwrap())
+            .collect();
 
         let dists = elements.dists(node_id, &neighbors);
-        let mut candidates: Vec<_> = node.iter().copied().zip(dists.into_iter()).collect();
+        let mut candidates: Vec<_> = neighbors.iter().copied().zip(dists.into_iter()).collect();
 
         for &(j, d) in extra {
             candidates.push((j, d));
