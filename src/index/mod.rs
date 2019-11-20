@@ -16,7 +16,7 @@ mod io;
 use crate::{
     elements::{ElementContainer, ExtendableElementContainer},
     max_size_heap,
-    slice_vector::{FixedWidthSliceVector, VariableWidthSliceVector},
+    slice_vector::{FixedWidthSliceVector, MultiSetVector, VariableWidthSliceVector},
 };
 
 type NeighborId = u32;
@@ -54,6 +54,9 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
             Layers::VarWidth(layers) => {
                 self.search_internal(&layers, element, max_search, num_neighbors)
             }
+            Layers::Compressed(layers) => {
+                self.search_internal(&layers, element, max_search, num_neighbors)
+            }
         }
     }
 
@@ -63,6 +66,7 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
         match &self.layers {
             Layers::FixWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
             Layers::VarWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
+            Layers::Compressed(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
         }
     }
 
@@ -81,6 +85,7 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
         match &self.layers {
             Layers::FixWidth(layers) => layers[layer].get_neighbors(index),
             Layers::VarWidth(layers) => layers[layer].get_neighbors(index),
+            Layers::Compressed(layers) => layers[layer].get_neighbors(index),
         }
     }
 }
@@ -253,6 +258,19 @@ impl<'a> Graph for VariableWidthSliceVector<'a, NeighborId, usize> {
     }
 }
 
+impl<'a> Graph for MultiSetVector<'a> {
+    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
+        self.get(idx)
+            .iter()
+            .map(|&x| usize::try_from(x).unwrap())
+            .collect()
+    }
+
+    fn len(self: &Self) -> usize {
+        self.len()
+    }
+}
+
 impl<'a> Graph for [parking_lot::RwLock<&'a mut [NeighborId]>] {
     fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
         self[idx]
@@ -271,6 +289,7 @@ impl<'a> Graph for [parking_lot::RwLock<&'a mut [NeighborId]>] {
 enum Layers<'a> {
     FixWidth(Vec<FixedWidthSliceVector<'a, NeighborId>>),
     VarWidth(Vec<VariableWidthSliceVector<'a, NeighborId, usize>>),
+    Compressed(Vec<MultiSetVector<'a>>),
 }
 
 impl<'a> Layers<'a> {
@@ -278,6 +297,7 @@ impl<'a> Layers<'a> {
         match self {
             Self::FixWidth(layers) => layers.len(),
             Self::VarWidth(layers) => layers.len(),
+            Self::Compressed(layers) => layers.len(),
         }
     }
 }

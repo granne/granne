@@ -8,9 +8,9 @@ use rayon::prelude::*;
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
-//mod set_vector;
+mod set_vector;
 
-//pub use crate::set_vector::{MultiSetVector, MultiSetVectorT};
+pub use set_vector::{MultiSetVector, MultiSetVectorT};
 
 #[derive(Clone)]
 pub struct VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {

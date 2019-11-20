@@ -31,7 +31,8 @@ pub fn write_index(
     let mut layer_sizes = Vec::new();
     for layer in layers {
         let layer_size = layer
-            .write_as_variable_width_slice_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
+            //.write_as_variable_width_slice_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
+            .write_as_multi_set_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
         layer_sizes.push(layer_size);
     }
 
@@ -85,11 +86,13 @@ pub(super) fn load_layers(buffer: &'_ [u8]) -> Layers<'_> {
         for size in layer_sizes {
             let end = start + size;
             let layer = &buffer[start..end];
-            layers.push(VariableWidthSliceVector::load(layer));
+            //layers.push(VariableWidthSliceVector::load(layer));
+            layers.push(MultiSetVector::load(layer));
             start = end;
         }
 
-        Layers::VarWidth(layers)
+        //Layers::VarWidth(layers)
+        Layers::Compressed(layers)
     } else {
         let mut layers = Vec::new();
         for size in layer_sizes {
@@ -102,7 +105,7 @@ pub(super) fn load_layers(buffer: &'_ [u8]) -> Layers<'_> {
         Layers::FixWidth(layers)
     }
 }
-
+/*
 pub fn read_layers(
     buffer: &mut [u8],
     num_neighbors: usize,
@@ -128,6 +131,7 @@ pub fn read_layers(
         }
     }
 }
+*/
 /*
 pub fn read_layers<I: Read>(
     index_reader: I,

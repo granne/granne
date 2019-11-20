@@ -1,8 +1,8 @@
-use crate::{write, VariableWidthSliceVector};
+use super::{write, FixedWidthSliceVector, VariableWidthSliceVector};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::borrow::Cow;
 use std::convert::TryFrom;
-use std::io::{Result, Write};
+use std::io::{Read, Result, Seek, SeekFrom, Write};
 use stream_vbyte::{decode, encode, Scalar};
 
 #[derive(Clone)]
@@ -55,21 +55,8 @@ where
             data.resize(<u8>::max_value() as usize, 0)
         }
 
-        differential_encode(&mut data);
-
         self.counts.to_mut().push(data.len() as u8);
-
-        if data.len() < MIN_NUMBERS_TO_ENCODE {
-            data.resize(MIN_NUMBERS_TO_ENCODE, 0);
-        }
-
-        let mut encoded_data = Vec::new();
-        const MAX_REQUIRED_SIZE_PER_NUM: usize = 5;
-        encoded_data.resize(MAX_REQUIRED_SIZE_PER_NUM * data.len(), 0x0);
-
-        let encoded_len = encode::<Scalar>(data.as_slice(), &mut encoded_data);
-
-        self.data.push(&encoded_data[..encoded_len]);
+        self.data.push(&set_encode(data));
     }
 
     pub fn extend_from_multi_set_vector(self: &mut Self, other: &Self) {
@@ -126,6 +113,23 @@ where
     }
 }
 
+fn set_encode(mut data: Vec<u32>) -> Vec<u8> {
+    differential_encode(&mut data);
+
+    if data.len() < MIN_NUMBERS_TO_ENCODE {
+        data.resize(MIN_NUMBERS_TO_ENCODE, 0);
+    }
+
+    let mut encoded_data = Vec::new();
+    const MAX_REQUIRED_SIZE_PER_NUM: usize = 5;
+    encoded_data.resize(MAX_REQUIRED_SIZE_PER_NUM * data.len(), 0x0);
+
+    let encoded_len = encode::<Scalar>(data.as_slice(), &mut encoded_data);
+    encoded_data.resize(encoded_len, 0x0);
+
+    encoded_data
+}
+
 fn differential_encode(data: &mut [u32]) {
     for i in (1..data.len()).rev() {
         data[i] -= data[i - 1];
@@ -138,9 +142,137 @@ fn differential_decode(data: &mut [u32]) {
     }
 }
 
+impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T>
+where
+    u32: TryFrom<T>,
+    <u32 as std::convert::TryFrom<T>>::Error: std::fmt::Debug,
+{
+    // u8 * num_elems (counts)
+    // usize * num_elems (offsets)
+    // unknown (data)
+    //
+    //    buffer
+    //        .write_u64::<LittleEndian>(self.len() as u64)
+    //        .expect("Could not write length");
+    //
+    //    let mut bytes_written = std::mem::size_of::<u64>();
+
+    //    write(&self.counts[..], buffer)?;
+    //    bytes_written += self.counts.len();
+    //    bytes_written += self.data.write(buffer)?;
+
+    //    Ok(bytes_written)
+    //
+    pub fn write_as_multi_set_vector<Offset, B, P>(
+        self: &Self,
+        buffer: &mut B,
+        mut predicate: P,
+    ) -> Result<usize>
+    where
+        Offset: TryFrom<usize>,
+        <Offset as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
+        B: Write + Seek,
+        P: FnMut(&T) -> bool,
+    {
+        let initial_pos = buffer.seek(SeekFrom::Current(0))?;
+
+        buffer.write_u64::<LittleEndian>(self.len() as u64)?;
+
+        let mut count_pos = buffer.seek(SeekFrom::Current(0))?;
+
+        // move to make room for counts
+        let mut offset_pos = buffer.seek(SeekFrom::Current(self.len() as i64))?;
+        buffer.write_u64::<LittleEndian>(self.len() as u64)?;
+
+        let zero_offset = Offset::try_from(0).unwrap();
+        write(&[zero_offset], buffer)?;
+        offset_pos = buffer.seek(SeekFrom::Current(0))?;
+
+        let offset_size = ::std::mem::size_of::<Offset>() as u64;
+        let mut value_pos = offset_pos + self.len() as u64 * offset_size;
+
+        let mut counts: Vec<u8> = Vec::new();
+        let mut slice_buffer: Vec<u32> = Vec::new();
+        let mut offsets: Vec<Offset> = Vec::new();
+
+        // write to file in chunks (better for BufWriter)
+        let mut num_chunks = 100;
+        let chunk_size = std::cmp::max(100, self.len() / num_chunks);
+        num_chunks = (self.len() + chunk_size - 1) / chunk_size;
+
+        let mut total_len: usize = 0;
+        for chunk in 0..num_chunks {
+            // starting index for this chunk
+            let chunk_offset = chunk * chunk_size;
+
+            // chunk_size or whatever is left
+            let chunk_size = std::cmp::min(chunk_size, self.len() - chunk_offset);
+
+            counts.clear();
+            offsets.clear();
+
+            // write values
+            buffer.seek(SeekFrom::Start(value_pos))?;
+            for i in 0..chunk_size {
+                slice_buffer.clear();
+                for val in self.get(chunk_offset + i) {
+                    if predicate(val) {
+                        slice_buffer.push(u32::try_from(val.clone()).unwrap());
+                    }
+                }
+
+                slice_buffer.sort();
+
+                debug_assert!(slice_buffer.len() < u8::max_value() as usize);
+                if slice_buffer.len() >= u8::max_value() as usize {
+                    slice_buffer.resize(u8::max_value() as usize, 0)
+                }
+
+                counts.push(slice_buffer.len() as u8);
+
+                let encoded = set_encode(slice_buffer.clone());
+                write(encoded.as_slice(), buffer)?;
+
+                total_len += encoded.len();
+                offsets.push(Offset::try_from(total_len).unwrap());
+            }
+            value_pos = buffer.seek(SeekFrom::Current(0))?;
+
+            // write counts
+            buffer.seek(SeekFrom::Start(count_pos))?;
+            write(counts.as_slice(), buffer)?;
+            count_pos = buffer.seek(SeekFrom::Current(0))?;
+
+            // write offsets
+            buffer.seek(SeekFrom::Start(offset_pos))?;
+            write(offsets.as_slice(), buffer)?;
+            offset_pos = buffer.seek(SeekFrom::Current(0))?;
+        }
+
+        debug_assert_eq!(
+            initial_pos + ::std::mem::size_of::<u64>() as u64 + self.len() as u64,
+            count_pos
+        );
+        debug_assert_eq!(
+            count_pos
+                + (::std::mem::size_of::<u64>()
+                    + ::std::mem::size_of::<Offset>() * (self.len() + 1)) as u64,
+            offset_pos
+        );
+
+        buffer.seek(SeekFrom::Start(value_pos))?;
+
+        let bytes_written = (value_pos - initial_pos) as usize;
+
+        Ok(bytes_written)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use tempfile;
 
     #[test]
     fn test_differential_encode() {
@@ -230,6 +362,110 @@ mod tests {
 
             assert_eq!((i + 1) as usize, vec.len());
             assert_eq!(slice, vec.get(i as usize));
+        }
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_multi_set_vector() {
+        let width = 7;
+        let mut vec = FixedWidthSliceVector::new();
+        for i in 0..123 {
+            let data: Vec<u32> = (2 * i + 3..).take(width).collect();
+            vec.push(&data);
+        }
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        let bytes_written = vec
+            .write_as_multi_set_vector::<usize, _, _>(&mut file, |_| true)
+            .unwrap();
+
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = MultiSetVector::load(&buffer);
+
+        assert_eq!(vec.len(), loaded_vec.len());
+
+        for i in 0..vec.len() {
+            assert_eq!(vec.get(i), loaded_vec.get(i).as_slice());
+        }
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_multi_set_vector_predicate() {
+        let width = 7;
+        let mut vec = FixedWidthSliceVector::new();
+        for i in 0..522 {
+            let data: Vec<u32> = (2 * i + 3..).take(width).collect();
+            vec.push(&data);
+        }
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        vec.write_as_multi_set_vector::<usize, _, _>(&mut file, |x| x % 3 == 0)
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = MultiSetVector::load(&buffer);
+
+        assert_eq!(vec.len(), loaded_vec.len());
+
+        for i in 0..vec.len() {
+            let vec_slice: Vec<_> = vec
+                .get(i)
+                .iter()
+                .filter(|&x| x % 3 == 0)
+                .map(|x| *x)
+                .collect();
+            assert_eq!(vec_slice, loaded_vec.get(i));
+        }
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_multi_set_vector_empty() {
+        let width = 7;
+        let vec = FixedWidthSliceVector::<u16>::new();
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        vec.write_as_multi_set_vector::<usize, _, _>(&mut file, |_| true)
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = MultiSetVector::load(&buffer);
+
+        assert_eq!(0, loaded_vec.len());
+    }
+
+    #[test]
+    fn write_fixed_width_vector_as_multi_set_vector_empty_slices() {
+        let width = 1;
+        let mut vec = FixedWidthSliceVector::<u32>::new();
+
+        for _ in 0..10 {
+            vec.push(&[0]);
+        }
+
+        let mut file: File = tempfile::tempfile().unwrap();
+        vec.write_as_multi_set_vector::<usize, _, _>(&mut file, |&x| x > 0)
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let loaded_vec = MultiSetVector::load(&buffer);
+
+        assert_eq!(vec.len(), loaded_vec.len());
+
+        for i in 0..loaded_vec.len() {
+            assert!(loaded_vec.get(i).is_empty());
         }
     }
 }
