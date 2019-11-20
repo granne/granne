@@ -1,6 +1,5 @@
 use super::{write, FixedWidthSliceVector, VariableWidthSliceVector};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 use stream_vbyte::{decode, encode, Scalar};
@@ -12,7 +11,6 @@ where
     usize: TryFrom<Offset>,
 {
     data: VariableWidthSliceVector<'a, u8, Offset>,
-    counts: Cow<'a, [u8]>,
 }
 
 pub type MultiSetVector<'a> = MultiSetVectorT<'a, usize>;
@@ -29,7 +27,6 @@ where
     pub fn new() -> Self {
         Self {
             data: VariableWidthSliceVector::new(),
-            counts: Vec::new().into(),
         }
     }
 
@@ -49,36 +46,27 @@ where
         self.push_sorted(data);
     }
 
-    pub fn push_sorted(self: &mut Self, mut data: Vec<u32>) {
-        debug_assert!(data.len() < <u8>::max_value() as usize);
-        if data.len() >= <u8>::max_value() as usize {
-            data.resize(<u8>::max_value() as usize, 0)
-        }
-
-        self.counts.to_mut().push(data.len() as u8);
+    pub fn push_sorted(self: &mut Self, data: Vec<u32>) {
         self.data.push(&set_encode(data));
     }
 
     pub fn extend_from_multi_set_vector(self: &mut Self, other: &Self) {
         self.data.extend_from_slice_vector(&other.data);
-        self.counts.to_mut().extend_from_slice(&other.counts);
     }
 
     pub fn get(self: &Self, idx: usize) -> Vec<u32> {
-        let count = std::cmp::max(MIN_NUMBERS_TO_ENCODE, self.counts[idx] as usize);
-
-        let mut decoded_nums = Vec::new();
-        decoded_nums.resize(count, 0);
-
         let encoded_data = self.data.get(idx);
 
-        let bytes_decoded = decode::<Scalar>(encoded_data, count, &mut decoded_nums);
+        let count = encoded_data[0] as usize;
+        let mut decoded_nums = Vec::new();
+        decoded_nums.resize(std::cmp::max(MIN_NUMBERS_TO_ENCODE, count), 0);
 
-        assert_eq!(encoded_data.len(), bytes_decoded);
+        let bytes_decoded =
+            decode::<Scalar>(&encoded_data[1..], decoded_nums.len(), &mut decoded_nums);
 
-        if (self.counts[idx] as usize) < MIN_NUMBERS_TO_ENCODE {
-            decoded_nums.resize(self.counts[idx] as usize, 0);
-        }
+        debug_assert_eq!(encoded_data[1..].len(), bytes_decoded);
+
+        decoded_nums.resize(count, 0);
 
         differential_decode(&mut decoded_nums);
 
@@ -86,35 +74,24 @@ where
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
-        buffer
-            .write_u64::<LittleEndian>(self.len() as u64)
-            .expect("Could not write length");
-
-        let mut bytes_written = std::mem::size_of::<u64>();
-
-        write(&self.counts[..], buffer)?;
-        bytes_written += self.counts.len();
-        bytes_written += self.data.write(buffer)?;
-
-        Ok(bytes_written)
+        self.data.write(buffer)
     }
 
     pub fn load(buffer: &'a [u8]) -> Self {
-        let u64_len = ::std::mem::size_of::<u64>();
-        let num_sets = (&buffer[..u64_len])
-            .read_u64::<LittleEndian>()
-            .expect("Could not read length") as usize;
-        let (counts, data) = buffer[u64_len..].split_at(num_sets);
-
         Self {
-            counts: Cow::from(counts),
-            data: VariableWidthSliceVector::load(data),
+            data: VariableWidthSliceVector::load(buffer),
         }
     }
 }
 
 fn set_encode(mut data: Vec<u32>) -> Vec<u8> {
+    debug_assert!(data.len() < u8::max_value() as usize);
+    if data.len() >= u8::max_value() as usize {
+        data.resize(u8::max_value() as usize, 0)
+    }
+
     differential_encode(&mut data);
+    let count = data.len() as u8;
 
     if data.len() < MIN_NUMBERS_TO_ENCODE {
         data.resize(MIN_NUMBERS_TO_ENCODE, 0);
@@ -126,6 +103,7 @@ fn set_encode(mut data: Vec<u32>) -> Vec<u8> {
 
     let encoded_len = encode::<Scalar>(data.as_slice(), &mut encoded_data);
     encoded_data.resize(encoded_len, 0x0);
+    encoded_data.insert(0, count);
 
     encoded_data
 }
@@ -147,22 +125,6 @@ where
     u32: TryFrom<T>,
     <u32 as std::convert::TryFrom<T>>::Error: std::fmt::Debug,
 {
-    // u8 * num_elems (counts)
-    // usize * num_elems (offsets)
-    // unknown (data)
-    //
-    //    buffer
-    //        .write_u64::<LittleEndian>(self.len() as u64)
-    //        .expect("Could not write length");
-    //
-    //    let mut bytes_written = std::mem::size_of::<u64>();
-
-    //    write(&self.counts[..], buffer)?;
-    //    bytes_written += self.counts.len();
-    //    bytes_written += self.data.write(buffer)?;
-
-    //    Ok(bytes_written)
-    //
     pub fn write_as_multi_set_vector<Offset, B, P>(
         self: &Self,
         buffer: &mut B,
@@ -178,20 +140,13 @@ where
 
         buffer.write_u64::<LittleEndian>(self.len() as u64)?;
 
-        let mut count_pos = buffer.seek(SeekFrom::Current(0))?;
-
-        // move to make room for counts
-        let mut offset_pos = buffer.seek(SeekFrom::Current(self.len() as i64))?;
-        buffer.write_u64::<LittleEndian>(self.len() as u64)?;
-
         let zero_offset = Offset::try_from(0).unwrap();
         write(&[zero_offset], buffer)?;
-        offset_pos = buffer.seek(SeekFrom::Current(0))?;
+        let mut offset_pos = buffer.seek(SeekFrom::Current(0))?;
 
         let offset_size = ::std::mem::size_of::<Offset>() as u64;
         let mut value_pos = offset_pos + self.len() as u64 * offset_size;
 
-        let mut counts: Vec<u8> = Vec::new();
         let mut slice_buffer: Vec<u32> = Vec::new();
         let mut offsets: Vec<Offset> = Vec::new();
 
@@ -208,7 +163,6 @@ where
             // chunk_size or whatever is left
             let chunk_size = std::cmp::min(chunk_size, self.len() - chunk_offset);
 
-            counts.clear();
             offsets.clear();
 
             // write values
@@ -223,13 +177,6 @@ where
 
                 slice_buffer.sort();
 
-                debug_assert!(slice_buffer.len() < u8::max_value() as usize);
-                if slice_buffer.len() >= u8::max_value() as usize {
-                    slice_buffer.resize(u8::max_value() as usize, 0)
-                }
-
-                counts.push(slice_buffer.len() as u8);
-
                 let encoded = set_encode(slice_buffer.clone());
                 write(encoded.as_slice(), buffer)?;
 
@@ -238,27 +185,11 @@ where
             }
             value_pos = buffer.seek(SeekFrom::Current(0))?;
 
-            // write counts
-            buffer.seek(SeekFrom::Start(count_pos))?;
-            write(counts.as_slice(), buffer)?;
-            count_pos = buffer.seek(SeekFrom::Current(0))?;
-
             // write offsets
             buffer.seek(SeekFrom::Start(offset_pos))?;
             write(offsets.as_slice(), buffer)?;
             offset_pos = buffer.seek(SeekFrom::Current(0))?;
         }
-
-        debug_assert_eq!(
-            initial_pos + ::std::mem::size_of::<u64>() as u64 + self.len() as u64,
-            count_pos
-        );
-        debug_assert_eq!(
-            count_pos
-                + (::std::mem::size_of::<u64>()
-                    + ::std::mem::size_of::<Offset>() * (self.len() + 1)) as u64,
-            offset_pos
-        );
 
         buffer.seek(SeekFrom::Start(value_pos))?;
 
