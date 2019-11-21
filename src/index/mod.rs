@@ -149,6 +149,11 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         )
     }
 
+    /// Returns a searchable index from this builder.
+    pub fn get_elements(self: &Self) -> &Elements {
+        &self.elements
+    }
+
     /// Builds an index for approximate nearest neighbor search.
     pub fn build_index(&mut self) {
         self.build_index_part(self.elements.len())

@@ -7,7 +7,7 @@ mod slice_vector;
 
 pub mod elements;
 pub use elements::{AngularIntVector, AngularIntVectors, AngularVector, AngularVectors, Dist};
-pub use index::{Granne, GranneBuilder};
+pub use index::{Config, Granne, GranneBuilder};
 
-#[cfg(test)]
-mod test_helper;
+//#[cfg(test)]
+pub mod test_helper;

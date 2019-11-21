@@ -8,18 +8,15 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use tempfile;
 
-fn random_vector<Element: std::iter::FromIterator<f32>>(dim: usize) -> Element {
-    test_helper::random_floats().take(dim).collect()
-}
-
 const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 
 #[test]
 fn select_neighbors() {
     const DIM: usize = 50;
-    let element: AngularVector = random_vector(DIM);
+    let element: AngularVector = test_helper::random_vector(DIM);
 
-    let other_elements: Vec<AngularVector> = (0..50).map(|_| random_vector(DIM)).collect();
+    let other_elements: Vec<AngularVector> =
+        (0..50).map(|_| test_helper::random_vector(DIM)).collect();
 
     let mut candidates: Vec<_> = other_elements
         .iter()
@@ -95,7 +92,7 @@ fn with_borrowed_elements() {
     };
 
     let elements: Vec<_> = (0..500)
-        .map(|_| random_vector::<AngularVector>(25))
+        .map(|_| test_helper::random_vector::<AngularVector>(25))
         .collect();
 
     let mut builder = GranneBuilder::new(config, elements.as_slice());
@@ -120,10 +117,10 @@ fn with_elements_and_add() {
     };
 
     let elements: AngularVectors = (0..500)
-        .map(|_| random_vector::<AngularVector>(25))
+        .map(|_| test_helper::random_vector::<AngularVector>(25))
         .collect();
     let additional_elements: Vec<AngularVector> = (0..100)
-        .map(|_| random_vector::<AngularVector>(25))
+        .map(|_| test_helper::random_vector::<AngularVector>(25))
         .collect();
 
     let mut builder = GranneBuilder::new(config, elements);
@@ -144,7 +141,7 @@ fn with_elements_and_add() {
 #[test]
 fn build_and_search_float() {
     let elements: Vec<_> = (0..1500)
-        .map(|_| random_vector::<AngularVector>(128))
+        .map(|_| test_helper::random_vector::<AngularVector>(128))
         .collect();
 
     build_and_search(elements);
@@ -155,7 +152,7 @@ fn build_and_search_int8() {
     const DIM: usize = 32;
 
     let elements: Vec<AngularIntVector> = (0..500)
-        .map(|_| random_vector::<AngularIntVector>(DIM))
+        .map(|_| test_helper::random_vector::<AngularIntVector>(DIM))
         .collect();
 
     build_and_search(elements);
@@ -164,7 +161,7 @@ fn build_and_search_int8() {
 #[test]
 fn incremental_build_0() {
     let elements: Vec<_> = (0..1000)
-        .map(|_| random_vector::<AngularVector>(25))
+        .map(|_| test_helper::random_vector::<AngularVector>(25))
         .collect();
 
     let config = Config {
@@ -238,7 +235,7 @@ fn incremental_build_0() {
 #[test]
 fn incremental_build_1() {
     let elements: AngularIntVectors = (0..1000)
-        .map(|_| random_vector::<AngularIntVector>(25))
+        .map(|_| test_helper::random_vector::<AngularIntVector>(25))
         .collect();
 
     let config = Config {
@@ -273,7 +270,7 @@ fn incremental_build_with_write_and_read() {
     const DIM: usize = 25;
 
     let elements: AngularVectors = (0..1000)
-        .map(|_| random_vector::<AngularVector>(DIM))
+        .map(|_| test_helper::random_vector::<AngularVector>(DIM))
         .collect();
 
     let config = Config {
@@ -327,7 +324,7 @@ fn read_index_with_owned_elements() {
 
     let mut owning_builder = {
         let elements: Vec<Element> = (0..num_elements)
-            .map(|_| random_vector::<Element>(DIM))
+            .map(|_| test_helper::random_vector::<Element>(DIM))
             .collect();
 
         let config = Config {
@@ -370,7 +367,7 @@ fn read_index_with_owned_elements() {
 #[test]
 fn empty_build() {
     let elements: AngularVectors = (0..100)
-        .map(|_| random_vector::<AngularVector>(25))
+        .map(|_| test_helper::random_vector::<AngularVector>(25))
         .collect();
 
     let config = Config {
@@ -398,7 +395,7 @@ fn test_layer_multiplier() {
 #[test]
 fn write_and_load() {
     const DIM: usize = 50;
-    let elements: AngularVectors = (0..100).map(|_| random_vector(DIM)).collect();
+    let elements: AngularVectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
     let config = Config {
         num_layers: 4,
@@ -448,7 +445,7 @@ fn write_and_load() {
 #[test]
 fn write_and_load_compressed() {
     const DIM: usize = 50;
-    let elements: AngularVectors = (0..100).map(|_| random_vector(DIM)).collect();
+    let elements: AngularVectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
     let config = Config {
         num_layers: 4,
@@ -532,7 +529,7 @@ fn write_and_read() {
     const DIM: usize = 64;
 
     let elements: AngularIntVectors = (0..100)
-        .map(|_| random_vector::<AngularVector>(DIM).into())
+        .map(|_| test_helper::random_vector::<AngularVector>(DIM).into())
         .collect();
 
     let config = Config {
@@ -579,11 +576,11 @@ fn write_and_read() {
 #[test]
 fn append_elements() {
     let elements: Vec<AngularVector> = (0..500)
-        .map(|_| random_vector::<AngularVector>(50))
+        .map(|_| test_helper::random_vector::<AngularVector>(50))
         .collect();
 
     let additional_elements: Vec<AngularVector> = (0..500)
-        .map(|_| random_vector::<AngularVector>(50))
+        .map(|_| test_helper::random_vector::<AngularVector>(50))
         .collect();
 
     let config = Config {
@@ -644,10 +641,10 @@ fn append_elements() {
 /*
 #[test]
 fn append_elements_with_expected_size() {
-    let elements: Vec<AngularVector> = (0..10).map(|_| random_vector::<AngularVector>(50)).collect();
+    let elements: Vec<AngularVector> = (0..10).map(|_| test_helper::random_vector::<AngularVector>(50)).collect();
 
     let additional_elements: Vec<AngularVector> =
-        (10..1000).map(|_| random_vector::<AngularVector>(50)).collect();
+        (10..1000).map(|_| test_helper::random_vector::<AngularVector>(50)).collect();
 
     let config = Config {
         num_layers: 4,

@@ -30,9 +30,8 @@ pub fn write_index(
 
     let mut layer_sizes = Vec::new();
     for layer in layers {
-        let layer_size = layer
-            //.write_as_variable_width_slice_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
-            .write_as_multi_set_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
+        let layer_size =
+            layer.write_as_multi_set_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
         layer_sizes.push(layer_size);
     }
 
@@ -44,13 +43,14 @@ pub fn write_index(
 
     metadata.push_str(
         &serde_json::to_string(&serde_json::json!({
+            "granne_version": env!("CARGO_PKG_VERSION"),
             "version": SERIALIZATION_VERSION,
             "num_elements": *layer_counts.last().unwrap_or(&0),
             "num_layers": layer_counts.len(),
             "num_neighbors": num_neighbors,
             "layer_counts": layer_counts,
             "layer_sizes": layer_sizes,
-            //"compressed": compress
+            "compressed": true,
         }))
         .expect("Could not create metadata json"),
     );
@@ -98,12 +98,24 @@ pub(super) fn load_layers(buffer: &'_ [u8]) -> Layers<'_> {
         for size in layer_sizes {
             let end = start + size;
             let layer = &buffer[start..end];
-            layers.push(FixedWidthSliceVector::load(layer, num_neighbors));
+            layers.push(VariableWidthSliceVector::load(layer));
             start = end;
         }
 
-        Layers::FixWidth(layers)
+        Layers::VarWidth(layers)
     }
+    /*
+            let mut layers = Vec::new();
+            for size in layer_sizes {
+                let end = start + size;
+                let layer = &buffer[start..end];
+                layers.push(FixedWidthSliceVector::load(layer, num_neighbors));
+                start = end;
+            }
+
+            Layers::FixWidth(layers)
+        }
+    */
 }
 /*
 pub fn read_layers(
@@ -205,8 +217,12 @@ fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>, bool)> 
 
     let version: usize = serde_json::from_value(metadata["version"].clone()).unwrap_or(0);
 
-    let compressed: bool =
+    let mut compressed: bool =
         serde_json::from_value(metadata["compressed"].clone()).unwrap_or(version >= 2);
+
+    if compressed && version < 2 {
+        compressed = false;
+    }
 
     let layer_sizes = &metadata["layer_sizes"];
     let layer_sizes: Vec<usize> = serde_json::from_value(layer_sizes.clone())?;

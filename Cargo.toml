@@ -1,6 +1,6 @@
 [package]
-name = "granne-2"
-version = "0.1.0"
+name = "granne"
+version = "0.5.0"
 authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
 license = "MIT"
 edition = "2018"
@@ -20,6 +20,8 @@ serde_json = "*"
 stream-vbyte = "*"
 
 jemallocator = "0.3.2"
+
+rand = "*"
 
 [dev-dependencies]
 tempfile = "3.0.5"

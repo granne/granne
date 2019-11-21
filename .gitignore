@@ -1,0 +1,16 @@
+target/
+build/
+**/*.bk
+**/*.bak
+*.so
+.DS_STORE
+*~
+#*
+*#
+*.so
+terraform
+*.pyc
+/wheels/
+/wheelhouse/
+example_data/
+Cargo.lock
