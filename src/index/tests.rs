@@ -608,7 +608,7 @@ fn append_elements() {
         let index = builder.get_index();
 
         assert!(index
-            .search(&elements[123], 1, max_search)
+            .search(&elements[123], max_search, 1)
             .iter()
             .any(|&(idx, _)| 123 == idx,));
     }
@@ -628,12 +628,12 @@ fn append_elements() {
         let index = builder.get_index();
 
         assert!(index
-            .search(&elements[123], 1, max_search)
+            .search(&elements[123], max_search, 1)
             .iter()
             .any(|&(idx, _)| 123 == idx));
 
         assert!(index
-            .search(&additional_elements[123], 1, max_search)
+            .search(&additional_elements[123], max_search, 1)
             .iter()
             .any(|&(idx, _)| elements.len() + 123 == idx));
     }

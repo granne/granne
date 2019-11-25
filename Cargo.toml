@@ -17,7 +17,7 @@ time = "0.1"
 toml = "0.4"
 byteorder = "*"
 serde_json = "*"
-stream-vbyte = "*"
+stream-vbyte = {version = "*", features = []}
 
 jemallocator = "0.3.2"
 

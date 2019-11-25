@@ -8,9 +8,13 @@ use rayon::prelude::*;
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
+mod offsets;
 mod set_vector;
 
-pub use set_vector::{MultiSetVector, MultiSetVectorT};
+use crate::io::write_as_bytes;
+
+pub use offsets::{CompressedVariableWidthSliceVector, Offsets};
+pub use set_vector::MultiSetVector;
 
 #[derive(Clone)]
 pub struct VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {
@@ -154,7 +158,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         buffer.write_u64::<LittleEndian>(self.len() as u64)?;
 
         let zero_offset = Offset::try_from(0).unwrap();
-        write(&[zero_offset], buffer)?;
+        write_as_bytes(&[zero_offset], buffer)?;
         let mut offset_pos = buffer.seek(SeekFrom::Current(0))?;
         let offset_size = ::std::mem::size_of::<Offset>() as u64;
         let mut value_pos = offset_pos + self.len() as u64 * offset_size;
@@ -185,13 +189,13 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
                     }
                 }
                 total_count += slice_buffer.len();
-                write(slice_buffer.as_slice(), buffer)?;
+                write_as_bytes(slice_buffer.as_slice(), buffer)?;
                 offsets.push(Offset::try_from(total_count).unwrap());
             }
             value_pos = buffer.seek(SeekFrom::Current(0))?;
 
             buffer.seek(SeekFrom::Start(offset_pos))?;
-            write(offsets.as_slice(), buffer)?;
+            write_as_bytes(offsets.as_slice(), buffer)?;
             offset_pos = buffer.seek(SeekFrom::Current(0))?;
         }
 
@@ -270,10 +274,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
-        write(&self.data[..], buffer)?;
-        let bytes_written = self.data.len() * std::mem::size_of::<T>();
-
-        Ok(bytes_written)
+        write_as_bytes(&self.data[..], buffer)
     }
 }
 
@@ -369,7 +370,7 @@ where
         buffer: &mut B,
         begin: usize,
         end: usize,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         assert!(begin <= end);
         assert!(begin <= self.len());
         assert!(end <= self.len());
@@ -383,12 +384,12 @@ where
         for i in begin..=end {
             let offset = usize::try_from(self.offsets[i]).unwrap();
             let offset = Offset::try_from(offset - offset_begin).unwrap();
-            write(&[offset], buffer)?;
+            write_as_bytes(&[offset], buffer)?;
         }
 
         let data_begin = usize::try_from(self.offsets[begin]).unwrap();
         let data_end = usize::try_from(self.offsets[end]).unwrap();
-        write(&self.data[data_begin..data_end], buffer)
+        write_as_bytes(&self.data[data_begin..data_end], buffer)
     }
 
     pub fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
@@ -434,25 +435,11 @@ where
 
         let mut bytes_written = std::mem::size_of::<u64>();
 
-        write(&self.offsets[..], buffer)?;
-        bytes_written += self.offsets.len() * std::mem::size_of::<Offset>();
-
-        write(&self.data[..], buffer)?;
-        bytes_written += self.data.len() * std::mem::size_of::<T>();
+        bytes_written += write_as_bytes(&self.offsets[..], buffer)?;
+        bytes_written += write_as_bytes(&self.data[..], buffer)?;
 
         Ok(bytes_written)
     }
-}
-
-fn write<T, B: Write>(elements: &[T], buffer: &mut B) -> Result<()> {
-    let data = unsafe {
-        ::std::slice::from_raw_parts(
-            elements.as_ptr() as *const u8,
-            elements.len() * ::std::mem::size_of::<T>(),
-        )
-    };
-
-    buffer.write_all(data)
 }
 
 #[cfg(test)]

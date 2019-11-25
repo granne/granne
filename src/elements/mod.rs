@@ -1,7 +1,6 @@
 use ordered_float::NotNan;
 
 mod angular_vector;
-
 pub use angular_vector::{AngularIntVector, AngularIntVectors, AngularVector, AngularVectors};
 
 /// A trait for any type containing elements to be indexed using `GranneBuilder` and/or used for

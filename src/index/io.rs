@@ -30,8 +30,9 @@ pub fn write_index(
 
     let mut layer_sizes = Vec::new();
     for layer in layers {
-        let layer_size =
-            layer.write_as_multi_set_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
+        let layer_size = layer.write_as_multi_set_vector(&mut buffer, |&x| x != UNUSED)?;
+        //        let layer_size =
+        //            layer.write_as_variable_width_slice_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
         layer_sizes.push(layer_size);
     }
 

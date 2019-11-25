@@ -20,6 +20,15 @@ pub fn load_as_bytes<T>(slice: &[T]) -> &[u8] {
     }
 }
 
+pub fn write_as_bytes<T, B: Write>(elements: &[T], buffer: &mut B) -> Result<usize> {
+    let size = elements.len() * ::std::mem::size_of::<T>();
+    let data = unsafe { ::std::slice::from_raw_parts(elements.as_ptr() as *const u8, size) };
+
+    buffer.write_all(data)?;
+
+    Ok(size)
+}
+
 /// A trait for types that are writeable to a buffer
 pub trait Writeable {
     /// Writes `self` to `buffer`, if successful returns `Ok(num_bytes_written)`

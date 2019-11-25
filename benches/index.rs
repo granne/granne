@@ -46,12 +46,7 @@ mod index {
         };
     }
 
-    builder_search_impl!(
-        builder_search_angular_vector_3_ms_50,
-        AngularVectors,
-        3,
-        50
-    );
+    builder_search_impl!(builder_search_angular_vector_3_ms_50, AngularVectors, 3, 50);
     builder_search_impl!(
         builder_search_angular_vector_100_ms_50,
         AngularVectors,
@@ -108,12 +103,7 @@ mod index {
         };
     }
 
-    index_search_impl!(
-        index_search_angular_vector_3_ms_50,
-        AngularVectors,
-        3,
-        50
-    );
+    index_search_impl!(index_search_angular_vector_3_ms_50, AngularVectors, 3, 50);
     index_search_impl!(
         index_search_angular_vector_100_ms_50,
         AngularVectors,
