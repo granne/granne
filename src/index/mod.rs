@@ -224,7 +224,7 @@ impl<Elements: ElementContainer + crate::io::Writeable> GranneBuilder<Elements> 
 impl<Elements: ExtendableElementContainer> GranneBuilder<Elements> {
     /// Push a new element into this builder. In order to insert it into the index
     /// a call to `build_index` or `build_index_part` is required.
-    pub fn push(self: &mut Self, element: Elements::Element) {
+    pub fn push(self: &mut Self, element: Elements::InternalElement) {
         self.elements.push(element);
     }
 }

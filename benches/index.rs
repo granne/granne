@@ -11,7 +11,6 @@ fn empty(b: &mut Bencher) {
 
 mod index {
     use super::*;
-    use granne::elements::ElementContainer;
     use granne::*;
     use std::io::{Read, Seek, SeekFrom};
     use tempfile;

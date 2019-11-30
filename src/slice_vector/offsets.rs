@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 
 pub const OFFSETS_PER_CHUNK: usize = 60;
-type DIFF_TYPE = u16;
+type DeltaType = u16;
 
 #[derive(Clone)]
 pub struct CompressedVariableWidthSliceVector<'a, T: 'a + Clone> {
@@ -76,10 +76,10 @@ impl<'a, T: 'a + Clone> CompressedVariableWidthSliceVector<'a, T> {
 #[derive(Clone)]
 pub struct Chunk {
     initial: usize,
-    deltas: [DIFF_TYPE; OFFSETS_PER_CHUNK],
+    deltas: [DeltaType; OFFSETS_PER_CHUNK],
 }
 
-const UNUSED: DIFF_TYPE = DIFF_TYPE::max_value();
+const UNUSED: DeltaType = DeltaType::max_value();
 
 impl Chunk {
     fn new(initial: usize) -> Self {
@@ -131,8 +131,8 @@ impl Chunk {
 
         assert!(offset >= last_offset);
         let delta = offset - last_offset;
-        assert!(delta <= DIFF_TYPE::max_value() as usize);
-        self.deltas[self.len()] = delta as DIFF_TYPE;
+        assert!(delta <= DeltaType::max_value() as usize);
+        self.deltas[self.len()] = delta as DeltaType;
     }
 
     fn last(self: &Self) -> Option<usize> {

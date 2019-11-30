@@ -19,6 +19,14 @@ impl<'a, T: Copy> AngularVectorT<'a, T> {
     pub fn into_owned(self: Self) -> AngularVectorT<'static, T> {
         AngularVectorT(self.0.into_owned().into())
     }
+
+    pub fn to_vec(self: Self) -> Vec<T> {
+        self.0.into_owned()
+    }
+
+    pub fn as_slice(self: &Self) -> &[T] {
+        &self.0[..]
+    }
 }
 
 pub type AngularVector<'a> = AngularVectorT<'a, f32>;
@@ -159,7 +167,9 @@ macro_rules! element_container_impl {
         }
 
         impl<'a> ExtendableElementContainer for AngularVectorsT<'a, $scalar_type> {
-            fn push(self: &mut Self, element: Self::Element) {
+            type InternalElement = Self::Element;
+
+            fn push(self: &mut Self, element: Self::InternalElement) {
                 self.push(&element)
             }
         }

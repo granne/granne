@@ -2,6 +2,10 @@ use ordered_float::NotNan;
 
 mod angular_vector;
 pub use angular_vector::{AngularIntVector, AngularIntVectors, AngularVector, AngularVectors};
+pub(self) use angular_vector::{AngularVectorT, AngularVectorsT};
+
+mod sum_embeddings;
+pub use sum_embeddings::SumEmbeddings;
 
 /// A trait for any type containing elements to be indexed using `GranneBuilder` and/or used for
 /// searching with `Granne`.
@@ -43,8 +47,11 @@ pub trait ElementContainer {
 
 /// A trait for ElementContainers that can be extended with more elements
 pub trait ExtendableElementContainer: ElementContainer {
+    /// Internal representation of an element (can be the same as ElementContainer::Element)
+    type InternalElement;
+
     /// Moves an element into the container
-    fn push(self: &mut Self, element: Self::Element);
+    fn push(self: &mut Self, element: Self::InternalElement);
 }
 
 /// By implementing this trait for a type `E` one gets the `ElementContainer` trait implemented for slices of `E`, i.e., `[E]: ElementContainer`.
