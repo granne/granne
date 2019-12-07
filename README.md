@@ -2,7 +2,7 @@ granne\*
 --------
 --------
 
-**granne** (**g**raph-based **r**etrieval of **a**pproximate **n**earest **ne**ighbors) is a Rust library for ANN-search based on Hierarchical Navigable Small World (HNSW) graphs (see https://arxiv.org/abs/1603.09320).
+**granne** (**g**raph-based **r**etrieval of **a**pproximate **n**earest **ne**ighbors) is a Rust library for ANN-search based on [Hierarchical Navigable Small World (HNSW) graphs](https://arxiv.org/abs/1603.09320) and is used in [Cliqz Search](https://beta.cliqz.com). For some background and motivation behind granne, please read [Indexing Billions of Text Vectors](https://0x65.dev/blog/2019-12-07/indexing-billions-of-text-vectors.html).
 
 **Note: granne is still under active development. A more stable release (with documentation) is coming soon.**
 
@@ -18,6 +18,10 @@ granne\*
 #### Requirements
 
 `granne` is dependent on `BLAS` (https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms) for some computations. This applies both to the rust and python versions. On Debian/Ubuntu both `libblas-dev` and `libopenblas-dev` should work, with the latter being significantly faster.
+
+On Mac OS there seems to be some issue ([maybe
+this one](https://grokbase.com/t/r/r-sig-mac/106pkkknqd/problems-with-single-precision-routines-in-64-bit-veclib-blas))
+with the default `BLAS` library. A workaround is to install e.g. `openblas` and link to that instead.
 
 #### Rust
 
