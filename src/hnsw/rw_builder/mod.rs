@@ -86,8 +86,8 @@ where
     }
 
     pub fn write(self: &Self, index_file: impl Write + Seek, elements_file: impl Write, compress: bool) -> Result<()> {
-        // prevent any writes from happen while saving to disk
-        let _ = self.write_lock.write();
+        // prevent any writes from happening while saving to disk
+        let _guard = self.write_lock.write();
 
         let elements = self.elements.read();
         let (ref current_layer, ref layers) = *self.layers.read();
@@ -125,7 +125,7 @@ where
         }
 
         // signal that writes will happen
-        let _ = self.write_lock.read();
+        let _guard = self.write_lock.read();
 
         let (mut inserted, remaining) = {
             // write locks are needed to append elements and potentially append a new layer
