@@ -7,7 +7,7 @@ NUM_LAYERS = 5
 
 vectors = [np.random.rand(DIM) - 0.5 for _ in range(NUM_VECTORS)]
 test_vector = np.random.rand(DIM) - 0.5
-builder = granne.HnswBuilder(DIM, NUM_LAYERS)
+builder = granne.HnswBuilder(NUM_LAYERS)
 
 for vector in vectors:
     builder.add(vector)

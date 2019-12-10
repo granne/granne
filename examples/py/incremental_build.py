@@ -6,7 +6,7 @@ NUM_VECTORS = 10000
 
 vectors = [np.random.rand(DIM) - 0.5 for _ in range(NUM_VECTORS)]
 
-builder = granne.HnswBuilder(DIM, num_layers=6, show_progress=True)
+builder = granne.HnswBuilder(num_layers=6, show_progress=True)
 
 for vector in vectors:
     builder.add(vector)
