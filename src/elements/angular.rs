@@ -1,8 +1,6 @@
 use super::{Dist, ElementContainer, ExtendableElementContainer};
 use crate::{io, slice_vector::FixedWidthSliceVector};
 
-use super::dense_vector;
-
 use ordered_float::NotNan;
 use std::cmp;
 

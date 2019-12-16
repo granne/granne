@@ -143,7 +143,7 @@ mod tests {
                     .get_element(mapping[id])
                     .dist(&reordered_index.get_element(id))
                     .into_inner()
-                    < 0.00001f32 //AngularVector::eps()
+                    < 0.00001f32
             );
 
             let element = index.get_element(id);

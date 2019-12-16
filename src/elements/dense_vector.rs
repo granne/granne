@@ -1,13 +1,3 @@
-use super::{Dist, ElementContainer, ExtendableElementContainer};
-use crate::{io, slice_vector::FixedWidthSliceVector};
-
-use ordered_float::NotNan;
-use std::cmp;
-
-use std::borrow::Cow;
-use std::io::{Result, Write};
-use std::iter::FromIterator;
-
 macro_rules! dense_vector {
     ($scalar_type:ty) => {
         #[derive(Clone)]

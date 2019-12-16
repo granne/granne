@@ -7,7 +7,6 @@ pub mod angular;
 pub mod angular_int;
 
 pub mod sum_embeddings;
-pub use sum_embeddings::SumEmbeddings;
 
 /// A trait for any type containing elements to be indexed using `GranneBuilder` and/or used for
 /// searching with `Granne`.
