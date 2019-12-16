@@ -10,8 +10,8 @@ pub(crate) use odd_byte_int::{FiveByteInt, ThreeByteInt};
 
 mod elements;
 pub use elements::{
-    AngularIntVector, AngularIntVectors, AngularVector, AngularVectors, Dist, ElementContainer,
-    ExtendableElementContainer, SumEmbeddings,
+    AngularIntVector, AngularIntVectors, AngularVector, AngularVectorT, AngularVectors,
+    AngularVectorsT, Dist, ElementContainer, ExtendableElementContainer, SumEmbeddings,
 };
 pub use index::{Config, Granne, GranneBuilder};
 

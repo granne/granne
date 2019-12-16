@@ -1,6 +1,6 @@
 use super::*;
-use byteorder::{LittleEndian, ReadBytesExt};
-use memmap::Mmap;
+//use byteorder::{LittleEndian, ReadBytesExt};
+//use memmap::Mmap;
 use serde_json;
 use std::io::{BufReader, BufWriter, Read, Result, Seek, SeekFrom, Write};
 use std::io::{Error, ErrorKind};

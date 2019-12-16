@@ -2,7 +2,7 @@ use ordered_float::NotNan;
 
 mod angular_vector;
 pub use angular_vector::{AngularIntVector, AngularIntVectors, AngularVector, AngularVectors};
-pub(self) use angular_vector::{AngularVectorT, AngularVectorsT};
+pub use angular_vector::{AngularVectorT, AngularVectorsT};
 
 mod sum_embeddings;
 pub use sum_embeddings::SumEmbeddings;
@@ -14,6 +14,7 @@ pub use sum_embeddings::SumEmbeddings;
 /// the most efficient ones and for improved performance it is recommended to provide specialized
 /// implementations.
 pub trait ElementContainer {
+    /// The type of element, this `ElementContainer` contains.
     type Element;
 
     /// Returns the element with offset/id `idx`.
@@ -54,7 +55,9 @@ pub trait ExtendableElementContainer: ElementContainer {
     fn push(self: &mut Self, element: Self::InternalElement);
 }
 
-/// By implementing this trait for a type `E` one gets the `ElementContainer` trait implemented for slices of `E`, i.e., `[E]: ElementContainer`.
+/// `Dist<Other>` - A trait for types `E` and `Other` between which a distance can be computed.
+///
+/// By implementing `Dist<E>` for a type `E` one gets the `ElementContainer` trait implemented for slices and `Vec`s of `E`, i.e., `[E]: ElementContainer` and `Vec<E>: ElementContainer`
 pub trait Dist<Other> {
     /// Returns the distance between `self` and `other`
     fn dist(self: &Self, other: &Other) -> NotNan<f32>;

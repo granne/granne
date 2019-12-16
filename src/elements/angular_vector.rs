@@ -66,6 +66,7 @@ impl FromIterator<f32> for AngularIntVector<'static> {
 }
 
 #[derive(Clone)]
+/// A collection of `AngularVectorT`s
 pub struct AngularVectorsT<'a, T: Copy>(FixedWidthSliceVector<'a, T>);
 
 /// A collection of `AngularVector`s
@@ -81,10 +82,14 @@ impl<'a, T: Copy> AngularVectorsT<'a, T> {
         Self(FixedWidthSliceVector::new())
     }
 
+    /// Load a collection of vectors with dimension `dim` from a `u8` buffer.
+    /// `buffer` needs to contain ...
     pub fn load(buffer: &'a [u8], dim: usize) -> Self {
         Self(FixedWidthSliceVector::load(buffer, dim))
     }
 
+    /// Create a collection of vectors with dimension `dim` from a `Vec<T>`.
+    ///
     pub fn from_vec(vec: Vec<T>, dim: usize) -> Self {
         Self(FixedWidthSliceVector::with_data(vec, dim))
     }

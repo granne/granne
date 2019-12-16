@@ -1,11 +1,12 @@
 use ordered_float::NotNan;
-use std::iter::FromIterator;
 
 use super::{AngularVector, AngularVectors, Dist, ElementContainer, ExtendableElementContainer};
 use crate::io;
 use crate::slice_vector::VariableWidthSliceVector;
 use crate::{FiveByteInt, ThreeByteInt};
 use std::io::{Result, Write};
+
+mod parsing;
 
 type Embeddings<'a> = AngularVectors<'a>;
 

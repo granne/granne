@@ -18,6 +18,7 @@ toml = "0.4"
 byteorder = "*"
 serde_json = "*"
 stream-vbyte = {version = "*", features = []}
+flate2 = "*"
 
 jemallocator = "0.3.2"
 
