@@ -9,17 +9,17 @@ use std::io::{Result, Write};
 use std::iter::FromIterator;
 
 macro_rules! dense_vector {
-    ($vector_name:ident, $vectors_name:ident, $scalar_type:ty) => {
+    ($scalar_type:ty) => {
         #[derive(Clone)]
-        pub struct $vector_name<'a>(pub Cow<'a, [$scalar_type]>);
+        pub struct Vector<'a>(pub Cow<'a, [$scalar_type]>);
 
-        impl<'a> $vector_name<'a> {
+        impl<'a> Vector<'a> {
             pub fn len(self: &Self) -> usize {
                 self.0.len()
             }
 
-            pub fn into_owned(self: Self) -> $vector_name<'static> {
-                $vector_name(self.0.into_owned().into())
+            pub fn into_owned(self: Self) -> Vector<'static> {
+                Vector(self.0.into_owned().into())
             }
 
             pub fn to_vec(self: Self) -> Vec<$scalar_type> {
@@ -31,7 +31,7 @@ macro_rules! dense_vector {
             }
         }
 
-        impl FromIterator<f32> for $vector_name<'static> {
+        impl FromIterator<f32> for Vector<'static> {
             fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
                 let v: Vec<f32> = iter.into_iter().collect();
                 Self::from(v)
@@ -39,10 +39,10 @@ macro_rules! dense_vector {
         }
 
         #[derive(Clone)]
-        /// A collection of `$vector_name`s
-        pub struct $vectors_name<'a>(FixedWidthSliceVector<'a, $scalar_type>);
+        /// A collection of `Vector`s
+        pub struct Vectors<'a>(FixedWidthSliceVector<'a, $scalar_type>);
 
-        impl<'a> $vectors_name<'a> {
+        impl<'a> Vectors<'a> {
             /// Create a new collection vector. The dimension will be set once the first vector is pushed
             /// into the collection.
             pub fn new() -> Self {
@@ -62,21 +62,21 @@ macro_rules! dense_vector {
             }
 
             /// Borrows the data
-            pub fn borrow(self: &'a Self) -> $vectors_name<'a> {
+            pub fn borrow(self: &'a Self) -> Vectors<'a> {
                 Self(self.0.borrow())
             }
 
             /// Clones the underlying data if not already owned.
-            pub fn into_owned(self: Self) -> $vectors_name<'static> {
+            pub fn into_owned(self: Self) -> Vectors<'static> {
                 Self(self.0.into_owned())
             }
 
-            pub fn extend(self: &mut Self, vec: $vectors_name<'_>) {
+            pub fn extend(self: &mut Self, vec: Vectors<'_>) {
                 self.0.extend_from_slice_vector(&vec.0)
             }
 
             /// Pushes `vec` onto the collection
-            pub fn push(self: &mut Self, vec: &$vector_name<'_>) {
+            pub fn push(self: &mut Self, vec: &Vector<'_>) {
                 self.0.push(&vec.0[..]);
             }
 
@@ -86,14 +86,14 @@ macro_rules! dense_vector {
             }
 
             /// Returns a reference to the vector at `index`.
-            pub fn get_element(self: &'a Self, index: usize) -> $vector_name<'a> {
-                $vector_name(Cow::Borrowed(self.0.get(index)))
+            pub fn get_element(self: &'a Self, index: usize) -> Vector<'a> {
+                Vector(Cow::Borrowed(self.0.get(index)))
             }
         }
 
-        impl<'a> FromIterator<$vector_name<'a>> for $vectors_name<'static> {
-            fn from_iter<I: IntoIterator<Item = $vector_name<'a>>>(iter: I) -> Self {
-                let mut vecs = $vectors_name::new();
+        impl<'a> FromIterator<Vector<'a>> for Vectors<'static> {
+            fn from_iter<I: IntoIterator<Item = Vector<'a>>>(iter: I) -> Self {
+                let mut vecs = Vectors::new();
                 for vec in iter {
                     vecs.push(&vec);
                 }
@@ -102,14 +102,14 @@ macro_rules! dense_vector {
             }
         }
 
-        impl<'a> io::Writeable for $vectors_name<'a> {
+        impl<'a> io::Writeable for Vectors<'a> {
             fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
                 self.0.write(buffer)
             }
         }
 
-        impl<'a> ElementContainer for $vectors_name<'a> {
-            type Element = $vector_name<'static>;
+        impl<'a> ElementContainer for Vectors<'a> {
+            type Element = Vector<'static>;
 
             fn get(self: &Self, idx: usize) -> Self::Element {
                 self.get_element(idx).into_owned()
@@ -136,7 +136,7 @@ macro_rules! dense_vector {
             }
         }
 
-        impl<'a> ExtendableElementContainer for $vectors_name<'a> {
+        impl<'a> ExtendableElementContainer for Vectors<'a> {
             type InternalElement = Self::Element;
 
             fn push(self: &mut Self, element: Self::InternalElement) {

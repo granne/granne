@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::io::{Result, Write};
 use std::iter::FromIterator;
 
-dense_vector!(Vector, Vectors, i8);
+dense_vector!(i8);
 
 impl From<Vec<f32>> for Vector<'static> {
     fn from(v: Vec<f32>) -> Self {
