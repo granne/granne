@@ -1,6 +1,6 @@
 use ordered_float::NotNan;
 
-use super::{AngularVector, AngularVectors, Dist, ElementContainer, ExtendableElementContainer};
+use super::{angular, angular_int, Dist, ElementContainer, ExtendableElementContainer};
 use crate::io;
 use crate::slice_vector::VariableWidthSliceVector;
 use crate::{FiveByteInt, ThreeByteInt};
@@ -9,7 +9,7 @@ use std::io::{Result, Write};
 pub mod parsing;
 pub mod reorder;
 
-type Embeddings<'a> = AngularVectors<'a>;
+type Embeddings<'a> = angular::Vectors<'a>; // replace with something else??
 
 type EmbeddingId = ThreeByteInt;
 type ElementOffset = FiveByteInt;
@@ -129,7 +129,7 @@ impl<'a> SumEmbeddings<'a> {
 }
 
 impl<'a> ElementContainer for SumEmbeddings<'a> {
-    type Element = AngularVector<'static>;
+    type Element = angular::Vector<'static>;
 
     fn get(self: &Self, idx: usize) -> Self::Element {
         self.get_embedding(idx).into()

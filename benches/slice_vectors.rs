@@ -14,9 +14,9 @@ mod slice_vectors {
 
     #[bench]
     fn offsets_get_10(b: &mut Bencher) {
-        let mut offsets = Offsets::new();
+        let mut offsets = bench_helper::Offsets::new();
 
-        for offset in test_helper::random_offsets(u16::max_value() as usize).take(10_000) {
+        for offset in bench_helper::random_offsets(u16::max_value() as usize).take(10_000) {
             offsets.push(offset);
         }
 
@@ -39,7 +39,7 @@ mod slice_vectors {
     fn vec_get_10(b: &mut Bencher) {
         let mut offsets = Vec::new();
 
-        for offset in test_helper::random_offsets(u16::max_value() as usize).take(10_000) {
+        for offset in bench_helper::random_offsets(u16::max_value() as usize).take(10_000) {
             offsets.push(offset);
         }
 
@@ -60,7 +60,7 @@ mod slice_vectors {
 
     #[bench]
     fn var_width_get_10(b: &mut Bencher) {
-        let mut vec = VariableWidthSliceVector::<_, usize>::new();
+        let mut vec = bench_helper::VariableWidthSliceVector::<_, usize>::new();
 
         for slice in (0..10_000).map(|i| (i..).take((1 + i) % 40).collect::<Vec<_>>()) {
             vec.push(&slice);
@@ -83,7 +83,7 @@ mod slice_vectors {
 
     #[bench]
     fn set_vec_get_10(b: &mut Bencher) {
-        let mut vec = MultiSetVector::new();
+        let mut vec = bench_helper::MultiSetVector::new();
 
         for slice in
             (0..10_000).map(|i: u32| (i..).take((1 + i as usize) % 40).collect::<Vec<u32>>())
@@ -109,7 +109,7 @@ mod slice_vectors {
 
     #[bench]
     fn compressed_var_width_get_10(b: &mut Bencher) {
-        let mut vec = CompressedVariableWidthSliceVector::new();
+        let mut vec = bench_helper::CompressedVariableWidthSliceVector::new();
 
         for slice in (0..10_000).map(|i| (i..).take((1 + i) % 40).collect::<Vec<_>>()) {
             vec.push(&slice);

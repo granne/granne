@@ -28,7 +28,7 @@ mod index {
                 };
 
                 let elements: $elements_type = (0..1000)
-                    .map(|_| test_helper::random_vector($dim))
+                    .map(|_| bench_helper::random_vector($dim))
                     .collect();
 
                 let mut builder = GranneBuilder::new(config, elements);
@@ -45,23 +45,28 @@ mod index {
         };
     }
 
-    builder_search_impl!(builder_search_angular_vector_3_ms_50, AngularVectors, 3, 50);
+    builder_search_impl!(
+        builder_search_angular_vector_3_ms_50,
+        angular::Vectors,
+        3,
+        50
+    );
     builder_search_impl!(
         builder_search_angular_vector_100_ms_50,
-        AngularVectors,
+        angular::Vectors,
         100,
         50
     );
 
     builder_search_impl!(
         builder_search_angular_int_vector_3_ms_50,
-        AngularIntVectors,
+        angular_int::Vectors,
         3,
         50
     );
     builder_search_impl!(
         builder_search_angular_int_vector_100_ms_50,
-        AngularIntVectors,
+        angular_int::Vectors,
         100,
         50
     );
@@ -79,7 +84,7 @@ mod index {
                 };
 
                 let elements: $elements_type = (0..1000)
-                    .map(|_| test_helper::random_vector($dim))
+                    .map(|_| bench_helper::random_vector($dim))
                     .collect();
 
                 let mut builder = GranneBuilder::new(config, elements);
@@ -102,23 +107,23 @@ mod index {
         };
     }
 
-    index_search_impl!(index_search_angular_vector_3_ms_50, AngularVectors, 3, 50);
+    index_search_impl!(index_search_angular_vector_3_ms_50, angular::Vectors, 3, 50);
     index_search_impl!(
         index_search_angular_vector_100_ms_50,
-        AngularVectors,
+        angular::Vectors,
         100,
         50
     );
 
     index_search_impl!(
         index_search_angular_int_vector_3_ms_50,
-        AngularIntVectors,
+        angular_int::Vectors,
         3,
         50
     );
     index_search_impl!(
         index_search_angular_int_vector_100_ms_50,
-        AngularIntVectors,
+        angular_int::Vectors,
         100,
         50
     );

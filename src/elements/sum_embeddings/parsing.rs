@@ -1,5 +1,5 @@
 use super::*;
-use crate::elements::{AngularVectorT, AngularVectorsT};
+use crate::elements::angular;
 use crate::io::Writeable;
 
 use flate2;
@@ -109,15 +109,14 @@ pub fn parse_elements_and_save_shards_to_disk(
     elements.len()
 }
 
-pub fn compute_embeddings_and_save_to_disk<DTYPE: 'static + Copy + Sync + Send>(
+// TODO: Make it possible to write i8 and f32 vectors
+pub fn compute_embeddings_and_save_to_disk(
     dimension: usize,
     elements_path: &Path,
     word_embeddings_path: &Path,
     output_path: &Path,
     show_progress: bool,
-) where
-    AngularVectorT<'static, DTYPE>: From<Vec<f32>>,
-{
+) {
     let word_embeddings =
         File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
@@ -144,12 +143,12 @@ pub fn compute_embeddings_and_save_to_disk<DTYPE: 'static + Copy + Sync + Send>(
     for i in 0..num_chunks {
         let chunk =
             (i * chunk_size..cmp::min((i + 1) * chunk_size, elements.len())).collect::<Vec<_>>();
-        let vectors_vec: Vec<AngularVectorT<'static, DTYPE>> = chunk
+        let vectors_vec: Vec<angular::Vector> = chunk
             .par_iter()
             .map(|&i| elements.get_embedding(i).into())
             .collect();
 
-        let mut vectors = AngularVectorsT::new();
+        let mut vectors = angular::Vectors::new();
 
         for v in vectors_vec {
             vectors.push(&v);

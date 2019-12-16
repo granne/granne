@@ -19,8 +19,8 @@ pub fn random_offsets(max_inc: usize) -> impl Iterator<Item = usize> {
 }
 
 pub fn random_sum_embeddings() -> crate::elements::SumEmbeddings<'static> {
-    let embeddings: crate::elements::AngularVectors = (0..225)
-        .map(|_| random_vector::<crate::elements::AngularVector>(25))
+    let embeddings: crate::elements::angular::Vectors = (0..225)
+        .map(|_| random_vector::<crate::elements::angular::Vector>(25))
         .collect();
 
     let mut sum_embeddings = crate::elements::SumEmbeddings::new(embeddings);

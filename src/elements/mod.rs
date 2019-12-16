@@ -1,8 +1,10 @@
 use ordered_float::NotNan;
 
-mod angular_vector;
-pub use angular_vector::{AngularIntVector, AngularIntVectors, AngularVector, AngularVectors};
-pub use angular_vector::{AngularVectorT, AngularVectorsT};
+#[macro_use]
+mod dense_vector;
+
+pub mod angular;
+pub mod angular_int;
 
 pub mod sum_embeddings;
 pub use sum_embeddings::SumEmbeddings;

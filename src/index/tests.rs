@@ -1,8 +1,6 @@
 use super::*;
 
-use crate::{
-    test_helper, AngularIntVector, AngularIntVectors, AngularVector, AngularVectors, Dist,
-};
+use crate::{angular, angular_int, test_helper, Dist};
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -13,9 +11,9 @@ const DIST_EPSILON: f32 = 10.0 * ::std::f32::EPSILON;
 #[test]
 fn select_neighbors() {
     const DIM: usize = 50;
-    let element: AngularVector = test_helper::random_vector(DIM);
+    let element: angular::Vector = test_helper::random_vector(DIM);
 
-    let other_elements: Vec<AngularVector> =
+    let other_elements: Vec<angular::Vector> =
         (0..50).map(|_| test_helper::random_vector(DIM)).collect();
 
     let mut candidates: Vec<_> = other_elements
@@ -92,7 +90,7 @@ fn with_borrowed_elements() {
     };
 
     let elements: Vec<_> = (0..500)
-        .map(|_| test_helper::random_vector::<AngularVector>(25))
+        .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
     let mut builder = GranneBuilder::new(config, elements.as_slice());
@@ -116,11 +114,11 @@ fn with_elements_and_add() {
         show_progress: false,
     };
 
-    let elements: AngularVectors = (0..500)
-        .map(|_| test_helper::random_vector::<AngularVector>(25))
+    let elements: angular::Vectors = (0..500)
+        .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
-    let additional_elements: Vec<AngularVector> = (0..100)
-        .map(|_| test_helper::random_vector::<AngularVector>(25))
+    let additional_elements: Vec<angular::Vector> = (0..100)
+        .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
     let mut builder = GranneBuilder::new(config, elements);
@@ -141,7 +139,7 @@ fn with_elements_and_add() {
 #[test]
 fn build_and_search_float() {
     let elements: Vec<_> = (0..1500)
-        .map(|_| test_helper::random_vector::<AngularVector>(128))
+        .map(|_| test_helper::random_vector::<angular::Vector>(128))
         .collect();
 
     build_and_search(elements);
@@ -151,8 +149,8 @@ fn build_and_search_float() {
 fn build_and_search_int8() {
     const DIM: usize = 32;
 
-    let elements: Vec<AngularIntVector> = (0..500)
-        .map(|_| test_helper::random_vector::<AngularIntVector>(DIM))
+    let elements: Vec<angular_int::Vector> = (0..500)
+        .map(|_| test_helper::random_vector::<angular_int::Vector>(DIM))
         .collect();
 
     build_and_search(elements);
@@ -161,7 +159,7 @@ fn build_and_search_int8() {
 #[test]
 fn incremental_build_0() {
     let elements: Vec<_> = (0..1000)
-        .map(|_| test_helper::random_vector::<AngularVector>(25))
+        .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
     let config = Config {
@@ -234,8 +232,8 @@ fn incremental_build_0() {
 
 #[test]
 fn incremental_build_1() {
-    let elements: AngularIntVectors = (0..1000)
-        .map(|_| test_helper::random_vector::<AngularIntVector>(25))
+    let elements: angular_int::Vectors = (0..1000)
+        .map(|_| test_helper::random_vector::<angular_int::Vector>(25))
         .collect();
 
     let config = Config {
@@ -269,8 +267,8 @@ fn incremental_build_1() {
 fn incremental_build_with_write_and_read() {
     const DIM: usize = 25;
 
-    let elements: AngularVectors = (0..1000)
-        .map(|_| test_helper::random_vector::<AngularVector>(DIM))
+    let elements: angular::Vectors = (0..1000)
+        .map(|_| test_helper::random_vector::<angular::Vector>(DIM))
         .collect();
 
     let config = Config {
@@ -309,7 +307,7 @@ fn incremental_build_with_write_and_read() {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 
-    let index = Granne::<AngularVectors>::load(buffer.as_slice(), &elements);
+    let index = Granne::<angular::Vectors>::load(buffer.as_slice(), &elements);
     assert_eq!(config.num_layers, index.num_layers());
     assert_eq!(elements.len(), index.len());
 
@@ -320,7 +318,7 @@ fn incremental_build_with_write_and_read() {
 fn read_index_with_owned_elements() {
     let num_elements = 1000;
     const DIM: usize = 25;
-    type Element = AngularVector<'static>;
+    type Element = angular::Vector<'static>;
 
     let mut owning_builder = {
         let elements: Vec<Element> = (0..num_elements)
@@ -366,8 +364,8 @@ fn read_index_with_owned_elements() {
 */
 #[test]
 fn empty_build() {
-    let elements: AngularVectors = (0..100)
-        .map(|_| test_helper::random_vector::<AngularVector>(25))
+    let elements: angular::Vectors = (0..100)
+        .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
     let config = Config {
@@ -395,7 +393,7 @@ fn test_layer_multiplier() {
 #[test]
 fn write_and_load() {
     const DIM: usize = 50;
-    let elements: AngularVectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
+    let elements: angular::Vectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
     let config = Config {
         num_layers: 4,
@@ -445,7 +443,7 @@ fn write_and_load() {
 #[test]
 fn write_and_load_compressed() {
     const DIM: usize = 50;
-    let elements: AngularVectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
+    let elements: angular::Vectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
     let config = Config {
         num_layers: 4,
@@ -501,7 +499,7 @@ fn write_and_load_compressed() {
                 let mut data = Vec::new();
                 compressed_file.read_to_end(&mut data).unwrap();
 
-                let index = Granne::<AngularVectors>::load(&data[..], &elements);
+                let index = Granne::<angular::Vectors>::load(&data[..], &elements);
 
                 assert_eq!(builder.layers.len(), index.num_layers());
 
@@ -528,8 +526,8 @@ fn write_and_load_compressed() {
 fn write_and_read() {
     const DIM: usize = 64;
 
-    let elements: AngularIntVectors = (0..100)
-        .map(|_| test_helper::random_vector::<AngularVector>(DIM).into())
+    let elements: angular_int::Vectors = (0..100)
+        .map(|_| test_helper::random_vector::<angular::Vector>(DIM).into())
         .collect();
 
     let config = Config {
@@ -548,7 +546,7 @@ fn write_and_read() {
 
     file.seek(SeekFrom::Start(0)).unwrap();
 
-    let copy = GranneBuilder::<AngularIntVectors, AngularIntVector>::read_index_with_borrowed_elements(
+    let copy = GranneBuilder::<angular_int::Vectors, angular_int::Vector>::read_index_with_borrowed_elements(
         config, &mut file, &elements,
     )
     .unwrap();
@@ -575,12 +573,12 @@ fn write_and_read() {
 */
 #[test]
 fn append_elements() {
-    let elements: Vec<AngularVector> = (0..500)
-        .map(|_| test_helper::random_vector::<AngularVector>(50))
+    let elements: Vec<angular::Vector> = (0..500)
+        .map(|_| test_helper::random_vector::<angular::Vector>(50))
         .collect();
 
-    let additional_elements: Vec<AngularVector> = (0..500)
-        .map(|_| test_helper::random_vector::<AngularVector>(50))
+    let additional_elements: Vec<angular::Vector> = (0..500)
+        .map(|_| test_helper::random_vector::<angular::Vector>(50))
         .collect();
 
     let config = Config {
@@ -592,7 +590,7 @@ fn append_elements() {
     };
 
     // insert half of the elements
-    let mut builder = GranneBuilder::new(config, AngularVectors::new());
+    let mut builder = GranneBuilder::new(config, angular::Vectors::new());
     for element in &elements {
         builder.push(element.clone());
     }
@@ -641,10 +639,10 @@ fn append_elements() {
 /*
 #[test]
 fn append_elements_with_expected_size() {
-    let elements: Vec<AngularVector> = (0..10).map(|_| test_helper::random_vector::<AngularVector>(50)).collect();
+    let elements: Vec<angular::Vector> = (0..10).map(|_| test_helper::random_vector::<angular::Vector>(50)).collect();
 
-    let additional_elements: Vec<AngularVector> =
-        (10..1000).map(|_| test_helper::random_vector::<AngularVector>(50)).collect();
+    let additional_elements: Vec<angular::Vector> =
+        (10..1000).map(|_| test_helper::random_vector::<angular::Vector>(50)).collect();
 
     let config = Config {
         num_layers: 4,
