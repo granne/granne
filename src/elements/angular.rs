@@ -50,17 +50,17 @@ impl<'a, 'b> Dist<Vector<'b>> for Vector<'a> {
         #[inline(always)]
         fn compute_r_fallback(x: &[f32], y: &[f32]) -> f32 {
             const CHUNK_SIZE: usize = 8;
-            let mut R = [0.0f32; CHUNK_SIZE];
+            let mut chunk = [0.0f32; CHUNK_SIZE];
 
             for (a, b) in x.chunks_exact(CHUNK_SIZE).zip(y.chunks_exact(CHUNK_SIZE)) {
                 for i in 0..CHUNK_SIZE {
-                    R[i] = a[i].mul_add(b[i], R[i]);
+                    chunk[i] = a[i].mul_add(b[i], chunk[i]);
                 }
             }
 
             let mut r = 0.0f32;
             for i in 0..CHUNK_SIZE {
-                r += R[i];
+                r += chunk[i];
             }
 
             for (ai, bi) in x
@@ -95,6 +95,7 @@ impl<'a, 'b> Dist<Vector<'b>> for Vector<'a> {
     }
 }
 
+#[doc(hidden)]
 #[allow(unused)]
 pub fn angular_reference_dist(first: &Vector, second: &Vector) -> NotNan<f32> {
     let &Vector(ref x) = first;

@@ -15,9 +15,9 @@ mod io;
 mod reorder;
 
 use crate::{
-    elements::{ElementContainer, ExtendableElementContainer},
     max_size_heap,
     slice_vector::{FixedWidthSliceVector, MultiSetVector, VariableWidthSliceVector},
+    {ElementContainer, ExtendableElementContainer},
 };
 
 type NeighborId = u32;
@@ -96,6 +96,22 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
             Layers::FixWidth(layers) => layers[layer].get_neighbors(index),
             Layers::VarWidth(layers) => layers[layer].get_neighbors(index),
             Layers::Compressed(layers) => layers[layer].get_neighbors(index),
+        }
+    }
+
+    /// Returns a Granne index with the nodes reordered according to the permutation `order`.
+    ///
+    /// `order[i] == j`, means that the element with idx `j`, will be moved to idx `i`.
+    /// `order` must respect the layers ----.
+    pub fn reordered_index<'b>(
+        self: &Self,
+        order: &[usize],
+        reordered_elements: &'b Elements,
+        show_progress: bool,
+    ) -> Granne<'b, Elements> {
+        Granne {
+            layers: reorder::reorder_layers(&self.layers, order, show_progress),
+            elements: reordered_elements,
         }
     }
 }

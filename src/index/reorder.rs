@@ -1,18 +1,7 @@
 use super::*;
 use pbr::ProgressBar;
 
-pub fn reorder_index<'a, Elements>(
-    index: &Granne<'a, Elements>,
-    mapping: &[usize],
-    show_progress: bool,
-) -> Layers<'static>
-where
-    Elements: ElementContainer + Sync + Send + ToOwned,
-{
-    reorder_layers(&index.layers, mapping, show_progress)
-}
-
-fn reorder_layers(layers: &Layers, mapping: &[usize], show_progress: bool) -> Layers<'static> {
+pub fn reorder_layers(layers: &Layers, mapping: &[usize], show_progress: bool) -> Layers<'static> {
     let reverse_mapping = get_reverse_mapping(mapping);
     match layers {
         Layers::FixWidth(ref layers) => Layers::VarWidth(
@@ -127,9 +116,8 @@ mod tests {
 
         let reordered_elements =
             sum_embeddings::reorder::reorder_sum_embeddings(&elements, &mapping, false);
-        let reordered_layers = reorder_index(&index, &mapping, false);
 
-        let reordered_index = Granne::from_parts(reordered_layers, &reordered_elements);
+        let reordered_index = index.reordered_index(&mapping, &reordered_elements, false);
 
         assert_eq!(index.num_layers(), reordered_index.num_layers());
 
