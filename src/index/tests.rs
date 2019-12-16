@@ -421,9 +421,13 @@ fn write_and_load() {
 
     for layer in 0..builder.layers.len() {
         for i in 0..builder.layers[layer].len() {
-            let builder_neighbors: Vec<_> = builder.layers[layer].get_neighbors(i);
+            let mut builder_neighbors = builder.layers[layer].get_neighbors(i);
+            let mut index_neighbors = index.get_neighbors(i, layer);
 
-            assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
+            builder_neighbors.sort();
+            index_neighbors.sort();
+
+            assert_eq!(builder_neighbors, index_neighbors);
         }
     }
 
@@ -471,10 +475,13 @@ fn write_and_load_compressed() {
 
         for layer in 0..builder.layers.len() {
             for i in 0..builder.layers[layer].len() {
-                let builder_neighbors = builder.layers[layer].get_neighbors(i);
+                let mut builder_neighbors = builder.layers[layer].get_neighbors(i);
+                let mut index_neighbors = index.get_neighbors(i, layer);
 
-                assert_eq!(builder_neighbors.len(), index.get_neighbors(i, layer).len());
-                assert_eq!(builder_neighbors, index.get_neighbors(i, layer));
+                builder_neighbors.sort();
+                index_neighbors.sort();
+
+                assert_eq!(builder_neighbors, index_neighbors);
             }
         }
 
