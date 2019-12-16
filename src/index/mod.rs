@@ -12,6 +12,7 @@ use time;
 mod tests;
 
 mod io;
+mod reorder;
 
 use crate::{
     elements::{ElementContainer, ExtendableElementContainer},
@@ -73,6 +74,15 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     /// Returns the number of layers in this index.
     pub fn num_layers(self: &Self) -> usize {
         self.layers.len()
+    }
+
+    /// Returns the number of nodes in `layer`.
+    pub fn layer_len(self: &Self, layer: usize) -> usize {
+        match &self.layers {
+            Layers::FixWidth(layers) => layers[layer].len(),
+            Layers::VarWidth(layers) => layers[layer].len(),
+            Layers::Compressed(layers) => layers[layer].len(),
+        }
     }
 
     /// Returns the element at `index`.
@@ -149,7 +159,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         )
     }
 
-    /// Returns a searchable index from this builder.
+    /// Returns a reference to the elements in this builder.
     pub fn get_elements(self: &Self) -> &Elements {
         &self.elements
     }
@@ -291,7 +301,7 @@ impl<'a> Graph for [parking_lot::RwLock<&'a mut [NeighborId]>] {
     }
 }
 
-enum Layers<'a> {
+pub enum Layers<'a> {
     FixWidth(Vec<FixedWidthSliceVector<'a, NeighborId>>),
     VarWidth(Vec<VariableWidthSliceVector<'a, NeighborId, usize>>),
     Compressed(Vec<MultiSetVector<'a>>),

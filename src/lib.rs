@@ -1,5 +1,6 @@
 #![warn(clippy::all, clippy::pedantic, clippy::cargo)]
 
+mod elements;
 mod index;
 mod io;
 mod max_size_heap;
@@ -8,7 +9,6 @@ mod slice_vector;
 
 pub(crate) use odd_byte_int::{FiveByteInt, ThreeByteInt};
 
-mod elements;
 pub use elements::{
     AngularIntVector, AngularIntVectors, AngularVector, AngularVectorT, AngularVectors,
     AngularVectorsT, Dist, ElementContainer, ExtendableElementContainer, SumEmbeddings,

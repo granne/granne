@@ -16,12 +16,14 @@ use crate::io::write_as_bytes;
 pub use offsets::{CompressedVariableWidthSliceVector, Offsets};
 pub use set_vector::MultiSetVector;
 
+/// A vector containing variably wide slices.
 #[derive(Clone)]
 pub struct VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {
     offsets: Cow<'a, [Offset]>,
     data: Cow<'a, [T]>,
 }
 
+/// A vector containing fixed width slices.
 #[derive(Clone)]
 pub struct FixedWidthSliceVector<'a, T: 'a + Clone> {
     data: Cow<'a, [T]>,
@@ -35,10 +37,12 @@ impl<'a, T: Clone> Into<Vec<T>> for FixedWidthSliceVector<'a, T> {
 }
 
 impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
+    /// Creates an empty FixedWidthSliceVector with unspecified width.
     pub fn new() -> Self {
         Self::with_width(0)
     }
 
+    /// Creates an empty FixedWidthSliceVector with `width`.
     pub fn with_width(width: usize) -> Self {
         Self {
             data: Vec::new().into(),
@@ -46,13 +50,21 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         }
     }
 
+    /// Creates an empty FixedWidthSliceVector with space for at least `capacity` slices with `width`.
+    ///
+    /// `width` must be greater than 0.
     pub fn with_capacity(width: usize, capacity: usize) -> Self {
+        assert!(width > 0);
+
         Self {
             data: Vec::with_capacity(width * capacity).into(),
             width,
         }
     }
 
+    /// Creates a FixedWidthSliceVector with data from `data`
+    ///
+    /// `width` must be greater than 0 and `data.len()` must be divisible by `width`.
     pub fn with_data(data: impl Into<Cow<'a, [T]>>, width: usize) -> Self {
         let data = data.into();
 
@@ -62,6 +74,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         Self { data, width }
     }
 
+    /// Returns an iterator over all slices in `self`.
     pub fn iter<'b>(self: &'b Self) -> impl Iterator<Item = &'b [T]>
     where
         'a: 'b,
@@ -69,6 +82,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         self.data.chunks(self.width)
     }
 
+    /// Returns an iterator over mutable slices in `self`.
     pub fn iter_mut<'b>(self: &'b mut Self) -> impl Iterator<Item = &'b mut [T]>
     where
         'a: 'b,
@@ -76,6 +90,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         self.data.to_mut().chunks_mut(self.width)
     }
 
+    /// Creates a new FixedWidthSliceVector containing all slices in `self` between `begin` and `end`.
     pub fn subslice(self: &'_ Self, begin: usize, end: usize) -> FixedWidthSliceVector<'_, T> {
         let begin = begin * self.width;
         let end = end * self.width;
@@ -95,6 +110,9 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         self.data.to_mut().resize(new_len * self.width, value);
     }
 
+    /// Extend this FixedWidthSliceVector with the slices from `other`.
+    ///
+    /// The widths of `self` and `other` must be equal.
     pub fn extend_from_slice_vector(self: &mut Self, other: &FixedWidthSliceVector<T>) {
         if self.width == 0 {
             self.width = other.width;

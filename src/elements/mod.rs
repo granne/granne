@@ -4,7 +4,7 @@ mod angular_vector;
 pub use angular_vector::{AngularIntVector, AngularIntVectors, AngularVector, AngularVectors};
 pub use angular_vector::{AngularVectorT, AngularVectorsT};
 
-mod sum_embeddings;
+pub mod sum_embeddings;
 pub use sum_embeddings::SumEmbeddings;
 
 /// A trait for any type containing elements to be indexed using `GranneBuilder` and/or used for

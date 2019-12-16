@@ -14,7 +14,6 @@ pbr = "1.0.0"
 rayon = "1.2"
 revord = "0.0.2"
 time = "0.1"
-toml = "0.4"
 byteorder = "*"
 serde_json = "*"
 stream-vbyte = {version = "*", features = []}

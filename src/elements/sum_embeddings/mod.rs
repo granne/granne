@@ -6,7 +6,8 @@ use crate::slice_vector::VariableWidthSliceVector;
 use crate::{FiveByteInt, ThreeByteInt};
 use std::io::{Result, Write};
 
-mod parsing;
+pub mod parsing;
+pub mod reorder;
 
 type Embeddings<'a> = AngularVectors<'a>;
 
@@ -48,6 +49,14 @@ impl<'a> SumEmbeddings<'a> {
         Self {
             embeddings,
             elements,
+        }
+    }
+
+    /// Borrows the data
+    pub fn borrow(self: &'a Self) -> SumEmbeddings<'a> {
+        Self {
+            embeddings: self.embeddings.borrow(),
+            elements: self.elements.borrow(),
         }
     }
 
@@ -111,6 +120,11 @@ impl<'a> SumEmbeddings<'a> {
     /// Returns the number of elements in this collection.
     pub fn len(self: &Self) -> usize {
         self.elements.len()
+    }
+
+    /// Returns the number of embeddings in this collection.
+    pub fn num_embeddings(self: &Self) -> usize {
+        self.embeddings.len()
     }
 }
 
