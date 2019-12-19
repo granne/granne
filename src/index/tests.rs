@@ -46,15 +46,11 @@ fn select_neighbors() {
 }
 
 fn build_and_search<Elements: ElementContainer + Sync + Send + Clone>(elements: Elements) {
-    let config = Config {
-        num_layers: 5,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
+    let mut builder = GranneBuilder::new(elements)
+        .with_num_layers(5)
+        .with_num_neighbors(20)
+        .with_max_search(50);
 
-    let mut builder = GranneBuilder::new(config, elements);
     builder.build_index();
     let index = builder.get_index();
 
@@ -81,19 +77,15 @@ fn verify_search<Elements: ElementContainer>(
 
 #[test]
 fn with_borrowed_elements() {
-    let config = Config {
-        num_layers: 5,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
-
     let elements: Vec<_> = (0..500)
         .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
-    let mut builder = GranneBuilder::new(config, elements.as_slice());
+    let mut builder = GranneBuilder::new(elements.as_slice())
+        .with_num_layers(5)
+        .with_reinsert_elements(false)
+        .with_num_neighbors(20)
+        .with_max_search(50);
 
     assert_eq!(elements.len(), builder.elements.len());
     builder.build_index();
@@ -106,14 +98,6 @@ fn with_borrowed_elements() {
 
 #[test]
 fn with_elements_and_add() {
-    let config = Config {
-        num_layers: 5,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
-
     let elements: angular::Vectors = (0..500)
         .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
@@ -121,7 +105,10 @@ fn with_elements_and_add() {
         .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
-    let mut builder = GranneBuilder::new(config, elements);
+    let mut builder = GranneBuilder::new(elements)
+        .with_num_layers(5)
+        .with_num_neighbors(20)
+        .with_max_search(50);
 
     assert_eq!(500, builder.elements.len());
 
@@ -139,7 +126,7 @@ fn with_elements_and_add() {
 #[test]
 fn build_and_search_float() {
     let elements: Vec<_> = (0..1500)
-        .map(|_| test_helper::random_vector::<angular::Vector>(128))
+        .map(|_| test_helper::random_vector::<angular::Vector>(28))
         .collect();
 
     build_and_search(elements);
@@ -159,20 +146,16 @@ fn build_and_search_int8() {
 #[test]
 fn incremental_build_0() {
     let elements: Vec<_> = (0..1000)
-        .map(|_| test_helper::random_vector::<angular::Vector>(25))
+        .map(|_| test_helper::random_vector::<angular::Vector>(5))
         .collect();
 
-    let config = Config {
-        num_layers: 4,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
+    let num_layers = 4;
+    let layer_multiplier = compute_layer_multiplier(elements.len(), num_layers);
 
-    let layer_multiplier = compute_layer_multiplier(elements.len(), config.num_layers);
-
-    let mut builder = GranneBuilder::new(config, elements.as_slice());
+    let mut builder = GranneBuilder::new(elements.as_slice())
+        .with_num_layers(num_layers)
+        .with_num_neighbors(20)
+        .with_max_search(50);
 
     builder.build_index_part(layer_multiplier.ceil() as usize + 2);
 
@@ -233,7 +216,7 @@ fn incremental_build_0() {
 #[test]
 fn incremental_build_1() {
     let elements: angular_int::Vectors = (0..1000)
-        .map(|_| test_helper::random_vector::<angular_int::Vector>(25))
+        .map(|_| test_helper::random_vector::<angular_int::Vector>(5))
         .collect();
 
     let config = Config {
@@ -244,7 +227,12 @@ fn incremental_build_1() {
         show_progress: false,
     };
 
-    let mut builder = GranneBuilder::new(config.clone(), elements.borrow());
+    let num_layers = 4;
+
+    let mut builder = GranneBuilder::new(elements.borrow())
+        .with_num_layers(num_layers)
+        .with_num_neighbors(20)
+        .with_max_search(50);
 
     let num_chunks = 10;
     let chunk_size = elements.len() / num_chunks;
@@ -256,7 +244,7 @@ fn incremental_build_1() {
         assert_eq!(i * chunk_size, builder.indexed_elements());
     }
 
-    assert_eq!(config.num_layers, builder.layers.len());
+    assert_eq!(num_layers, builder.layers.len());
     assert_eq!(elements.len(), builder.indexed_elements());
 
     verify_search(&builder.get_index(), 0.95, 40);
@@ -368,15 +356,7 @@ fn empty_build() {
         .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
-    let config = Config {
-        num_layers: 4,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
-
-    let mut builder = GranneBuilder::new(config, elements);
+    let mut builder = GranneBuilder::new(elements);
 
     builder.build_index_part(0);
 }
@@ -395,15 +375,11 @@ fn write_and_load() {
     const DIM: usize = 50;
     let elements: angular::Vectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
-    let config = Config {
-        num_layers: 4,
-        num_neighbors: 20,
-        max_search: 10,
-        reinsert_elements: true,
-        show_progress: false,
-    };
+    let mut builder = GranneBuilder::new(elements.borrow())
+        .with_num_layers(4)
+        .with_num_neighbors(20)
+        .with_max_search(10);
 
-    let mut builder = GranneBuilder::new(config, elements.borrow());
     builder.build_index();
 
     let mut file: File = tempfile::tempfile().unwrap();
@@ -449,15 +425,11 @@ fn write_and_load_compressed() {
     const DIM: usize = 50;
     let elements: angular::Vectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
-    let config = Config {
-        num_layers: 4,
-        num_neighbors: 20,
-        max_search: 10,
-        reinsert_elements: true,
-        show_progress: false,
-    };
+    let mut builder = GranneBuilder::new(elements.borrow())
+        .with_num_layers(4)
+        .with_num_neighbors(20)
+        .with_max_search(10);
 
-    let mut builder = GranneBuilder::new(config, elements.borrow());
     builder.build_index();
 
     {
@@ -588,16 +560,12 @@ fn append_elements() {
         .map(|_| test_helper::random_vector::<angular::Vector>(50))
         .collect();
 
-    let config = Config {
-        num_layers: 4,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
+    let mut builder = GranneBuilder::new(angular::Vectors::new())
+        .with_num_layers(4)
+        .with_num_neighbors(20)
+        .with_max_search(50);
 
     // insert half of the elements
-    let mut builder = GranneBuilder::new(config, angular::Vectors::new());
     for element in &elements {
         builder.push(element.clone());
     }

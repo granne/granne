@@ -94,15 +94,11 @@ mod tests {
     #[test]
     fn reorder_index_with_sum_embeddings() {
         let elements = test_helper::random_sum_embeddings();
-        let config = Config {
-            num_layers: 5,
-            num_neighbors: 5,
-            max_search: 5,
-            reinsert_elements: true,
-            show_progress: false,
-        };
 
-        let mut builder = GranneBuilder::new(config, elements.borrow());
+        let mut builder = GranneBuilder::new(elements.borrow())
+            .with_num_layers(5)
+            .with_num_neighbors(5)
+            .with_max_search(5);
 
         builder.build_index();
 

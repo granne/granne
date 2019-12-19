@@ -117,24 +117,33 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
 }
 
 #[derive(Clone)]
-pub struct Config {
-    /// Number of layers in the final graph. Each new layer will have exponentially more nodes than the one below. E.g.
-    /// layer 0: 1 node, layer 1: 10 nodes, layer 2: 100 nodes, ...
-    ///
-    /// Choosing the number layers so that the .. (use layer multiplier instead)
-    pub num_layers: usize,
+struct Config {
+    /// Number of layers in the final graph.
+    num_layers: usize,
     //pub layer_multiplier: f32,
     /// The maximum number of neighbors per node and layer.
-    pub num_neighbors: usize,
+    num_neighbors: usize,
 
     /// The `max_search` parameter used during build time (see `granne::search`).
-    pub max_search: usize,
+    max_search: usize,
 
     /// Whether to reinsert all the elements in each layers. Takes more time, but improves recall.
-    pub reinsert_elements: bool,
+    reinsert_elements: bool,
 
     /// Whether to output progress information to STDOUT while building.
-    pub show_progress: bool,
+    show_progress: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            num_layers: 6,
+            num_neighbors: 30,
+            max_search: 200,
+            reinsert_elements: true,
+            show_progress: false,
+        }
+    }
 }
 
 /// A builder for creating an index to be searched using `Granne`
@@ -145,40 +154,75 @@ pub struct GranneBuilder<Elements: ElementContainer> {
 }
 
 impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
-    pub fn new(config: Config, elements: Elements) -> Self {
+    /// Creates a new GranneBuilder with `elements`. The builder can be configured using the `with_*` methods.
+    /// # Examples
+    ///
+    /// ```
+    /// # use granne::*;
+    /// let mut builder = GranneBuilder::new(angular::Vectors::new())
+    ///     .with_num_neighbors(20)
+    ///     .with_max_search(100)
+    ///     .with_progressbar(true);
+    /// ```
+    pub fn new(elements: Elements) -> Self {
         Self {
             elements,
             layers: Vec::new(),
-            config,
+            config: Config::default(),
         }
     }
     /*
-        /// Creates a `GranneBuilder` by reading an already built index from `buffer` together with `elements`
-        pub fn read(config: Config, buffer: &mut [u8], elements: Elements) -> Self {
-            let mut builder = Self::new(config, elements);
+       /// Creates a `GranneBuilder` by reading an already built index from `buffer` together with `elements`
+       pub fn read(config: Config, buffer: &mut [u8], elements: Elements) -> Self {
+           let mut builder = Self::new(config, elements);
 
-            builder.layers = io::read_layers(buffer, builder.config.num_neighbors);
+           builder.layers = io::read_layers(buffer, builder.config.num_neighbors);
 
-            builder
-        }
+           builder
+       }
     */
-    /// Returns the number of already indexed elements.
-    pub fn indexed_elements(self: &Self) -> usize {
-        self.layers.last().map_or(0, |l| l.len())
+
+    // Configure
+
+    /// Set the maximum number of neighbors per node and layer.
+    pub fn with_num_neighbors(mut self: Self, num_neighbors: usize) -> Self {
+        self.config.num_neighbors = num_neighbors;
+        self
     }
 
-    /// Returns a searchable index from this builder.
-    pub fn get_index(self: &Self) -> Granne<&Elements> {
-        Granne::from_parts(
-            self.layers.iter().map(|l| l.borrow()).collect::<Vec<_>>(),
-            &self.elements,
-        )
+    /// Set the `max_search` parameter used during build time (see `Granne::search`).
+    pub fn with_max_search(mut self: Self, max_search: usize) -> Self {
+        self.config.max_search = max_search;
+        self
     }
 
-    /// Returns a reference to the elements in this builder.
-    pub fn get_elements(self: &Self) -> &Elements {
-        &self.elements
+    /// Set the number of layers in the final graph. Each new layer will have exponentially more
+    /// nodes than the one below. E.g. layer 0: 1 node, layer 1: 10 nodes, layer 2: 100 nodes, ...
+    ///
+    /// Choosing the number layers so that the .. (use layer multiplier instead)
+    /// Use layer_multiplier instead...
+    pub fn with_num_layers(mut self: Self, num_layers: usize) -> Self {
+        self.config.num_layers = num_layers;
+        self
     }
+
+    /// Enable reinsertion of all the elements in each layers. Takes more time, but improves recall.
+    ///
+    /// This option is enabled by default.
+    pub fn with_reinsert_elements(mut self: Self, yes: bool) -> Self {
+        self.config.reinsert_elements = yes;
+        self
+    }
+
+    /// Enable printing progress information to STDOUT while building.
+    ///
+    /// This option is disabled by default.
+    pub fn with_progressbar(mut self: Self, yes: bool) -> Self {
+        self.config.show_progress = yes;
+        self
+    }
+
+    // methods
 
     /// Builds an index for approximate nearest neighbor search.
     pub fn build_index(&mut self) {
@@ -228,7 +272,53 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         }
     }
 
+    /// Returns the number of already indexed elements.
+    /// # Examples
+    /// ```
+    /// # use granne::*;
+    /// # let elements: angular::Vectors = test_helper::random_vectors(3, 1000);
+    /// assert_eq!(1000, elements.len());
+    /// let mut builder = GranneBuilder::new(elements);
+    /// builder.build_index_part(100);
+    /// assert_eq!(100, builder.indexed_elements());
+    pub fn indexed_elements(self: &Self) -> usize {
+        self.layers.last().map_or(0, |l| l.len())
+    }
+
+    /// Returns a searchable index from this builder.
+    /// # Examples
+    /// ```
+    /// # use granne::*;
+    /// # let elements: angular::Vectors = test_helper::random_vectors(3, 1000);
+    /// # let element = elements.get(123);;
+    /// # let max_search = 10; let num_neighbors = 20;
+    /// let mut builder = GranneBuilder::new(elements);
+    /// builder.build_index();
+    /// let index = builder.get_index();
+    /// index.search(&element, max_search, num_neighbors);
+    /// ```
+    pub fn get_index(self: &Self) -> Granne<&Elements> {
+        Granne::from_parts(
+            self.layers.iter().map(|l| l.borrow()).collect::<Vec<_>>(),
+            &self.elements,
+        )
+    }
+
+    /// Returns a reference to the elements in this builder.
+    pub fn get_elements(self: &Self) -> &Elements {
+        &self.elements
+    }
+
     /// Write the index to `buffer`.
+    /// # Examples
+    /// ```
+    /// # use granne::*;
+    /// # let builder = GranneBuilder::new(angular::Vectors::new());
+    /// # let path = "/tmp/write_index.bin";
+    /// let mut file = std::fs::File::create(path)?;
+    /// builder.write_index(&mut file)?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn write_index<B: std::io::Write + std::io::Seek>(
         self: &Self,
         buffer: &mut B,
@@ -239,6 +329,15 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
 impl<Elements: ElementContainer + crate::io::Writeable> GranneBuilder<Elements> {
     /// Write the elements of this builder to `buffer`.
+    /// # Examples
+    /// ```
+    /// # use granne::*;
+    /// # let builder = GranneBuilder::new(angular::Vectors::new());
+    /// # let path = "/tmp/write_elements.bin";
+    /// let mut file = std::fs::File::create(path)?;
+    /// builder.write_elements(&mut file)?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn write_elements<B: std::io::Write>(
         self: &Self,
         buffer: &mut B,
@@ -250,6 +349,18 @@ impl<Elements: ElementContainer + crate::io::Writeable> GranneBuilder<Elements> 
 impl<Elements: ExtendableElementContainer> GranneBuilder<Elements> {
     /// Push a new element into this builder. In order to insert it into the index
     /// a call to `build_index` or `build_index_part` is required.
+    /// # Examples
+    /// ```
+    /// # use granne::*;
+    /// # let element0 = test_helper::random_vector(3);
+    /// # let element1 = test_helper::random_vector(3);
+    /// let mut builder = GranneBuilder::new(angular::Vectors::new());
+    /// builder.push(element0);
+    /// builder.push(element1);
+    /// assert_eq!(0, builder.indexed_elements());
+    /// builder.build_index();
+    /// assert_eq!(2, builder.indexed_elements());
+    /// ```
     pub fn push(self: &mut Self, element: Elements::InternalElement) {
         self.elements.push(element);
     }

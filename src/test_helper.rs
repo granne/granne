@@ -9,6 +9,14 @@ pub fn random_vector<Element: std::iter::FromIterator<f32>>(dim: usize) -> Eleme
     random_floats().take(dim).collect()
 }
 
+pub fn random_vectors<Elements, Element>(dim: usize, num: usize) -> Elements
+where
+    Elements: std::iter::FromIterator<Element>,
+    Element: std::iter::FromIterator<f32>,
+{
+    (0..num).map(|_| random_vector(dim)).collect()
+}
+
 pub fn random_offsets(max_inc: usize) -> impl Iterator<Item = usize> {
     let mut rng = rand::thread_rng();
     let mut cur = 0;

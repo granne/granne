@@ -5,19 +5,16 @@ mod index;
 mod io;
 mod max_size_heap;
 mod odd_byte_int;
-mod slice_vector;
-mod test_helper;
-
 use odd_byte_int::{FiveByteInt, ThreeByteInt};
 
 pub use elements::{angular, angular_int, sum_embeddings};
 pub use elements::{Dist, ElementContainer, ExtendableElementContainer};
-pub use index::{Config, Granne, GranneBuilder};
+pub use index::{Granne, GranneBuilder};
 pub use io::Writeable;
 
-// only export these for benchmarks...
+// only export these for benchmarks/doctests...
 #[doc(hidden)]
-pub mod bench_helper {
-    pub use crate::slice_vector::*;
-    pub use crate::test_helper::*;
-}
+pub mod test_helper;
+
+#[doc(hidden)]
+pub mod slice_vector;
