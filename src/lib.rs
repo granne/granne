@@ -13,6 +13,7 @@ use odd_byte_int::{FiveByteInt, ThreeByteInt};
 pub use elements::{angular, angular_int, sum_embeddings};
 pub use elements::{Dist, ElementContainer, ExtendableElementContainer};
 pub use index::{Config, Granne, GranneBuilder};
+pub use io::Writeable;
 
 // only export these for benchmarks...
 #[doc(hidden)]

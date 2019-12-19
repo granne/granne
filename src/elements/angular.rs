@@ -1,3 +1,5 @@
+//! This module contains element types for angular vectors using f32 as scalars.
+
 use super::{Dist, ElementContainer, ExtendableElementContainer};
 use crate::{io, slice_vector::FixedWidthSliceVector};
 

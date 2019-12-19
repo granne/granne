@@ -1,3 +1,5 @@
+//! This module contains element types for quantized angular vectors using i8 as scalars.
+
 use super::{Dist, ElementContainer, ExtendableElementContainer};
 use crate::{io, slice_vector::FixedWidthSliceVector};
 

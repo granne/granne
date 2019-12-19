@@ -111,3 +111,27 @@ impl<E: Dist<E> + Clone> ElementContainer for Vec<E> {
         others.iter().map(|&j| self[idx].dist(&self[j])).collect()
     }
 }
+
+impl<Elements: ElementContainer> ElementContainer for &Elements {
+    type Element = Elements::Element;
+
+    fn get(self: &Self, idx: usize) -> Self::Element {
+        Elements::get(self, idx)
+    }
+
+    fn len(self: &Self) -> usize {
+        Elements::len(self)
+    }
+
+    fn dist_to_element(self: &Self, idx: usize, element: &Self::Element) -> NotNan<f32> {
+        Elements::dist_to_element(self, idx, element)
+    }
+
+    fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
+        Elements::dist(self, i, j)
+    }
+
+    fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
+        Elements::dists(self, idx, others)
+    }
+}

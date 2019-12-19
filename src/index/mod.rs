@@ -27,12 +27,12 @@ const UNUSED: NeighborId = NeighborId::max_value();
 /// The index is built by using `GranneBuilder` and can be stored to disk.
 pub struct Granne<'a, Elements: ElementContainer> {
     layers: Layers<'a>,
-    elements: &'a Elements,
+    elements: Elements,
 }
 
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     /// Loads this index lazily
-    pub fn load(index: &'a [u8], elements: &'a Elements) -> Self {
+    pub fn load(index: &'a [u8], elements: Elements) -> Self {
         Self {
             layers: io::load_layers(index),
             elements,
@@ -106,7 +106,7 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     pub fn reordered_index<'b>(
         self: &Self,
         order: &[usize],
-        reordered_elements: &'b Elements,
+        reordered_elements: Elements,
         show_progress: bool,
     ) -> Granne<'b, Elements> {
         Granne {
@@ -168,7 +168,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     }
 
     /// Returns a searchable index from this builder.
-    pub fn get_index(self: &Self) -> Granne<Elements> {
+    pub fn get_index(self: &Self) -> Granne<&Elements> {
         Granne::from_parts(
             self.layers.iter().map(|l| l.borrow()).collect::<Vec<_>>(),
             &self.elements,
@@ -428,7 +428,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         config: &Config,
         elements: &Elements,
         num_elements: usize,
-        prev_layers: &Granne<Elements>,
+        prev_layers: &Granne<&Elements>,
         layer: &mut FixedWidthSliceVector<'static, NeighborId>,
         reinsert_elements: bool,
     ) {
@@ -513,7 +513,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     fn index_element<'a>(
         config: &Config,
         elements: &Elements,
-        prev_layers: &Granne<Elements>,
+        prev_layers: &Granne<&Elements>,
         layer: &'a [parking_lot::RwLock<&'a mut [NeighborId]>],
         idx: usize,
     ) {
@@ -668,7 +668,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 }
 
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
-    fn from_parts<L: Into<Layers<'a>>>(layers: L, elements: &'a Elements) -> Self {
+    fn from_parts<L: Into<Layers<'a>>>(layers: L, elements: Elements) -> Self {
         Self {
             layers: layers.into(),
             elements,
@@ -683,13 +683,19 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
         num_neighbors: usize,
     ) -> Vec<(usize, f32)> {
         if let Some((bottom_layer, top_layers)) = layers.split_last() {
-            let entrypoint = find_entrypoint(top_layers, self.elements, element);
+            let entrypoint = find_entrypoint(top_layers, &self.elements, element);
 
-            search_for_neighbors(bottom_layer, entrypoint, self.elements, element, max_search)
-                .into_iter()
-                .take(num_neighbors)
-                .map(|(i, d)| (i, d.into_inner()))
-                .collect()
+            search_for_neighbors(
+                bottom_layer,
+                entrypoint,
+                &self.elements,
+                element,
+                max_search,
+            )
+            .into_iter()
+            .take(num_neighbors)
+            .map(|(i, d)| (i, d.into_inner()))
+            .collect()
         } else {
             Vec::new()
         }

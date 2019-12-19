@@ -44,8 +44,16 @@ impl<'a> SumEmbeddings<'a> {
         }
     }
 
+    /// Loads `SumEmbeddings` from a buffer `elements`.
+    pub fn load(embeddings: Embeddings<'a>, elements: &'a [u8]) -> Self {
+        Self {
+            embeddings,
+            elements: Elements::load(elements),
+        }
+    }
+
     /// Constructs `SumEmbeddings` with `elements`.
-    pub fn from_parts(embeddings: Embeddings<'a>, elements: Elements<'a>) -> Self {
+    pub(crate) fn from_parts(embeddings: Embeddings<'a>, elements: Elements<'a>) -> Self {
         Self {
             embeddings,
             elements,
@@ -155,5 +163,75 @@ impl<'a> ExtendableElementContainer for SumEmbeddings<'a> {
 impl<'a> io::Writeable for SumEmbeddings<'a> {
     fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
         self.elements.write(buffer)
+    }
+}
+
+#[doc(hidden)]
+pub mod mmap {
+    use super::*;
+    use madvise::{AccessPattern, AdviseMemory};
+    use memmap;
+
+    pub struct MmapSumEmbeddings {
+        elements: memmap::Mmap,
+        embeddings: memmap::Mmap,
+        dim: usize,
+    }
+
+    impl MmapSumEmbeddings {
+        pub fn new(elements: &str, embeddings: &str, dim: usize) -> Self {
+            let elements = std::fs::File::open(elements).unwrap();
+            let elements = unsafe { memmap::Mmap::map(&elements).unwrap() };
+            elements
+                .advise_memory_access(AccessPattern::Random)
+                .expect("Error with madvise");
+
+            let embeddings = std::fs::File::open(embeddings).unwrap();
+            let embeddings = unsafe { memmap::Mmap::map(&embeddings).unwrap() };
+            embeddings
+                .advise_memory_access(AccessPattern::Random)
+                .expect("Error with madvise");
+
+            Self {
+                elements,
+                embeddings,
+                dim,
+            }
+        }
+
+        pub fn load<'a>(self: &'a Self) -> SumEmbeddings<'a> {
+            let embeddings = Embeddings::load(&self.embeddings[..], self.dim);
+            SumEmbeddings::load(embeddings, &self.elements[..])
+        }
+    }
+
+    impl ElementContainer for MmapSumEmbeddings {
+        type Element = angular::Vector<'static>;
+
+        fn get(self: &Self, idx: usize) -> Self::Element {
+            self.load().get(idx)
+        }
+
+        fn len(self: &Self) -> usize {
+            self.load().len()
+        }
+
+        fn dist_to_element(self: &Self, idx: usize, element: &Self::Element) -> NotNan<f32> {
+            self.load().dist_to_element(idx, element)
+        }
+
+        fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
+            self.load().dist(i, j)
+        }
+
+        fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
+            self.load().dists(idx, others)
+        }
+    }
+
+    impl io::Writeable for MmapSumEmbeddings {
+        fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
+            self.load().write(buffer)
+        }
     }
 }
