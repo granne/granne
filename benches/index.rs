@@ -19,19 +19,15 @@ mod index {
         ($fn_name:ident, $elements_type:ty, $dim:expr, $max_search:expr) => {
             #[bench]
             fn $fn_name(b: &mut Bencher) {
-                let config = Config {
-                    num_layers: 5,
-                    num_neighbors: 20,
-                    max_search: 50,
-                    reinsert_elements: true,
-                    show_progress: false,
-                };
-
                 let elements: $elements_type = (0..1000)
-                    .map(|_| bench_helper::random_vector($dim))
+                    .map(|_| test_helper::random_vector($dim))
                     .collect();
 
-                let mut builder = GranneBuilder::new(config, elements);
+                let mut builder = GranneBuilder::new(elements)
+                    .with_num_layers(5)
+                    .with_num_neighbors(20)
+                    .with_max_search(50);
+
                 builder.build_index();
 
                 let index = builder.get_index();
@@ -75,19 +71,15 @@ mod index {
         ($fn_name:ident, $elements_type:ty, $dim:expr, $max_search:expr) => {
             #[bench]
             fn $fn_name(b: &mut Bencher) {
-                let config = Config {
-                    num_layers: 5,
-                    num_neighbors: 20,
-                    max_search: 50,
-                    reinsert_elements: true,
-                    show_progress: false,
-                };
-
                 let elements: $elements_type = (0..1000)
-                    .map(|_| bench_helper::random_vector($dim))
+                    .map(|_| test_helper::random_vector($dim))
                     .collect();
 
-                let mut builder = GranneBuilder::new(config, elements);
+                let mut builder = GranneBuilder::new(elements)
+                    .with_num_layers(5)
+                    .with_num_neighbors(20)
+                    .with_max_search(50);
+
                 builder.build_index();
 
                 let mut file: std::fs::File = tempfile::tempfile().unwrap();

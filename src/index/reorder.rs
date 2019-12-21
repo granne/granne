@@ -88,7 +88,7 @@ fn get_reverse_mapping(mapping: &[usize]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elements::{sum_embeddings, Dist};
+    use crate::elements::{embeddings, Dist};
     use crate::test_helper;
 
     #[test]
@@ -108,10 +108,10 @@ mod tests {
             .map(|layer| index.layer_len(layer))
             .collect();
         let mapping =
-            sum_embeddings::reorder::find_reordering_based_on_embeddings(&elements, &layer_counts);
+            embeddings::reorder::find_reordering_based_on_embeddings(&elements, &layer_counts);
 
         let reordered_elements =
-            sum_embeddings::reorder::reorder_sum_embeddings(&elements, &mapping, false);
+            embeddings::reorder::reorder_sum_embeddings(&elements, &mapping, false);
 
         let reordered_index = index.reordered_index(&mapping, &reordered_elements, false);
 

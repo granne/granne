@@ -6,7 +6,7 @@ mod dense_vector;
 pub mod angular;
 pub mod angular_int;
 
-pub mod sum_embeddings;
+pub mod embeddings;
 
 /// A trait for any type containing elements to be indexed using `GranneBuilder` and/or used for
 /// searching with `Granne`.

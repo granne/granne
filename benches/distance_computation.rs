@@ -18,8 +18,8 @@ mod types {
         ($fn_name:ident, $vector_type:ty, $dim:expr) => {
             #[bench]
             fn $fn_name(b: &mut Bencher) {
-                let x: $vector_type = granne::bench_helper::random_vector($dim);
-                let y: $vector_type = granne::bench_helper::random_vector($dim);
+                let x: $vector_type = granne::test_helper::random_vector($dim);
+                let y: $vector_type = granne::test_helper::random_vector($dim);
 
                 b.iter(|| x.dist(&y));
             }

@@ -1,3 +1,5 @@
+//! A module for elements that can be embedded into vector spaces.
+
 use ordered_float::NotNan;
 
 use super::{angular, angular_int, Dist, ElementContainer, ExtendableElementContainer};
@@ -16,14 +18,16 @@ type ElementOffset = FiveByteInt;
 
 type Elements<'a> = VariableWidthSliceVector<'a, EmbeddingId, ElementOffset>;
 
-/// A data structure representing ... where each element vector is created by summing a number of vectors
-/// from `embeddings`.
+/// A data structure containing elements that can be embedded into a vector space.
+/// `SumEmbeddings` consists of `elements` and `embeddings`. The vector for each
+/// element is created by summing a subset of the vectors from `embeddings`.
 ///
 /// # Example - text/sentence vectors based on word vectors:
 ///
-/// `embeddings` contains vectors for all valid words. Each element is a text snippet/sentence
-/// where each word has a corresponding vector in `embeddings`. An element in `elements` is represented
-/// by the indices of its words in `embeddings`, e.g. if
+/// `embeddings` contains a vector for any valid words. Each element is a text
+/// snippet/sentence where each word has a corresponding vector in `embeddings`.
+/// An element in `elements` is represented by the indices of its words in
+/// `embeddings`, e.g. if
 ///
 /// `embeddings = [v_{hello}, v_{rust}, v_{world}, ...]`,
 ///
