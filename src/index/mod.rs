@@ -428,7 +428,7 @@ impl<'a> Graph for [parking_lot::RwLock<&'a mut [NeighborId]>] {
     }
 }
 
-pub enum Layers<'a> {
+enum Layers<'a> {
     FixWidth(Vec<FixedWidthSliceVector<'a, NeighborId>>),
     VarWidth(Vec<VariableWidthSliceVector<'a, NeighborId, usize>>),
     Compressed(Vec<MultiSetVector<'a>>),

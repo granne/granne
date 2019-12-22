@@ -1,7 +1,11 @@
 use super::*;
 use pbr::ProgressBar;
 
-pub fn reorder_layers(layers: &Layers, mapping: &[usize], show_progress: bool) -> Layers<'static> {
+pub(super) fn reorder_layers(
+    layers: &Layers,
+    mapping: &[usize],
+    show_progress: bool,
+) -> Layers<'static> {
     let reverse_mapping = get_reverse_mapping(mapping);
     match layers {
         Layers::FixWidth(ref layers) => Layers::VarWidth(
