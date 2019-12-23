@@ -8,6 +8,7 @@ build/
 #*
 *#
 *.so
+.#*
 terraform
 *.pyc
 /wheels/
