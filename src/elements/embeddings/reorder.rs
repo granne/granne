@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn find_reordering_respects_layer_counts() {
-        let queries = test_helper::random_sum_embeddings();
+        let queries = test_helper::random_sum_embeddings(25, 225, 200);
         let layer_counts = vec![1, 5, 15, 25, queries.len()];
         let mut mapping = find_reordering_based_on_embeddings(&queries, &layer_counts);
 
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn reorder_sum_embeddings_reverse() {
-        let queries = test_helper::random_sum_embeddings();
+        let queries = test_helper::random_sum_embeddings(25, 225, 200);
         let mapping: Vec<usize> = (0..queries.len()).rev().collect();
 
         let rev_queries = reorder_sum_embeddings(&queries, &mapping, false);

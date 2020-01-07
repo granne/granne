@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn reorder_index_with_sum_embeddings() {
-        let elements = test_helper::random_sum_embeddings();
+        let elements = test_helper::random_sum_embeddings(5, 277, 100);
 
         let mut builder = GranneBuilder::new(elements.borrow())
             .with_num_layers(5)

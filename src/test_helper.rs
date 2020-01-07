@@ -26,14 +26,18 @@ pub fn random_offsets(max_inc: usize) -> impl Iterator<Item = usize> {
     })
 }
 
-pub fn random_sum_embeddings() -> crate::embeddings::SumEmbeddings<'static> {
-    let embeddings: crate::angular::Vectors = (0..225)
-        .map(|_| random_vector::<crate::angular::Vector>(25))
+pub fn random_sum_embeddings(
+    dim: usize,
+    num_embeddings: usize,
+    num_elements: usize,
+) -> crate::embeddings::SumEmbeddings<'static> {
+    let embeddings: crate::angular::Vectors = (0..num_embeddings)
+        .map(|_| random_vector::<crate::angular::Vector>(dim))
         .collect();
 
     let mut sum_embeddings = crate::embeddings::SumEmbeddings::new(embeddings);
 
-    for i in 0..101 {
+    for i in 0..num_elements {
         let len = 2 + i % 8;
         let element: Vec<_> = (i..(i + len))
             .map(|j| j % sum_embeddings.num_embeddings())

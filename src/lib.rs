@@ -12,6 +12,9 @@ pub use elements::{Dist, ElementContainer, ExtendableElementContainer};
 pub use index::{Granne, GranneBuilder};
 pub use io::Writeable;
 
+//#[doc(hidden)]
+pub use index::RwGranneBuilder;
+
 // only export these for benchmarks/doctests...
 #[doc(hidden)]
 pub mod test_helper;

@@ -45,7 +45,7 @@ macro_rules! dense_vector {
                 Self(FixedWidthSliceVector::load(buffer, dim))
             }
 
-            /// Create a collection of vectors with dimension `dim` from a `Vec<$scalar_type>`.
+            /// Create a collection of vectors with dimension `dim` from a `Vec`.
             ///
             pub fn from_vec(vec: Vec<$scalar_type>, dim: usize) -> Self {
                 Self(FixedWidthSliceVector::with_data(vec, dim))

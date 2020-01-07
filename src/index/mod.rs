@@ -13,6 +13,9 @@ mod tests;
 
 mod io;
 mod reorder;
+mod rw;
+
+pub use rw::RwGranneBuilder;
 
 use crate::{
     max_size_heap,
@@ -621,11 +624,11 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         }
     }
 
-    fn index_element<'a>(
+    fn index_element(
         config: &Config,
         elements: &Elements,
         prev_layers: &Granne<&Elements>,
-        layer: &'a [parking_lot::RwLock<&'a mut [NeighborId]>],
+        layer: &[parking_lot::RwLock<&mut [NeighborId]>],
         idx: usize,
     ) {
         // do not index elements that are zero
