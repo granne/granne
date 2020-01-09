@@ -23,6 +23,12 @@ On Mac OS there seems to be some issue ([maybe
 this one](https://grokbase.com/t/r/r-sig-mac/106pkkknqd/problems-with-single-precision-routines-in-64-bit-veclib-blas))
 with the default `BLAS` library. A workaround is to install e.g. `openblas` and link to that instead.
 
+You will also need `Rust` installed. This can be done by calling:
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+Or by visiting https://rustup.rs/ and following the instructions there.
+
 #### Rust
 
 ```
