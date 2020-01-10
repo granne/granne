@@ -46,12 +46,15 @@ fn select_neighbors() {
 }
 
 fn build_and_search<Elements: ElementContainer + Sync + Send + Clone>(elements: Elements) {
-    let mut builder = GranneBuilder::new(elements)
-        .with_num_layers(5)
-        .with_num_neighbors(20)
-        .with_max_search(50);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(5)
+            .num_neighbors(20)
+            .max_search(20),
+        elements,
+    );
 
-    builder.build_index();
+    builder.build();
     let index = builder.get_index();
 
     verify_search(&index, 0.95, 40);
@@ -81,14 +84,17 @@ fn with_borrowed_elements() {
         .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
-    let mut builder = GranneBuilder::new(elements.as_slice())
-        .with_num_layers(5)
-        .with_reinsert_elements(false)
-        .with_num_neighbors(20)
-        .with_max_search(50);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(5)
+            .num_neighbors(20)
+            .max_search(5)
+            .reinsert_elements(false),
+        elements.as_slice(),
+    );
 
     assert_eq!(elements.len(), builder.elements.len());
-    builder.build_index();
+    builder.build();
     let index = builder.get_index();
 
     assert_eq!(index.len(), elements.len());
@@ -105,10 +111,13 @@ fn with_elements_and_add() {
         .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
-    let mut builder = GranneBuilder::new(elements)
-        .with_num_layers(5)
-        .with_num_neighbors(20)
-        .with_max_search(50);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(5)
+            .num_neighbors(20)
+            .max_search(5),
+        elements,
+    );
 
     assert_eq!(500, builder.elements.len());
 
@@ -118,7 +127,7 @@ fn with_elements_and_add() {
 
     assert_eq!(600, builder.elements.len());
 
-    builder.build_index();
+    builder.build();
 
     verify_search(&builder.get_index(), 0.95, 40);
 }
@@ -152,12 +161,15 @@ fn incremental_build_0() {
     let num_layers = 4;
     let layer_multiplier = compute_layer_multiplier(elements.len(), num_layers);
 
-    let mut builder = GranneBuilder::new(elements.as_slice())
-        .with_num_layers(num_layers)
-        .with_num_neighbors(20)
-        .with_max_search(50);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(num_layers)
+            .num_neighbors(20)
+            .max_search(5),
+        elements.as_slice(),
+    );
 
-    builder.build_index_part(layer_multiplier.ceil() as usize + 2);
+    builder.build_partial(layer_multiplier.ceil() as usize + 2);
 
     assert_eq!(3, builder.layers.len());
     assert_eq!(
@@ -173,7 +185,7 @@ fn incremental_build_0() {
         builder.layers[2].len()
     );
 
-    builder.build_index_part(layer_multiplier.powf(2.).ceil() as usize + 2);
+    builder.build_partial(layer_multiplier.powf(2.).ceil() as usize + 2);
 
     assert_eq!(4, builder.layers.len());
     assert_eq!(
@@ -193,7 +205,7 @@ fn incremental_build_0() {
         builder.layers[3].len()
     );
 
-    builder.build_index_part(elements.len());
+    builder.build_partial(elements.len());
 
     assert_eq!(4, builder.layers.len());
     assert_eq!(
@@ -219,27 +231,22 @@ fn incremental_build_1() {
         .map(|_| test_helper::random_vector::<angular_int::Vector>(5))
         .collect();
 
-    let config = Config {
-        num_layers: 4,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
-
     let num_layers = 4;
 
-    let mut builder = GranneBuilder::new(elements.borrow())
-        .with_num_layers(num_layers)
-        .with_num_neighbors(20)
-        .with_max_search(50);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(num_layers)
+            .num_neighbors(20)
+            .max_search(50),
+        elements.borrow(),
+    );
 
     let num_chunks = 10;
     let chunk_size = elements.len() / num_chunks;
     assert_eq!(elements.len(), num_chunks * chunk_size);
 
     for i in 1..(num_chunks + 1) {
-        builder.build_index_part(i * chunk_size);
+        builder.build_partial(i * chunk_size);
 
         assert_eq!(i * chunk_size, builder.indexed_elements());
     }
@@ -283,7 +290,7 @@ fn incremental_build_with_write_and_read() {
         let mut builder = GranneBuilder::read(config.clone(), &mut file, elements);
         assert_eq!(i * chunk_size, builder.indexed_elements());
 
-        builder.build_index_part((i + 1) * chunk_size);
+        builder.build_partial((i + 1) * chunk_size);
 
         assert_eq!((i + 1) * chunk_size, builder.indexed_elements());
 
@@ -322,7 +329,7 @@ fn read_index_with_owned_elements() {
         };
 
         let mut builder = GranneBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
-        builder.build_index_part(num_elements / 2);
+        builder.build_partial(num_elements / 2);
 
         let mut file: File = tempfile::tempfile().unwrap();
         builder.write(&mut file).unwrap();
@@ -344,7 +351,7 @@ fn read_index_with_owned_elements() {
     // owning_builder still alive after elements go out of scope
     assert_eq!(num_elements / 2, owning_builder.indexed_elements());
 
-    owning_builder.build_index();
+    owning_builder.build();
 
     assert_eq!(num_elements, owning_builder.indexed_elements());
     assert_eq!(num_elements, owning_builder.len());
@@ -356,9 +363,9 @@ fn empty_build() {
         .map(|_| test_helper::random_vector::<angular::Vector>(25))
         .collect();
 
-    let mut builder = GranneBuilder::new(elements);
+    let mut builder = GranneBuilder::new(BuildConfig::default(), elements);
 
-    builder.build_index_part(0);
+    builder.build_partial(0);
 }
 
 #[test]
@@ -375,12 +382,15 @@ fn write_and_load() {
     const DIM: usize = 50;
     let elements: angular::Vectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
-    let mut builder = GranneBuilder::new(elements.borrow())
-        .with_num_layers(4)
-        .with_num_neighbors(20)
-        .with_max_search(10);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(5)
+            .num_neighbors(20)
+            .max_search(5),
+        elements.borrow(),
+    );
 
-    builder.build_index();
+    builder.build();
 
     let mut file: File = tempfile::tempfile().unwrap();
     builder.write_index(&mut file).unwrap();
@@ -425,12 +435,15 @@ fn write_and_load_compressed() {
     const DIM: usize = 50;
     let elements: angular::Vectors = (0..100).map(|_| test_helper::random_vector(DIM)).collect();
 
-    let mut builder = GranneBuilder::new(elements.borrow())
-        .with_num_layers(4)
-        .with_num_neighbors(20)
-        .with_max_search(10);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(4)
+            .num_neighbors(20)
+            .max_search(10),
+        elements.borrow(),
+    );
 
-    builder.build_index();
+    builder.build();
 
     {
         let mut file: File = tempfile::tempfile().unwrap();
@@ -518,7 +531,7 @@ fn write_and_read() {
     };
 
     let mut original = GranneBuilder::with_borrowed_elements(config.clone(), &elements);
-    original.build_index();
+    original.build();
 
     let mut file: File = tempfile::tempfile().unwrap();
     original.write(&mut file).unwrap();
@@ -560,16 +573,19 @@ fn append_elements() {
         .map(|_| test_helper::random_vector::<angular::Vector>(50))
         .collect();
 
-    let mut builder = GranneBuilder::new(angular::Vectors::new())
-        .with_num_layers(4)
-        .with_num_neighbors(20)
-        .with_max_search(50);
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default()
+            .num_layers(4)
+            .num_neighbors(20)
+            .max_search(50),
+        angular::Vectors::new(),
+    );
 
     // insert half of the elements
     for element in &elements {
         builder.push(element.clone());
     }
-    builder.build_index();
+    builder.build();
 
     assert_eq!(4, builder.layers.len());
     assert_eq!(500, builder.layers[3].len());
@@ -590,7 +606,7 @@ fn append_elements() {
     for element in &additional_elements {
         builder.push(element.clone());
     }
-    builder.build_index();
+    builder.build();
 
     assert_eq!(4, builder.layers.len());
     assert_eq!(1000, builder.layers[3].len());
@@ -632,7 +648,7 @@ fn append_elements_with_expected_size() {
     for element in &elements {
         builder.append(element.clone());
     }
-    builder.build_index();
+    builder.build();
 
     assert_eq!(2, builder.layers.len());
     assert_eq!(10, builder.layers.last().unwrap().len());
@@ -653,7 +669,7 @@ fn append_elements_with_expected_size() {
     for element in &additional_elements {
         builder.append(element.clone());
     }
-    builder.build_index();
+    builder.build();
 
     assert_eq!(4, builder.layers.len());
     assert_eq!(1000, builder.layers[3].len());

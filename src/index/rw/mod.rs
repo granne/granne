@@ -16,7 +16,7 @@ pub struct RwGranneBuilder<Elements: ExtendableElementContainer + Writeable> {
         Vec<FixedWidthSliceVector<'static, NeighborId>>,
     )>,
     elements: RwLock<Elements>,
-    config: Config,
+    config: BuildConfig,
     max_elements: usize,
     pool: rayon::ThreadPool,
     // only used to prevent writes from happening while writing to disk
@@ -30,7 +30,7 @@ where
     pub fn new(builder: GranneBuilder<Elements>, max_elements: usize, num_threads: usize) -> Self {
         let mut builder = builder;
 
-        builder.build_index();
+        builder.build();
 
         let mut current_layer = builder
             .layers
@@ -267,9 +267,12 @@ mod tests {
 
     #[test]
     fn insert_in_parallel() {
-        let builder = GranneBuilder::new(test_helper::random_sum_embeddings(5, 505, 0))
-            .with_max_search(50)
-            .with_reinsert_elements(false);
+        let builder = GranneBuilder::new(
+            BuildConfig::default()
+                .max_search(50)
+                .reinsert_elements(false),
+            test_helper::random_sum_embeddings(5, 505, 0),
+        );
 
         let builder = RwGranneBuilder::new(builder, 5000, 1);
 
@@ -298,9 +301,12 @@ mod tests {
         let max_elements = 1500;
         let num_threads = 4;
 
-        let builder = GranneBuilder::new(test_helper::random_sum_embeddings(5, 10_000, 0))
-            .with_max_search(50)
-            .with_reinsert_elements(false);
+        let builder = GranneBuilder::new(
+            BuildConfig::default()
+                .max_search(50)
+                .reinsert_elements(false),
+            test_helper::random_sum_embeddings(5, 10_000, 0),
+        );
 
         let builder = RwGranneBuilder::new(builder, max_elements, num_threads);
 
@@ -338,11 +344,16 @@ mod tests {
         let num_threads = 1;
 
         for num_layers in vec![2, 5, 6] {
+            let build_config = BuildConfig::default()
+                .max_search(50)
+                .num_layers(num_layers)
+                .reinsert_elements(false);
+
             for max_elements in vec![13, 66, 199, 719] {
-                let builder = GranneBuilder::new(crate::elements::angular::Vectors::new())
-                    .with_max_search(50)
-                    .with_num_layers(num_layers)
-                    .with_reinsert_elements(false);
+                let builder = GranneBuilder::new(
+                    build_config.clone(),
+                    crate::elements::angular::Vectors::new(),
+                );
 
                 let rw_builder = RwGranneBuilder::new(builder, max_elements, num_threads);
 
@@ -351,12 +362,9 @@ mod tests {
                 }
 
                 let elements = rw_builder.elements.read().clone();
-                let mut builder = GranneBuilder::new(elements)
-                    .with_max_search(50)
-                    .with_num_layers(num_layers)
-                    .with_reinsert_elements(false);
+                let mut builder = GranneBuilder::new(build_config.clone(), elements);
 
-                builder.build_index();
+                builder.build();
 
                 assert_eq!(builder.layers.len(), rw_builder.layers.read().1.len() + 1);
 
@@ -374,9 +382,12 @@ mod tests {
 
     #[test]
     fn search_empty() {
-        let builder = GranneBuilder::new(test_helper::random_sum_embeddings(10, 100, 0))
-            .with_max_search(50)
-            .with_reinsert_elements(false);
+        let builder = GranneBuilder::new(
+            BuildConfig::default()
+                .max_search(50)
+                .reinsert_elements(false),
+            test_helper::random_sum_embeddings(10, 100, 0),
+        );
 
         let builder = RwGranneBuilder::new(builder, 5000, 1);
 
@@ -385,9 +396,12 @@ mod tests {
 
     #[test]
     fn search_with_one_element() {
-        let builder = GranneBuilder::new(test_helper::random_sum_embeddings(10, 100, 0))
-            .with_max_search(50)
-            .with_reinsert_elements(false);
+        let builder = GranneBuilder::new(
+            BuildConfig::default()
+                .max_search(50)
+                .reinsert_elements(false),
+            test_helper::random_sum_embeddings(10, 100, 0),
+        );
 
         let builder = RwGranneBuilder::new(builder, 5000, 1);
 

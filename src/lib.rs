@@ -9,7 +9,7 @@ use odd_byte_int::{FiveByteInt, ThreeByteInt};
 
 pub use elements::{angular, angular_int, embeddings};
 pub use elements::{Dist, ElementContainer, ExtendableElementContainer};
-pub use index::{Granne, GranneBuilder};
+pub use index::{BuildConfig, Builder, Granne, GranneBuilder, Index};
 pub use io::Writeable;
 
 //#[doc(hidden)]
