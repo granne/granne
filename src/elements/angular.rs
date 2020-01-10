@@ -1,7 +1,7 @@
 //! This module contains element types for angular vectors using `f32` as scalars.
 
 use super::{Dist, ElementContainer, ExtendableElementContainer};
-use crate::{io, slice_vector::FixedWidthSliceVector};
+use crate::{io, math, slice_vector::FixedWidthSliceVector};
 
 use ordered_float::NotNan;
 use std::cmp;
@@ -13,13 +13,15 @@ use std::iter::FromIterator;
 dense_vector!(f32);
 
 impl From<Vec<f32>> for Vector<'static> {
-    fn from(v: Vec<f32>) -> Self {
-        // todo speedup
-        let mut v = v;
-        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm >= 0.0 {
-            v.iter_mut().for_each(|x| *x /= norm);
-        }
+    fn from(mut v: Vec<f32>) -> Self {
+        /*        // todo speedup
+                let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+                if norm >= 0.0 {
+                    v.iter_mut().for_each(|x| *x /= norm);
+                }
+
+        */
+        math::normalize_f32(&mut v);
 
         Self(Cow::from(v))
     }
@@ -27,69 +29,10 @@ impl From<Vec<f32>> for Vector<'static> {
 
 impl<'a, 'b> Dist<Vector<'b>> for Vector<'a> {
     fn dist(self: &Self, other: &Vector<'b>) -> NotNan<f32> {
-        // optimized code to compute r for systems supporting avx2
-        // with fallback for other systems
-        // see https://doc.rust-lang.org/std/arch/index.html#examples
-        #[inline(always)]
-        fn compute_r(x: &[f32], y: &[f32]) -> f32 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-                    return unsafe { compute_r_avx2(x, y) };
-                }
-            }
-
-            compute_r_fallback(x, y)
-        }
-
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        #[target_feature(enable = "avx2,fma")]
-        unsafe fn compute_r_avx2(x: &[f32], y: &[f32]) -> f32 {
-            // this function will be inlined and take advantage of avx2 auto-vectorization
-            compute_r_fallback(x, y)
-        }
-
-        #[inline(always)]
-        fn compute_r_fallback(x: &[f32], y: &[f32]) -> f32 {
-            const CHUNK_SIZE: usize = 8;
-            let mut chunk = [0.0f32; CHUNK_SIZE];
-
-            for (a, b) in x.chunks_exact(CHUNK_SIZE).zip(y.chunks_exact(CHUNK_SIZE)) {
-                for i in 0..CHUNK_SIZE {
-                    chunk[i] = a[i].mul_add(b[i], chunk[i]);
-                }
-            }
-
-            let mut r = 0.0f32;
-            for i in 0..CHUNK_SIZE {
-                r += chunk[i];
-            }
-
-            for (ai, bi) in x
-                .chunks_exact(CHUNK_SIZE)
-                .remainder()
-                .iter()
-                .zip(y.chunks_exact(CHUNK_SIZE).remainder())
-            {
-                r = ai.mul_add(*bi, r);
-            }
-
-            r
-        }
-
         let &Vector(ref x) = self;
         let &Vector(ref y) = other;
 
-        // try with chunks_exact in order to force simd
-        // https://rust.godbolt.org/z/G5A2u0
-        // https://news.ycombinator.com/item?id=21342501
-        /*        let mut r = 0.0f32;
-        for (x, y) in x.iter().zip(y.iter()) {
-            r = x.mul_add(*y, r);
-        }
-        */
-
-        let r = compute_r(x, y);
+        let r = math::dot_product_f32(x, y);
 
         let d = NotNan::new(1.0f32 - r).unwrap();
 

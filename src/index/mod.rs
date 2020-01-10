@@ -755,7 +755,11 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
             // add j to neighbors if j is closer to idx,
             // than to all previously added neighbors
-            if neighbors.iter().all(|&(n, _)| d <= elements.dist(n, j)) {
+            let element = elements.get(j);
+            if neighbors
+                .iter()
+                .all(|&(n, _)| d <= elements.dist_to_element(n, &element))
+            {
                 neighbors.push((j, d));
             }
         }

@@ -3,6 +3,7 @@
 mod elements;
 mod index;
 mod io;
+mod math;
 mod max_size_heap;
 mod odd_byte_int;
 use odd_byte_int::{FiveByteInt, ThreeByteInt};

@@ -23,12 +23,15 @@ mod index {
                     .map(|_| test_helper::random_vector($dim))
                     .collect();
 
-                let mut builder = GranneBuilder::new(elements)
-                    .with_num_layers(5)
-                    .with_num_neighbors(20)
-                    .with_max_search(50);
+                let mut builder = GranneBuilder::new(
+                    BuildConfig::default()
+                        .num_layers(5)
+                        .num_neighbors(20)
+                        .max_search(50),
+                    elements,
+                );
 
-                builder.build_index();
+                builder.build();
 
                 let index = builder.get_index();
 
@@ -75,12 +78,15 @@ mod index {
                     .map(|_| test_helper::random_vector($dim))
                     .collect();
 
-                let mut builder = GranneBuilder::new(elements)
-                    .with_num_layers(5)
-                    .with_num_neighbors(20)
-                    .with_max_search(50);
+                let mut builder = GranneBuilder::new(
+                    BuildConfig::default()
+                        .num_layers(5)
+                        .num_neighbors(20)
+                        .max_search(50),
+                    elements,
+                );
 
-                builder.build_index();
+                builder.build();
 
                 let mut file: std::fs::File = tempfile::tempfile().unwrap();
                 builder.write_index(&mut file).unwrap();

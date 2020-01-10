@@ -11,7 +11,7 @@ fn empty(b: &mut Bencher) {
     b.iter(|| 1)
 }
 
-mod types {
+mod elements {
     use super::*;
 
     macro_rules! vector_dist_impl {

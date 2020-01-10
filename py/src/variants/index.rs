@@ -100,7 +100,12 @@ impl WordEmbeddingsGranne {
         let words = WordDict::new(words);
 
         let embeddings = open_random_access_mmap(embeddings);
-        let dim = embeddings.len() / words.len();
+
+        assert_eq!(
+            0,
+            embeddings.len() % (std::mem::size_of::<f32>() * words.len())
+        );
+        let dim = embeddings.len() / (std::mem::size_of::<f32>() * words.len());
 
         Self {
             index: open_random_access_mmap(index),

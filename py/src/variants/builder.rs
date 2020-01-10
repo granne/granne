@@ -34,7 +34,11 @@ impl WordEmbeddingsBuilder {
 
         let dim = {
             let embeddings = open_random_access_mmap(embeddings);
-            embeddings.len() / words.len()
+            assert_eq!(
+                0,
+                embeddings.len() % (std::mem::size_of::<f32>() * words.len())
+            );
+            embeddings.len() / (std::mem::size_of::<f32>() * words.len())
         };
 
         let builder = granne::GranneBuilder::new(

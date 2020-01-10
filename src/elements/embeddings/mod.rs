@@ -5,7 +5,7 @@ use ordered_float::NotNan;
 use super::{angular, angular_int, Dist, ElementContainer, ExtendableElementContainer};
 use crate::io;
 use crate::slice_vector::VariableWidthSliceVector;
-use crate::{FiveByteInt, ThreeByteInt};
+use crate::{math, FiveByteInt, ThreeByteInt};
 use std::io::{Result, Write};
 
 pub mod parsing;
@@ -114,16 +114,10 @@ impl<'a> SumEmbeddings<'a> {
         let w: usize = embedding_ids[0].into();
         let mut data: Vec<f32> = self.embeddings.get_element(w).to_vec();
 
-        // speed up
         for w in embedding_ids.iter().skip(1).map(|&id| id.into()) {
             let embedding = self.embeddings.get_element(w);
 
-            assert_eq!(data.len(), embedding.len());
-
-            let embedding = embedding.as_slice();
-            for i in 0..data.len() {
-                data[i] += embedding[i];
-            }
+            math::sum_into_f32(&mut data, embedding.as_slice());
         }
 
         data
