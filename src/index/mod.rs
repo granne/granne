@@ -44,10 +44,10 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
     /// Returns the number of elements in this index.
     /// Note that it might be less than the number of elements in `elements`.
     fn len(self: &Self) -> usize {
-        match &self.layers {
-            Layers::FixWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
-            Layers::VarWidth(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
-            Layers::Compressed(layers) => layers.last().map(|l| l.len()).unwrap_or(0),
+        if self.layers.len() > 0 {
+            self.layer_len(self.layers.len() - 1)
+        } else {
+            0
         }
     }
 
@@ -58,20 +58,12 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
 
     /// Returns the number of nodes in `layer`.
     fn layer_len(self: &Self, layer: usize) -> usize {
-        match &self.layers {
-            Layers::FixWidth(layers) => layers[layer].len(),
-            Layers::VarWidth(layers) => layers[layer].len(),
-            Layers::Compressed(layers) => layers[layer].len(),
-        }
+        self.layers.as_graph(layer).len()
     }
 
     /// Returns the neighbors of the node at `index` in `layer`.
     fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
-        match &self.layers {
-            Layers::FixWidth(layers) => layers[layer].get_neighbors(index),
-            Layers::VarWidth(layers) => layers[layer].get_neighbors(index),
-            Layers::Compressed(layers) => layers[layer].get_neighbors(index),
-        }
+        self.layers.as_graph(layer).get_neighbors(index)
     }
 }
 
@@ -501,6 +493,14 @@ impl<'a> Layers<'a> {
             Self::FixWidth(layers) => layers.len(),
             Self::VarWidth(layers) => layers.len(),
             Self::Compressed(layers) => layers.len(),
+        }
+    }
+
+    fn as_graph(self: &Self, layer: usize) -> &dyn Graph {
+        match self {
+            Self::FixWidth(layers) => &layers[layer],
+            Self::VarWidth(layers) => &layers[layer],
+            Self::Compressed(layers) => &layers[layer],
         }
     }
 }
