@@ -8,7 +8,7 @@ use std::cell::RefCell;
 mod variants;
 
 const DEFAULT_MAX_SEARCH: usize = 200;
-const DEFAULT_NUM_NEIGHBORS: usize = 30;
+const DEFAULT_NUM_ELEMENTS: usize = 10;
 
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     m.add(
@@ -60,7 +60,7 @@ py_class!(class Granne |py| {
     def search(&self,
                element: &PyObject,
                max_search: usize = DEFAULT_MAX_SEARCH,
-               num_elements: usize = DEFAULT_NUM_NEIGHBORS) -> PyResult<Vec<(usize, f32)>>
+               num_elements: usize = DEFAULT_NUM_ELEMENTS) -> PyResult<Vec<(usize, f32)>>
     {
         self.index(py).borrow().search(py, element, max_search, num_elements)
     }

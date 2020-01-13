@@ -143,7 +143,7 @@ pub struct BuildConfig {
 impl Default for BuildConfig {
     fn default() -> Self {
         BuildConfig {
-            layer_multiplier: 20.0,
+            layer_multiplier: 15.0,
             expected_num_elements: None,
             num_neighbors: 30,
             max_search: 200,
@@ -656,13 +656,17 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
                 }
             };
 
+            #[cfg(feature = "singlethreaded")]
+            let layer_iter = layer.iter();
+            #[cfg(not(feature = "singlethreaded"))]
+            let layer_iter = layer.par_iter();
+
             if reinsert_elements {
                 // reinserting elements is done in reverse order
-                layer.par_iter().enumerate().rev().for_each(insert_element);
+                layer_iter.enumerate().rev().for_each(insert_element);
             } else {
                 // index elements, skipping already indexed
-                layer
-                    .par_iter()
+                layer_iter
                     .enumerate()
                     .skip(already_indexed)
                     .for_each(insert_element);
@@ -673,8 +677,13 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
             progress_bar.lock().set(layer.len() as u64);
         }
 
+        #[cfg(feature = "singlethreaded")]
+        let layer_iter_mut = layer.iter_mut();
+        #[cfg(not(feature = "singlethreaded"))]
+        let layer_iter_mut = layer.par_iter_mut();
+
         // limit number of neighbors (i.e. apply heuristic for neighbor selection)
-        layer.par_iter_mut().enumerate().for_each(|(i, node)| {
+        layer_iter_mut.enumerate().for_each(|(i, node)| {
             Self::add_and_limit_neighbors(elements, node, i, &[], config.num_neighbors);
         });
 

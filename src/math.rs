@@ -1,3 +1,7 @@
+#[cfg(feature = "blas")]
+use blas;
+
+#[cfg(not(feature = "blas"))]
 pub fn dot_product_f32(x: &[f32], y: &[f32]) -> f32 {
     // optimized code to compute the dot product for systems supporting avx2
     // with fallback for other systems
@@ -47,6 +51,11 @@ pub fn dot_product_f32(x: &[f32], y: &[f32]) -> f32 {
     dot_product_fallback(x, y)
 }
 
+#[cfg(feature = "blas")]
+pub fn dot_product_f32(x: &[f32], y: &[f32]) -> f32 {
+    unsafe { blas::sdot(x.len() as i32, x, 1, y, 1) }
+}
+
 pub fn dot_product_and_squared_norms_i8(x: &[i8], y: &[i8]) -> (i32, i32, i32) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[target_feature(enable = "avx2")]
@@ -83,7 +92,7 @@ pub fn dot_product_and_squared_norms_i8(x: &[i8], y: &[i8]) -> (i32, i32, i32) {
     compute_r_dx_dy_fallback(x, y)
 }
 
-#[inline(always)]
+#[cfg(not(feature = "blas"))]
 pub fn sum_into_f32(x: &mut [f32], y: &[f32]) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[target_feature(enable = "avx2")]
@@ -110,6 +119,12 @@ pub fn sum_into_f32(x: &mut [f32], y: &[f32]) {
     sum_into_fallback(x, y)
 }
 
+#[cfg(feature = "blas")]
+pub fn sum_into_f32(x: &mut [f32], y: &[f32]) {
+    unsafe { blas::saxpy(x.len() as i32, 1f32, y, 1, x, 1) };
+}
+
+#[cfg(not(feature = "blas"))]
 pub fn normalize_f32(x: &mut [f32]) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[target_feature(enable = "avx2,fma")]
@@ -119,7 +134,7 @@ pub fn normalize_f32(x: &mut [f32]) {
 
     #[inline(always)]
     fn normalize_fallback(x: &mut [f32]) {
-        let mut norm = dot_product_f32(x, x).sqrt();
+        let norm = dot_product_f32(x, x).sqrt();
 
         if norm >= 0.0 {
             for i in 0..x.len() {
@@ -136,6 +151,15 @@ pub fn normalize_f32(x: &mut [f32]) {
     }
 
     normalize_fallback(x)
+}
+
+#[cfg(feature = "blas")]
+pub fn normalize_f32(x: &mut [f32]) {
+    let n = x.len() as i32;
+    let norm = unsafe { blas::snrm2(n, x, 1) };
+    if norm > 0.0 {
+        unsafe { blas::sscal(n, 1.0 / norm, x, 1) };
+    }
 }
 
 #[cfg(test)]

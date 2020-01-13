@@ -4,12 +4,21 @@ version = "0.5.0"
 authors = ["Erik Larsson <erik.ie.larsson@gmail.com>"]
 license = "MIT"
 edition = "2018"
+links = "blas"
+build = "build.rs"
+
+[profile.release]
+debug = true
+
+[features]
+default = ["blas"]
+singlethreaded = []
 
 [dependencies]
 madvise = "0.1.0"
 memmap = "0.6.2"
 ordered-float = "*"
-parking_lot = "*"#0.9"
+parking_lot = "*"
 pbr = "1.0.0"
 rayon = "1.2"
 revord = "0.0.2"
@@ -21,8 +30,9 @@ flate2 = "*"
 owning_ref = "0.4"
 
 jemallocator = "0.3.2"
-
 rand = "*"
+
+blas = {version = "0.20.0", optional = true}
 
 [dev-dependencies]
 tempfile = "3.0.5"
