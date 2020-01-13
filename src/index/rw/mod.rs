@@ -29,6 +29,7 @@ where
 {
     pub fn new(builder: GranneBuilder<Elements>, max_elements: usize, num_threads: usize) -> Self {
         let mut builder = builder;
+        builder.config.expected_num_elements = Some(max_elements);
 
         builder.build();
 
@@ -37,12 +38,12 @@ where
             .pop()
             .unwrap_or_else(|| FixedWidthSliceVector::with_width(builder.config.num_neighbors));
 
-        let layer_multiplier = compute_layer_multiplier(max_elements, builder.config.num_layers);
-        let num_elements_in_layer = std::cmp::max(
+        let num_elements_in_layer = cmp::max(
             current_layer.len(),
-            std::cmp::min(
-                layer_multiplier.powf(builder.layers.len() as f32).ceil() as usize,
+            compute_num_elements_in_layer(
                 max_elements,
+                builder.config.layer_multiplier,
+                builder.layers.len(),
             ),
         );
 
@@ -137,14 +138,13 @@ where
                     let mut new_layer = current_layer.clone();
                     prev_layers.push(current_layer);
 
-                    let layer_multiplier =
-                        compute_layer_multiplier(self.max_elements, self.config.num_layers);
-                    let num_elements_in_layer = std::cmp::min(
-                        layer_multiplier.powf(prev_layers.len() as f32).ceil() as usize,
+                    let num_elements_in_layer = compute_num_elements_in_layer(
                         self.max_elements,
+                        self.config.layer_multiplier,
+                        prev_layers.len(),
                     );
-                    new_layer.resize(num_elements_in_layer, UNUSED);
 
+                    new_layer.resize(num_elements_in_layer, UNUSED);
                     new_layer.into()
                 };
             }
@@ -212,8 +212,8 @@ where
     pub fn search(
         self: &Self,
         element: &Elements::Element,
-        num_neighbors: usize,
         max_search: usize,
+        num_neighbors: usize,
     ) -> Vec<(usize, f32)> {
         let elements = self.elements.read();
         let (ref current_layer, ref layers) = *self.layers.read();
@@ -303,9 +303,11 @@ mod tests {
 
         let builder = GranneBuilder::new(
             BuildConfig::default()
-                .max_search(50)
+                .layer_multiplier(5.0)
+                .num_neighbors(10)
+                .max_search(20)
                 .reinsert_elements(false),
-            test_helper::random_sum_embeddings(5, 10_000, 0),
+            test_helper::random_sum_embeddings(5, 2000, 0),
         );
 
         let builder = RwGranneBuilder::new(builder, max_elements, num_threads);
@@ -334,7 +336,7 @@ mod tests {
         );
 
         for i in 0..max_elements {
-            assert_eq!(i, builder.search(&builder.get_element(i), 1, 10)[0].0);
+            assert_eq!(i, builder.search(&builder.get_element(i), 20, 1)[0].0);
         }
     }
 
@@ -343,10 +345,10 @@ mod tests {
         const DIM: usize = 2;
         let num_threads = 1;
 
-        for num_layers in vec![2, 5, 6] {
+        for layer_multiplier in vec![10.0, 15.0, 25.0] {
             let build_config = BuildConfig::default()
+                .layer_multiplier(layer_multiplier)
                 .max_search(50)
-                .num_layers(num_layers)
                 .reinsert_elements(false);
 
             for max_elements in vec![13, 66, 199, 719] {
@@ -391,7 +393,7 @@ mod tests {
 
         let builder = RwGranneBuilder::new(builder, 5000, 1);
 
-        builder.search(&test_helper::random_vector(5), 5, 50);
+        builder.search(&test_helper::random_vector(5), 50, 5);
     }
 
     #[test]
@@ -406,7 +408,7 @@ mod tests {
         let builder = RwGranneBuilder::new(builder, 5000, 1);
 
         builder.insert(vec![1, 2, 3]);
-        builder.search(&test_helper::random_vector(5), 5, 50);
+        builder.search(&test_helper::random_vector(5), 50, 5);
     }
     /*
         #[test]

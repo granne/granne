@@ -123,8 +123,10 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
 #[derive(Clone)]
 pub struct BuildConfig {
     /// Number of layers in the final graph.
-    num_layers: usize,
-    //pub layer_multiplier: f32,
+    layer_multiplier: f32,
+
+    expected_num_elements: Option<usize>,
+
     /// The maximum number of neighbors per node and layer.
     num_neighbors: usize,
 
@@ -141,7 +143,8 @@ pub struct BuildConfig {
 impl Default for BuildConfig {
     fn default() -> Self {
         BuildConfig {
-            num_layers: 6,
+            layer_multiplier: 20.0,
+            expected_num_elements: None,
             num_neighbors: 30,
             max_search: 200,
             reinsert_elements: true,
@@ -167,16 +170,26 @@ impl BuildConfig {
         self
     }
 
+    pub fn expected_num_elements(mut self: Self, expected_num_elements: usize) -> Self {
+        self.expected_num_elements = Some(expected_num_elements);
+        self
+    }
+
+    pub fn layer_multiplier(mut self: Self, layer_multiplier: f32) -> Self {
+        self.layer_multiplier = layer_multiplier;
+        self
+    }
+
     /// Set the number of layers in the final graph. Each new layer will have exponentially more
     /// nodes than the one below. E.g. layer 0: 1 node, layer 1: 10 nodes, layer 2: 100 nodes, ...
     ///
     /// Choosing the number layers so that the .. (use layer multiplier instead)
     /// Use layer_multiplier instead...
-    pub fn num_layers(mut self: Self, num_layers: usize) -> Self {
-        self.num_layers = num_layers;
-        self
-    }
-
+    /*    pub fn num_layers(mut self: Self, num_layers: usize) -> Self {
+            self.num_layers = num_layers;
+            self
+        }
+    */
     /// Enable reinsertion of all the elements in each layers. Takes more time, but improves recall.
     ///
     /// This option is enabled by default.
@@ -205,8 +218,7 @@ pub trait Builder: Index {
     // methods
     fn build(self: &mut Self);
     fn build_partial(self: &mut Self, num_elements: usize);
-    //fn len(self: &Self) -> usize;
-    fn indexed_elements(self: &Self) -> usize;
+    fn num_elements(self: &Self) -> usize;
     fn write_index<B: std::io::Write + std::io::Seek>(
         self: &Self,
         buffer: &mut B,
@@ -217,8 +229,17 @@ pub trait Builder: Index {
 
 impl<Elements: ElementContainer + Sync> Index for GranneBuilder<Elements> {
     // TODO: FIGURE OUT WHAT LEN MEANS FOR A BUILDER
-    /// Returns the number of elements in this index.
+    /// Returns the number of indexed elements.
     /// Note that it might be less than the number of elements in `elements`.
+    /// # Examples
+    /// ```
+    /// # use granne::*;
+    /// # let elements: angular::Vectors = test_helper::random_vectors(3, 1000);
+    /// assert_eq!(1000, elements.len());
+    /// let mut builder = GranneBuilder::new(BuildConfig::default(), elements);
+    /// builder.build_partial(100);
+    /// assert_eq!(100, builder.len());
+    /// assert_eq!(1000, builder.num_elements());
     fn len(self: &Self) -> usize {
         self.get_index().len()
     }
@@ -263,48 +284,25 @@ impl<Elements: ElementContainer + Sync> Builder for GranneBuilder<Elements> {
             "Cannot index more elements than exist."
         );
 
-        // fresh index build => initialize first layer
-        if self.layers.is_empty() {
-            let mut layer = FixedWidthSliceVector::with_width(self.config.num_neighbors);
-            layer.resize(1, UNUSED);
-            self.layers.push(layer);
-        } else {
-            // make sure the current last layer is full (no-op if already full)
+        if !self.layers.is_empty() {
             self.index_elements_in_last_layer(num_elements);
         }
 
-        // push new layers
-        for _layer in self.layers.len()..self.config.num_layers {
-            if num_elements == self.indexed_elements() {
-                // already done
-                break;
-            }
+        while self.len() < num_elements {
+            let new_layer = self.layers.last().map_or_else(
+                || FixedWidthSliceVector::with_width(self.config.num_neighbors),
+                |prev_layer| prev_layer.clone(),
+            );
 
-            // create a new layer by copying the current last one
-            let new_layer = self.layers.last().expect("There are no layers!").clone();
             self.layers.push(new_layer);
 
             self.index_elements_in_last_layer(num_elements);
         }
     }
-    /*
-        /// Returns the number of elements in this builder.
-        /// Note that XXXXXXXXXXxx
-        fn len(self: &Self) -> usize {
-            self.elements.len()
-        }
-    */
-    /// Returns the number of already indexed elements.
-    /// # Examples
-    /// ```
-    /// # use granne::*;
-    /// # let elements: angular::Vectors = test_helper::random_vectors(3, 1000);
-    /// assert_eq!(1000, elements.len());
-    /// let mut builder = GranneBuilder::new(BuildConfig::default(), elements);
-    /// builder.build_partial(100);
-    /// assert_eq!(100, builder.indexed_elements());
-    fn indexed_elements(self: &Self) -> usize {
-        self.layers.last().map_or(0, |l| l.len())
+
+    /// Returns the number of elements.
+    fn num_elements(self: &Self) -> usize {
+        self.elements.len()
     }
 
     /// Write the index to `buffer`.
@@ -410,9 +408,9 @@ impl<Elements: ExtendableElementContainer> GranneBuilder<Elements> {
     /// let mut builder = GranneBuilder::new(BuildConfig::default(), angular::Vectors::new());
     /// builder.push(element0);
     /// builder.push(element1);
-    /// assert_eq!(0, builder.indexed_elements());
+    /// assert_eq!(0, builder.len());
     /// builder.build();
-    /// assert_eq!(2, builder.indexed_elements());
+    /// assert_eq!(2, builder.len());
     /// ```
     pub fn push(self: &mut Self, element: Elements::InternalElement) {
         self.elements.push(element);
@@ -511,44 +509,47 @@ impl<'a> From<Vec<FixedWidthSliceVector<'a, NeighborId>>> for Layers<'a> {
     }
 }
 
-/// Computes a layer multiplier `m`, s.t. the number of elements in layer `i` is
-/// equal to `m^i` and `m^num_layers ~= num_elements`
-fn compute_layer_multiplier(num_elements: usize, num_layers: usize) -> f32 {
-    (num_elements as f32).powf(1.0 / (num_layers - 1) as f32)
+/// Computes the number of elements that should be in layer `layer_idx`.
+fn compute_num_elements_in_layer(
+    total_num_elements: usize,
+    layer_multiplier: f32,
+    layer_idx: usize,
+) -> usize {
+    cmp::min(
+        (total_num_elements as f32
+            / (layer_multiplier.powf(
+                (total_num_elements as f32).log(layer_multiplier).floor() - layer_idx as f32,
+            )))
+        .ceil() as usize,
+        total_num_elements,
+    )
 }
 
 impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     fn index_elements_in_last_layer(self: &mut Self, max_num_elements: usize) {
-        /*        let layer_multiplier = self
-           .layer_multiplier
-           .unwrap_or(compute_layer_multiplier(self.elements.len(), self.config.num_layers));
-        */
-
-        let layer_multiplier =
-            compute_layer_multiplier(self.elements.len(), self.config.num_layers);
-
-        let layer = self.layers.len() - 1;
-        let ideal_num_elements_in_layer = cmp::min(
-            layer_multiplier.powf(layer as f32).ceil() as usize,
-            self.elements.len(),
+        let total_num_elements = self
+            .config
+            .expected_num_elements
+            .unwrap_or(self.elements.len());
+        let ideal_num_elements_in_layer = compute_num_elements_in_layer(
+            total_num_elements,
+            self.config.layer_multiplier,
+            self.layers.len() - 1,
         );
-        let mut num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
-
-        let mut config = self.config.clone();
-
-        if layer == self.config.num_layers - 1 {
-            // if last layer index all elements
-            num_elements_in_layer = max_num_elements;
-        } else {
-            // use half num_neighbors on upper layers
-            config.num_neighbors = cmp::max(1, config.num_neighbors / 2);
-        }
-
+        let num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
         let additional = ideal_num_elements_in_layer - self.layers.last().unwrap().len();
 
         if additional == 0 {
             // nothing to index in this layer
             return;
+        }
+
+        let mut config = self.config.clone();
+
+        // if not last layer
+        if ideal_num_elements_in_layer < total_num_elements {
+            // use half num_neighbors on upper layers
+            config.num_neighbors = cmp::max(1, config.num_neighbors / 2);
         }
 
         let mut layer = self.layers.pop().unwrap();
@@ -596,6 +597,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         self.layers.push(layer);
     }
 
+    /// Indexes elements in `layer`.
     fn index_elements(
         config: &BuildConfig,
         elements: &Elements,
@@ -682,6 +684,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         }
     }
 
+    /// Indexes the element with index `idx`.
     fn index_element(
         config: &BuildConfig,
         elements: &Elements,
@@ -697,40 +700,44 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
         let element = elements.get(idx);
 
-        if let Some((entrypoint, _)) = prev_layers.search(&element, 1, 1).first() {
-            let candidates =
-                search_for_neighbors(layer, *entrypoint, elements, &element, config.max_search);
+        let entrypoint = prev_layers
+            .search(&element, 1, 1)
+            .first()
+            .map_or(0, |r| r.0);
+        let candidates =
+            search_for_neighbors(layer, entrypoint, elements, &element, config.max_search);
 
-            let candidates: Vec<_> = candidates
-                .into_iter()
-                .filter(|&(id, _)| id != idx)
-                .collect();
+        let candidates: Vec<_> = candidates
+            .into_iter()
+            .filter(|&(id, _)| id != idx)
+            .collect();
 
-            let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
+        let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
 
-            // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
-            // this effectively creates a dead node
-            if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
-                if *d < NotNan::new(0.000001).unwrap() {
-                    return;
-                }
+        // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
+        // this effectively creates a dead node
+        if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
+            if *d < NotNan::new(0.000001).unwrap() {
+                return;
             }
+        }
 
-            // if current node is empty, initialize it with the neighbors
-            if layer[idx].read()[0] == UNUSED {
-                Self::initialize_node(&layer[idx], &neighbors[..]);
-            } else {
-                for &(neighbor, d) in &neighbors {
-                    Self::connect_nodes(elements, &layer[idx], idx, neighbor, d);
-                }
+        // if current node is empty, initialize it with the neighbors
+        if layer[idx].read()[0] == UNUSED {
+            Self::initialize_node(&layer[idx], &neighbors[..]);
+        } else {
+            for &(neighbor, d) in &neighbors {
+                Self::connect_nodes(elements, &layer[idx], idx, neighbor, d);
             }
+        }
 
-            for (neighbor, d) in neighbors {
-                Self::connect_nodes(elements, &layer[neighbor], neighbor, idx, d);
-            }
+        for (neighbor, d) in neighbors {
+            Self::connect_nodes(elements, &layer[neighbor], neighbor, idx, d);
         }
     }
 
+    /// Given a vec of `candidates`, selects the neighbors for an element.
+    ///
     fn select_neighbors(
         elements: &Elements,
         candidates: Vec<(usize, NotNan<f32>)>,
@@ -767,6 +774,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         neighbors
     }
 
+    /// Sets neighbors for `node`.
     fn initialize_node(
         node: &parking_lot::RwLock<&mut [NeighborId]>,
         neighbors: &[(usize, NotNan<f32>)],
@@ -780,6 +788,8 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         }
     }
 
+    /// Tries to add `j` as a neighbor to `i`. If the neighbor list is full, uses `select_neighbors`
+    /// to limit the number of neighbors.
     fn connect_nodes(
         elements: &Elements,
         node: &parking_lot::RwLock<&mut [NeighborId]>,

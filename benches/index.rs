@@ -25,7 +25,7 @@ mod index {
 
                 let mut builder = GranneBuilder::new(
                     BuildConfig::default()
-                        .num_layers(5)
+                        .layer_multiplier(15.0)
                         .num_neighbors(20)
                         .max_search(50),
                     elements,
@@ -80,7 +80,7 @@ mod index {
 
                 let mut builder = GranneBuilder::new(
                     BuildConfig::default()
-                        .num_layers(5)
+                        .layer_multiplier(15.0)
                         .num_neighbors(20)
                         .max_search(50),
                     elements,

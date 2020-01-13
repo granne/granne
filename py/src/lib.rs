@@ -109,12 +109,12 @@ py_class!(class GranneBuilder |py| {
                 dimension: Option<usize> = None,
                 embeddings_path: Option<String> = None,
                 words_path: Option<String> = None,
-                num_layers: Option<usize> = None,
+                index_path: Option<String> = None,
+                layer_multiplier: Option<f32> = None,
+                expected_num_elements: Option<usize> = None,
                 num_neighbors: Option<usize> = None,
                 max_search: Option<usize> = None,
                 reinsert_elements: bool = true,
-                expected_size: usize = 0,
-                index_path: Option<String> = None,
                 show_progress: bool = true) -> PyResult<GranneBuilder> {
 
         let mut config = granne::BuildConfig::default()
@@ -122,7 +122,8 @@ py_class!(class GranneBuilder |py| {
             .reinsert_elements(reinsert_elements);
 
         // some unnecessary clones
-        config = num_layers.map_or(config.clone(), |x| config.num_layers(x));
+        config = layer_multiplier.map_or(config.clone(), |x| config.layer_multiplier(x));
+        config = expected_num_elements.map_or(config.clone(), |x| config.expected_num_elements(x));
         config = num_neighbors.map_or(config.clone(), |x| config.num_neighbors(x));
         config = max_search.map_or(config.clone(), |x| config.max_search(x));
 
@@ -163,10 +164,6 @@ py_class!(class GranneBuilder |py| {
         GranneBuilder::create_instance(py, RefCell::new(builder))
     }
 
-    /// Return the number of indexed elements in this builder.
-    def indexed_elements(&self) -> PyResult<usize> {
-        Ok(self.builder(py).borrow().indexed_elements())
-    }
 /*
     def get_element(&self, idx: usize) -> PyResult<PyObject> {
         Ok(self.builder(py).borrow().get_index().get_element(py, idx))
@@ -190,7 +187,7 @@ py_class!(class GranneBuilder |py| {
     }
 
     /// Saves the index to a file.
-    def save_index(&self, path: &str, compress: bool = false) -> PyResult<PyObject> {
+    def save_index(&self, path: &str/*, compress: bool = false*/) -> PyResult<PyObject> {
         self.builder(py).borrow().save_index(path).expect(&format!("Could not save index to {}", path));
 
         Ok(py.None())
@@ -224,6 +221,11 @@ py_class!(class GranneBuilder |py| {
 
     def __len__(&self) -> PyResult<usize> {
         Ok(self.builder(py).borrow().len())
+    }
+
+    /// Returns the number of elements in this builder.
+    def num_elements(&self) -> PyResult<usize> {
+        Ok(self.builder(py).borrow().num_elements())
     }
 
     /// Returns the number of layers in this index..

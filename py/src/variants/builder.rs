@@ -59,8 +59,8 @@ impl granne::Builder for WordEmbeddingsBuilder {
         self.builder.build_partial(num_elements);
     }
 
-    fn indexed_elements(self: &Self) -> usize {
-        self.builder.indexed_elements()
+    fn num_elements(self: &Self) -> usize {
+        self.builder.num_elements()
     }
 
     fn write_index<B: std::io::Write + std::io::Seek>(

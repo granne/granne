@@ -100,10 +100,7 @@ mod tests {
         let elements = test_helper::random_sum_embeddings(5, 277, 100);
 
         let mut builder = GranneBuilder::new(
-            BuildConfig::default()
-                .max_search(5)
-                .num_layers(5)
-                .num_neighbors(5),
+            BuildConfig::default().max_search(5).num_neighbors(5),
             elements.borrow(),
         );
 
