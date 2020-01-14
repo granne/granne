@@ -116,7 +116,7 @@ fn set_encode(mut data: Vec<u32>) -> Vec<u8> {
     encoded_data.resize(encoded_len, 0x0);
 
     // only use compression if it makes the data smaller
-    if encoded_data.len() >= ::std::mem::size_of::<u32>() * data.len() {
+    if encoded_data.len() >= ::std::mem::size_of::<u32>() * count {
         encoded_data.clear();
         for d in data.iter().take(count) {
             encoded_data.extend_from_slice(&d.to_le_bytes());
@@ -252,6 +252,18 @@ mod tests {
 
         assert_eq!(1, vec.len());
         assert_eq!(Vec::<u32>::new(), vec.get(0));
+    }
+
+    #[test]
+    // this tests the case where the size of the encoded data has the same size as the original (2 * 4 bytes)
+    fn push_and_get_4_bytes_per_number() {
+        let mut vec = MultiSetVector::new();
+
+        let exp = vec![37717, 660380];
+        vec.push(&exp);
+
+        assert_eq!(1, vec.len());
+        assert_eq!(exp, vec.get(0));
     }
 
     #[test]
