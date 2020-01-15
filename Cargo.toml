@@ -28,6 +28,7 @@ serde_json = "*"
 stream-vbyte = {version = "*", features = []}
 flate2 = "*"
 owning_ref = "0.4"
+fxhash = "0.2"
 
 jemallocator = "0.3.2"
 rand = "*"

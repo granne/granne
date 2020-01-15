@@ -1,3 +1,4 @@
+use fxhash::FxBuildHasher;
 use ordered_float::NotNan;
 use parking_lot;
 use pbr;
@@ -924,7 +925,8 @@ fn search_for_neighbors<Layer: Graph + ?Sized, Elements: ElementContainer>(
     let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
 
     let num_neighbors = 20; //layer.at(0).len();
-    let mut visited = HashSet::with_capacity(max_search * num_neighbors);
+    let mut visited =
+        HashSet::with_capacity_and_hasher(max_search * num_neighbors, FxBuildHasher::default());
 
     let distance = elements.dist_to_element(entrypoint, goal);
 
