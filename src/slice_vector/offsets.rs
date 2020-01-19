@@ -70,6 +70,16 @@ impl<'a, T: 'a + Clone> CompressedVariableWidthSliceVector<'a, T> {
             }
         }
     }
+
+    pub fn borrow<'b>(self: &'a Self) -> CompressedVariableWidthSliceVector<'b, T>
+    where
+        'a: 'b,
+    {
+        Self {
+            offsets: self.offsets.borrow(),
+            data: Cow::Borrowed(&self.data),
+        }
+    }
 }
 
 #[repr(C)]
@@ -209,6 +219,15 @@ impl<'a> Offsets<'a> {
 
     pub fn load(buffer: &'a [u8]) -> Self {
         Offsets::from_parts(unsafe { crate::io::load_bytes_as::<Chunk>(buffer) })
+    }
+
+    pub fn borrow<'b>(self: &'a Self) -> Offsets<'b>
+    where
+        'a: 'b,
+    {
+        Self {
+            chunks: Cow::Borrowed(&self.chunks),
+        }
     }
 }
 

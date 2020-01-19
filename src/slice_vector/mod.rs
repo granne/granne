@@ -265,6 +265,29 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         &mut self.data.to_mut()[begin..end]
     }
 
+    fn get_two_mut<'b>(self: &'b mut Self, idx0: usize, idx1: usize) -> (&'b mut [T], &'b mut [T])
+    where
+        'a: 'b,
+    {
+        assert!(idx0 != idx1);
+
+        if idx0 < idx1 {
+            let (left, right) = self.data.to_mut().split_at_mut(idx1 * self.width);
+
+            let begin = idx0 * self.width;
+            let end = begin + self.width;
+
+            (&mut left[begin..end], &mut right[..self.width])
+        } else {
+            let (left, right) = self.data.to_mut().split_at_mut(idx0 * self.width);
+
+            let begin = idx1 * self.width;
+            let end = begin + self.width;
+
+            (&mut right[..self.width], &mut left[begin..end])
+        }
+    }
+
     pub fn push(self: &mut Self, data: &[T]) {
         if self.width == 0 {
             self.width = data.len();
@@ -289,6 +312,33 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
 
     pub fn width(self: &Self) -> usize {
         self.width
+    }
+
+    /// Permutes this vector by `permutation`. The element at index `permutation[i]` will
+    /// move to index `i`.
+    ///
+    /// E.g. `permutation = [1, 2, 0]` permutes `['a', 'b', 'c']` into `['b', 'c', 'a'].
+    pub fn permute(self: &mut Self, permutation: &[usize]) {
+        assert_eq!(self.len(), permutation.len());
+
+        let mut visited = vec![false; self.len()];
+
+        for i in 0..permutation.len() {
+            if visited[i] {
+                continue;
+            }
+
+            let loop_begin = self.get(i).to_vec();
+            let mut j = i;
+            while permutation[j] != i {
+                let (to, from) = self.get_two_mut(j, permutation[j]);
+                to.clone_from_slice(from);
+                visited[j] = true;
+                j = permutation[j];
+            }
+            self.get_mut(j).clone_from_slice(&loop_begin);
+            visited[j] = true;
+        }
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
@@ -463,6 +513,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::seq::SliceRandom;
     use std::fs::File;
     use tempfile;
 
@@ -815,6 +866,72 @@ mod tests {
                     assert_eq!(vec.get(i), loaded_vec.get(i - begin));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn permute_fixed_width_identity() {
+        let width = 7;
+        let mut vec = FixedWidthSliceVector::new();
+        for i in 0..522 {
+            let data: Vec<i16> = (2 * i + 3..).take(width).collect();
+            vec.push(&data);
+        }
+
+        let permutation: Vec<usize> = (0..vec.len()).collect();
+
+        let exp = vec.clone();
+        vec.permute(&permutation);
+
+        assert_eq!(exp.len(), vec.len());
+
+        for i in 0..exp.len() {
+            assert_eq!(exp.get(i), vec.get(i));
+        }
+    }
+
+    #[test]
+    fn permute_fixed_width_reverse() {
+        let width = 5;
+        let mut vec = FixedWidthSliceVector::new();
+        for i in 0..522 {
+            let data: Vec<i16> = (2 * i + 3..).take(width).collect();
+            vec.push(&data);
+        }
+
+        let permutation: Vec<usize> = (0..vec.len()).rev().collect();
+
+        let exp = vec.clone();
+        vec.permute(&permutation);
+
+        assert_eq!(exp.len(), vec.len());
+
+        for i in 0..exp.len() {
+            assert_eq!(exp.get(i), vec.get(vec.len() - i - 1));
+        }
+    }
+
+    #[test]
+    fn permute_fixed_width_rand_shuffle() {
+        let width = 3;
+        let mut vec = FixedWidthSliceVector::new();
+        for i in 0..522 {
+            let data: Vec<i16> = (2 * i + 3..).take(width).collect();
+            vec.push(&data);
+        }
+
+        let mut rng = rand::thread_rng();
+        let mut permutation: Vec<usize> = (0..vec.len()).collect();
+        permutation.shuffle(&mut rng);
+
+        let exp = vec.clone();
+
+        vec.permute(&permutation);
+
+        assert_eq!(exp.len(), vec.len());
+
+        for i in 0..exp.len() {
+            assert_eq!(exp.get(permutation[i]), vec.get(i));
         }
     }
 }

@@ -66,6 +66,15 @@ impl<'a> MultiSetVector<'a> {
             data: CompressedVariableWidthSliceVector::load(buffer),
         }
     }
+
+    pub fn borrow<'b>(self: &'a Self) -> MultiSetVector<'b>
+    where
+        'a: 'b,
+    {
+        Self {
+            data: self.data.borrow(),
+        }
+    }
 }
 
 fn decode_into(encoded_data: &[u8], decoded_nums: &mut Vec<u32>) {

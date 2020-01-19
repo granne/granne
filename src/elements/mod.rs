@@ -56,6 +56,10 @@ pub trait ExtendableElementContainer: ElementContainer {
     fn push(self: &mut Self, element: Self::InternalElement);
 }
 
+pub trait Permutable {
+    fn permute(self: &mut Self, permutation: &[usize]);
+}
+
 /// `Dist<Other>` - A trait for types `E` and `Other` between which a distance can be computed.
 ///
 /// By implementing `Dist<E>` for a type `E` one gets the `ElementContainer` trait implemented for slices and `Vec`s of `E`, i.e., `[E]: ElementContainer` and `Vec<E>: ElementContainer`

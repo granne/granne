@@ -134,6 +134,14 @@ macro_rules! dense_vector {
             }
         }
 
+        use crate::Permutable;
+
+        impl<'a> Permutable for Vectors<'a> {
+            fn permute(self: &mut Self, permutation: &[usize]) {
+                self.0.permute(permutation);
+            }
+        }
+
         #[doc(hidden)]
         pub mod mmap {
             use super::*;

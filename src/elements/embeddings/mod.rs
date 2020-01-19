@@ -233,3 +233,46 @@ pub mod mmap {
         }
     }
 }
+
+impl<'a> super::Permutable for SumEmbeddings<'a> {
+    fn permute(self: &mut Self, permutation: &[usize]) {
+        use pbr::ProgressBar;
+        use rayon::prelude::*;
+
+        assert_eq!(self.len(), permutation.len());
+
+        let show_progress = true;
+        let mut progress_bar = if show_progress {
+            Some(ProgressBar::new(self.len() as u64))
+        } else {
+            None
+        };
+
+        let chunk_size = std::cmp::max(10_000, self.len() / 400);
+        let chunks: Vec<_> = permutation
+            .par_chunks(chunk_size)
+            .map(|c| {
+                let mut elements = Elements::new();
+                for &id in c {
+                    elements.push(self.elements.get(id));
+                }
+                elements
+            })
+            .collect();
+
+        let mut new_elements = Elements::new();
+        for chunk in chunks {
+            new_elements.extend_from_slice_vector(&chunk);
+
+            if let Some(ref mut progress_bar) = progress_bar {
+                progress_bar.set(new_elements.len() as u64);
+            }
+        }
+
+        if let Some(ref mut progress_bar) = progress_bar {
+            progress_bar.finish_println("");
+        }
+
+        self.elements = new_elements;
+    }
+}
