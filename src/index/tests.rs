@@ -596,6 +596,34 @@ fn append_elements() {
             .any(|&(idx, _)| elements.len() + 123 == idx));
     }
 }
+
+#[test]
+fn reorder_index() {
+    let elements: angular::Vectors = (0..5000)
+        .map(|_| test_helper::random_vector::<angular::Vector>(5))
+        .collect();
+
+    let mut builder = GranneBuilder::new(
+        BuildConfig::default().max_search(5).layer_multiplier(5.0),
+        elements.clone(),
+    );
+
+    builder.build();
+
+    let mut reordered_index = Granne::from_parts(builder.layers.clone(), elements);
+    let permutation = reordered_index.reorder(false);
+
+    let index = builder.get_index();
+
+    for &idx in &[0, 10, 123, 99, 499] {
+        let element = index.get_element(idx);
+        let exp = index.search(&element, 10, 10);
+        let res = reordered_index.search(&element, 10, 10);
+        for i in 0..10 {
+            assert_eq!(exp[i].0, permutation[res[i].0]);
+        }
+    }
+}
 /*
 #[test]
 fn append_elements_with_expected_size() {

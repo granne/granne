@@ -102,6 +102,7 @@ where
             vec![]
         };
 
+        let layers: Layers = Layers::FixWidth(layers.iter().map(|layer| layer.borrow()).collect());
         io::write_index(&layers, index_file)
     }
 

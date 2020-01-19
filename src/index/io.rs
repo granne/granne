@@ -9,10 +9,7 @@ const METADATA_LEN: usize = 1024;
 const SERIALIZATION_VERSION: usize = 2;
 const LIBRARY_STR: &str = "granne";
 
-pub fn write_index(
-    layers: &[FixedWidthSliceVector<NeighborId>],
-    buffer: impl Write + Seek,
-) -> Result<()> {
+pub(super) fn write_index(layers: &Layers, buffer: impl Write + Seek) -> Result<()> {
     let mut buffer = BufWriter::new(buffer);
 
     // We would like to write metadata first, but the size of each layer needs to be
@@ -21,19 +18,29 @@ pub fn write_index(
     buffer.seek(SeekFrom::Current(METADATA_LEN as i64))?;
 
     // write graph
-    let num_neighbors = if !layers.is_empty() {
-        layers[0].get(0).len()
+    let num_neighbors = if layers.len() > 0 {
+        layers.as_graph(layers.len() - 1).get_neighbors(0).len()
     } else {
         0
     };
-    let layer_counts = layers.iter().map(|layer| layer.len()).collect::<Vec<_>>();
+    let layer_counts: Vec<usize> = (0..layers.len())
+        .map(|i| layers.as_graph(i).len())
+        .collect();
 
     let mut layer_sizes = Vec::new();
-    for layer in layers {
-        let layer_size = layer.write_as_multi_set_vector(&mut buffer, |&x| x != UNUSED)?;
-        //        let layer_size =
-        //            layer.write_as_variable_width_slice_vector::<usize, _, _>(&mut buffer, |&x| x != UNUSED)?;
-        layer_sizes.push(layer_size);
+    match layers {
+        Layers::FixWidth(layers) => {
+            for layer in layers {
+                let layer_size = layer.write_as_multi_set_vector(&mut buffer, |&x| x != UNUSED)?;
+                layer_sizes.push(layer_size);
+            }
+        }
+        Layers::Compressed(layers) => {
+            for layer in layers {
+                let layer_size = layer.write(&mut buffer)?;
+                layer_sizes.push(layer_size);
+            }
+        }
     }
 
     // Rewind cursor and write metadata
@@ -87,36 +94,14 @@ pub(super) fn load_layers(buffer: &'_ [u8]) -> Layers<'_> {
         for size in layer_sizes {
             let end = start + size;
             let layer = &buffer[start..end];
-            //layers.push(VariableWidthSliceVector::load(layer));
             layers.push(MultiSetVector::load(layer));
             start = end;
         }
 
-        //Layers::VarWidth(layers)
         Layers::Compressed(layers)
     } else {
-        let mut layers = Vec::new();
-        for size in layer_sizes {
-            let end = start + size;
-            let layer = &buffer[start..end];
-            layers.push(VariableWidthSliceVector::load(layer));
-            start = end;
-        }
-
-        Layers::VarWidth(layers)
+        panic!()
     }
-    /*
-            let mut layers = Vec::new();
-            for size in layer_sizes {
-                let end = start + size;
-                let layer = &buffer[start..end];
-                layers.push(FixedWidthSliceVector::load(layer, num_neighbors));
-                start = end;
-            }
-
-            Layers::FixWidth(layers)
-        }
-    */
 }
 /*
 pub fn read_layers(

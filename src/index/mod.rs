@@ -21,7 +21,7 @@ pub use rw::RwGranneBuilder;
 use crate::{
     max_size_heap,
     slice_vector::{FixedWidthSliceVector, MultiSetVector, VariableWidthSliceVector},
-    {ElementContainer, ExtendableElementContainer},
+    {ElementContainer, ExtendableElementContainer, Permutable},
 };
 
 type NeighborId = u32;
@@ -69,7 +69,7 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
 }
 
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
-    /// Loads this index lazily
+    /// Loads this index lazily.
     pub fn load(index: &'a [u8], elements: Elements) -> Self {
         Self {
             layers: io::load_layers(index),
@@ -90,9 +90,6 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
             Layers::FixWidth(layers) => {
                 self.search_internal(&layers, element, max_search, num_neighbors)
             }
-            Layers::VarWidth(layers) => {
-                self.search_internal(&layers, element, max_search, num_neighbors)
-            }
             Layers::Compressed(layers) => {
                 self.search_internal(&layers, element, max_search, num_neighbors)
             }
@@ -103,21 +100,127 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     pub fn get_element(self: &Self, index: usize) -> Elements::Element {
         self.elements.get(index)
     }
+}
 
-    /// Returns a Granne index with the nodes reordered according to the permutation `order`.
-    ///
-    /// `order[i] == j`, means that the element with idx `j`, will be moved to idx `i`.
-    /// `order` must respect the layers ----.
-    pub fn reordered_index<'b>(
-        self: &Self,
-        order: &[usize],
-        reordered_elements: Elements,
-        show_progress: bool,
-    ) -> Granne<'b, Elements> {
-        Granne {
-            layers: reorder::reorder_layers(&self.layers, order, show_progress),
-            elements: reordered_elements,
+/// Returns a vector with the id of the "closest" element in each layer.
+fn find_entrypoint_trail<Elements: ElementContainer>(
+    layers: &Layers,
+    elements: &Elements,
+    max_layer: usize,
+    element: &Elements::Element,
+) -> Vec<usize> {
+    fn _find_entrypoint_trail<Layer: Graph, Elements: ElementContainer>(
+        layers: &[Layer],
+        elements: &Elements,
+        max_layer: usize,
+        element: &Elements::Element,
+    ) -> Vec<usize> {
+        let mut eps = Vec::new();
+        eps.reserve(layers.len());
+        for (i, layer) in layers.iter().enumerate().take(max_layer) {
+            let ep = *eps.last().unwrap_or(&0);
+            let max_search = if layer.len() < 10_000 { 5 } else { 10 };
+            let res = search_for_neighbors(layer, ep, elements, element, max_search);
+            eps.push(res[0].0);
         }
+        eps
+    }
+
+    match layers {
+        Layers::FixWidth(layers) => _find_entrypoint_trail(layers, elements, max_layer, element),
+        Layers::Compressed(layers) => _find_entrypoint_trail(layers, elements, max_layer, element),
+    }
+}
+
+impl<'a, Elements: ElementContainer + Permutable + crate::io::Writeable + Sync>
+    Granne<'a, Elements>
+{
+    /// Reorders the elements in this index. Returns the permutation used for the
+    /// reordering. `permutation[i] == j`, means that the element with idx `j`, has
+    /// been moved to idx `i`.
+    pub fn reorder(self: &mut Self, show_progress: bool) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..self.len()).collect();
+        let mut order_inv = vec![0; self.layer_len(self.num_layers() - 2)];
+
+        let start_time = time::PreciseTime::now();
+        let progress_bar = if show_progress {
+            println!("Computing ordering...");
+
+            Some(parking_lot::Mutex::new(pbr::ProgressBar::new(
+                self.len() as u64
+            )))
+        } else {
+            None
+        };
+
+        let step_size = cmp::max(100, self.len() / 400);
+        for layer in 1..self.num_layers() {
+            let eps: Vec<_> = (self.layer_len(layer - 1)..self.layer_len(layer))
+                .into_par_iter()
+                .map(|idx| {
+                    if idx % step_size == 0 {
+                        progress_bar.as_ref().map(|pb| pb.lock().add(step_size as u64));
+                    }
+
+                    let mut eps = find_entrypoint_trail(
+                        &self.layers,
+                        &self.elements,
+                        layer,
+                        &self.get_element(idx),
+                    );
+                    eps.iter_mut().for_each(|i| *i = order_inv[*i]);
+
+                    eps
+                })
+                .collect();
+
+            order[self.layer_len(layer - 1)..self.layer_len(layer)]
+                .par_sort_by_key(|idx| &eps[idx - self.layer_len(layer - 1)]);
+
+            if layer < self.num_layers() - 1 {
+                for i in self.layer_len(layer - 1)..self.layer_len(layer) {
+                    order_inv[order[i]] = i;
+                }
+            }
+        }
+
+        progress_bar.map(|pb| pb.lock().set(self.len() as u64));
+
+        if show_progress {
+            println!("Ordering computed!");
+            println!("Reordering index...");
+        }
+
+        self.layers = reorder::reorder_layers(&self.layers, &order, show_progress);
+
+        if show_progress {
+            println!("Reordering elements...");
+        }
+
+        self.elements.permute(&order);
+
+        if show_progress {
+            println!(
+                "Total time: {} s",
+                start_time.to(time::PreciseTime::now()).num_seconds()
+            );
+        }
+
+        order
+    }
+
+    pub fn reorder_and_save(
+        self: &mut Self,
+        index: &mut std::fs::File,
+        elements: &mut std::fs::File,
+        show_progress: bool,
+    ) -> std::io::Result<Vec<usize>> {
+        let order = self.reorder(show_progress);
+
+        io::write_index(&self.layers, index)?;
+        self.elements.write(elements)?;
+
+        Ok(order)
     }
 }
 
@@ -155,43 +258,38 @@ impl Default for BuildConfig {
 }
 
 impl BuildConfig {
+    /// Creates a BuildConfig for GranneBuilder with default settings.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set the maximum number of neighbors per node and layer.
+    /// Sets the maximum number of neighbors per node and layer.
     pub fn num_neighbors(mut self: Self, num_neighbors: usize) -> Self {
         self.num_neighbors = num_neighbors;
         self
     }
 
-    /// Set the `max_search` parameter used during build time (see `Granne::search`).
+    /// Sets the `max_search` parameter used during build time (see `Granne::search`).
+    /// Larger values -> slower
     pub fn max_search(mut self: Self, max_search: usize) -> Self {
         self.max_search = max_search;
         self
     }
 
+    /// Sets the expected number of elements in the final graph. This is only required if XXXX
     pub fn expected_num_elements(mut self: Self, expected_num_elements: usize) -> Self {
         self.expected_num_elements = Some(expected_num_elements);
         self
     }
 
+    /// Sets the number of layers in the final graph. Each new layer will have exponentially more
+    /// nodes than the one below. E.g. layer 0: 1 node, layer 1: 10 nodes, layer 2: 100 nodes, ...
     pub fn layer_multiplier(mut self: Self, layer_multiplier: f32) -> Self {
         self.layer_multiplier = layer_multiplier;
         self
     }
 
-    /// Set the number of layers in the final graph. Each new layer will have exponentially more
-    /// nodes than the one below. E.g. layer 0: 1 node, layer 1: 10 nodes, layer 2: 100 nodes, ...
-    ///
-    /// Choosing the number layers so that the .. (use layer multiplier instead)
-    /// Use layer_multiplier instead...
-    /*    pub fn num_layers(mut self: Self, num_layers: usize) -> Self {
-            self.num_layers = num_layers;
-            self
-        }
-    */
-    /// Enable reinsertion of all the elements in each layers. Takes more time, but improves recall.
+    /// Enables reinsertion of all the elements in each layers. Takes more time, but improves recall.
     ///
     /// This option is enabled by default.
     pub fn reinsert_elements(mut self: Self, yes: bool) -> Self {
@@ -199,7 +297,7 @@ impl BuildConfig {
         self
     }
 
-    /// Enable printing progress information to STDOUT while building.
+    /// Enables printing progress information to STDOUT while building.
     ///
     /// This option is disabled by default.
     pub fn show_progress(mut self: Self, yes: bool) -> Self {
@@ -320,7 +418,9 @@ impl<Elements: ElementContainer + Sync> Builder for GranneBuilder<Elements> {
         self: &Self,
         buffer: &mut B,
     ) -> std::io::Result<()> {
-        io::write_index(&self.layers, buffer)
+        let layers: Layers =
+            Layers::FixWidth(self.layers.iter().map(|layer| layer.borrow()).collect());
+        io::write_index(&layers, buffer)
     }
 }
 
@@ -439,19 +539,6 @@ impl<'a> Graph for FixedWidthSliceVector<'a, NeighborId> {
     }
 }
 
-impl<'a> Graph for VariableWidthSliceVector<'a, NeighborId, usize> {
-    fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
-        self.get(idx)
-            .iter()
-            .map(|&x| usize::try_from(x).unwrap())
-            .collect()
-    }
-
-    fn len(self: &Self) -> usize {
-        self.len()
-    }
-}
-
 impl<'a> Graph for MultiSetVector<'a> {
     fn get_neighbors(self: &Self, idx: usize) -> Vec<usize> {
         self.get(idx)
@@ -482,7 +569,6 @@ impl<'a> Graph for [parking_lot::RwLock<&'a mut [NeighborId]>] {
 
 enum Layers<'a> {
     FixWidth(Vec<FixedWidthSliceVector<'a, NeighborId>>),
-    VarWidth(Vec<VariableWidthSliceVector<'a, NeighborId, usize>>),
     Compressed(Vec<MultiSetVector<'a>>),
 }
 
@@ -490,7 +576,6 @@ impl<'a> Layers<'a> {
     fn len(self: &Self) -> usize {
         match self {
             Self::FixWidth(layers) => layers.len(),
-            Self::VarWidth(layers) => layers.len(),
             Self::Compressed(layers) => layers.len(),
         }
     }
@@ -498,7 +583,6 @@ impl<'a> Layers<'a> {
     fn as_graph(self: &Self, layer: usize) -> &dyn Graph {
         match self {
             Self::FixWidth(layers) => &layers[layer],
-            Self::VarWidth(layers) => &layers[layer],
             Self::Compressed(layers) => &layers[layer],
         }
     }
