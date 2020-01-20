@@ -224,11 +224,23 @@ impl<'a, Elements: ElementContainer + Permutable + crate::io::Writeable + Sync>
     }
 }
 
-#[derive(Clone)]
+/// `BuildConfig` is used to configure a `GranneBuilder`.
+///
+/// # Examples
+/// ```
+/// # use granne::*;
+/// let config = BuildConfig::new()
+///     .num_neighbors(30)
+///     .layer_multiplier(15.0)
+///     .max_search(200);
+/// let mut builder = GranneBuilder::new(config, angular::Vectors::new());
+/// ```
+#[derive(Copy, Clone, Debug)]
 pub struct BuildConfig {
-    /// Number of layers in the final graph.
+    /// Each layer includes `layer_multiplier` times more elements than the previous layer.
     layer_multiplier: f32,
 
+    /// Needs to be used when building before all elements have been inserted into the builder.
     expected_num_elements: Option<usize>,
 
     /// The maximum number of neighbors per node and layer.
@@ -263,27 +275,36 @@ impl BuildConfig {
         Self::default()
     }
 
-    /// Sets the maximum number of neighbors per node and layer.
+    /// Configures the maximum number of neighbors per node in each layer.
+    ///
+    /// Default: 30
     pub fn num_neighbors(mut self: Self, num_neighbors: usize) -> Self {
         self.num_neighbors = num_neighbors;
         self
     }
 
-    /// Sets the `max_search` parameter used during build time (see `Granne::search`).
-    /// Larger values -> slower
+    /// Configures the `max_search` parameter used during build time (see `Granne::search`).
+    /// Larger values increase recall but makes building slower.
+    ///
+    /// Default: 200
     pub fn max_search(mut self: Self, max_search: usize) -> Self {
         self.max_search = max_search;
         self
     }
 
-    /// Sets the expected number of elements in the final graph. This is only required if XXXX
+    /// Configures the expected number of elements in the final graph. This is only required if
+    /// when building (`builder.build()`) before all elements have been inserted into the builder.
     pub fn expected_num_elements(mut self: Self, expected_num_elements: usize) -> Self {
         self.expected_num_elements = Some(expected_num_elements);
         self
     }
 
-    /// Sets the number of layers in the final graph. Each new layer will have exponentially more
-    /// nodes than the one below. E.g. layer 0: 1 node, layer 1: 10 nodes, layer 2: 100 nodes, ...
+    /// Configures the layer multiplier for the hierarchical graph:
+    /// each new layer will have `layer_multiplier` times more elements than the previous.
+    /// E.g. `layer_multiplier == 10.0` implies `n`, `10n`, `100n`, ... nodes per layer for
+    /// some `n < 10`.
+    ///
+    /// Default: 15.0
     pub fn layer_multiplier(mut self: Self, layer_multiplier: f32) -> Self {
         self.layer_multiplier = layer_multiplier;
         self
