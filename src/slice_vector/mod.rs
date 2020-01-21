@@ -11,32 +11,66 @@ use std::io::{Read, Result, Seek, SeekFrom, Write};
 mod offsets;
 mod set_vector;
 
-use crate::io::write_as_bytes;
+use madvise::{AccessPattern, AdviseMemory};
+use memmap;
 
-pub use offsets::{CompressedVariableWidthSliceVector, Offsets};
+use crate::io;
+
+use offsets::{Chunk, CompressedVariableWidthSliceVector, Offsets};
+
 pub use set_vector::MultiSetVector;
 
+const U64_LEN: usize = ::std::mem::size_of::<u64>();
+
 /// A vector containing variably wide slices.
-#[derive(Clone)]
-pub struct VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {
-    offsets: Cow<'a, [Offset]>,
-    data: Cow<'a, [T]>,
+pub enum VariableWidthSliceVector<'a, T: 'a + Clone, Offset: 'a + Clone> {
+    File(memmap::Mmap),
+    Memory(Cow<'a, [Offset]>, Cow<'a, [T]>),
+}
+
+impl<'a, T: Clone, Offset: Clone> Clone for VariableWidthSliceVector<'a, T, Offset> {
+    fn clone(self: &Self) -> Self {
+        match self {
+            Self::File(mmap) => {
+                let (offsets, data) = Self::load_mmap(&mmap[..]);
+                Self::Memory(Cow::Owned(offsets.to_vec()), Cow::Owned(data.to_vec()))
+            }
+            Self::Memory(offsets, data) => Self::Memory(offsets.clone(), data.clone()),
+        }
+    }
 }
 
 /// A vector containing fixed width slices.
-#[derive(Clone)]
-pub struct FixedWidthSliceVector<'a, T: 'a + Clone> {
-    data: Cow<'a, [T]>,
-    width: usize,
+pub enum FixedWidthSliceVector<'a, T: Clone> {
+    File(memmap::Mmap),
+    Memory(Cow<'a, [T]>, usize),
+}
+
+impl<'a, T: Clone> Clone for FixedWidthSliceVector<'a, T> {
+    fn clone(self: &Self) -> Self {
+        match self {
+            Self::File(mmap) => {
+                let (data, width) = Self::load_mmap(&mmap[..]);
+                Self::Memory(Cow::Owned(data.to_vec()), width)
+            }
+            Self::Memory(data, width) => Self::Memory(data.clone(), *width),
+        }
+    }
 }
 
 impl<'a, T: Clone> Into<Vec<T>> for FixedWidthSliceVector<'a, T> {
     fn into(self: Self) -> Vec<T> {
-        self.data.into_owned()
+        match self {
+            Self::File(mmap) => {
+                let (data, _width) = Self::load_mmap(&mmap[..]);
+                data.to_vec()
+            }
+            Self::Memory(data, _width) => data.into_owned(),
+        }
     }
 }
 
-impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
+impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
     /// Creates an empty FixedWidthSliceVector with unspecified width.
     pub fn new() -> Self {
         Self::with_width(0)
@@ -44,10 +78,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
 
     /// Creates an empty FixedWidthSliceVector with `width`.
     pub fn with_width(width: usize) -> Self {
-        Self {
-            data: Vec::new().into(),
-            width,
-        }
+        Self::Memory(Vec::new().into(), width)
     }
 
     /// Creates an empty FixedWidthSliceVector with space for at least `capacity` slices with `width`.
@@ -56,10 +87,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     pub fn with_capacity(width: usize, capacity: usize) -> Self {
         assert!(width > 0);
 
-        Self {
-            data: Vec::with_capacity(width * capacity).into(),
-            width,
-        }
+        Self::Memory(Vec::with_capacity(width * capacity).into(), width)
     }
 
     /// Creates a FixedWidthSliceVector with data from `data`
@@ -71,7 +99,26 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         assert!(width > 0);
         assert!(data.len() % width == 0);
 
-        Self { data, width }
+        Self::Memory(data, width)
+    }
+
+    pub fn from_file(path: &str) -> Self {
+        let file =
+            std::fs::File::open(path).expect(&format!("Could not open file at \"{}\".", path));
+        let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
+        file.advise_memory_access(AccessPattern::Random)
+            .expect("Error with madvise");
+        let slice_vec = Self::File(file);
+
+        // try to fail early
+        let (_data, _width) = slice_vec.load();
+
+        slice_vec
+    }
+
+    pub fn from_bytes(buffer: &'a [u8]) -> Self {
+        let (data, width) = Self::load_mmap(buffer);
+        Self::Memory(Cow::Borrowed(data), width)
     }
 
     /// Returns an iterator over all slices in `self`.
@@ -79,7 +126,8 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     where
         'a: 'b,
     {
-        self.data.chunks(self.width)
+        let (data, width) = self.load();
+        data.chunks(width)
     }
 
     /// Returns an iterator over mutable slices in `self`.
@@ -87,50 +135,93 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     where
         'a: 'b,
     {
-        self.data.to_mut().chunks_mut(self.width)
+        let (data, width) = self.load_mut();
+        data.chunks_mut(*width)
     }
 
     /// Creates a new FixedWidthSliceVector containing all slices in `self` between `begin` and `end`.
     pub fn subslice(self: &'_ Self, begin: usize, end: usize) -> FixedWidthSliceVector<'_, T> {
-        let begin = begin * self.width;
-        let end = end * self.width;
+        let (data, width) = self.load();
 
-        FixedWidthSliceVector::with_data(&self.data[begin..end], self.width)
+        let begin = begin * width;
+        let end = end * width;
+
+        FixedWidthSliceVector::with_data(&data[begin..end], width)
     }
 
     pub fn reserve(self: &mut Self, additional: usize) {
-        self.data.to_mut().reserve(additional * self.width);
+        let (data, width) = self.load_mut();
+        data.reserve(additional * *width);
     }
 
     pub fn reserve_exact(self: &mut Self, additional: usize) {
-        self.data.to_mut().reserve_exact(additional * self.width);
+        let (data, width) = self.load_mut();
+        data.reserve_exact(additional * *width);
     }
 
     pub fn resize(self: &mut Self, new_len: usize, value: T) {
-        self.data.to_mut().resize(new_len * self.width, value);
+        let (data, width) = self.load_mut();
+        data.resize(new_len * *width, value);
     }
 
     /// Extend this FixedWidthSliceVector with the slices from `other`.
     ///
     /// The widths of `self` and `other` must be equal.
     pub fn extend_from_slice_vector(self: &mut Self, other: &FixedWidthSliceVector<T>) {
-        if self.width == 0 {
-            self.width = other.width;
+        let (data, width) = self.load_mut();
+        let (other_data, other_width) = other.load();
+
+        if *width == 0 {
+            *width = other_width;
         }
 
-        assert_eq!(self.width, other.width);
+        assert_eq!(*width, other_width);
 
-        self.data.to_mut().extend_from_slice(&other.data);
+        data.extend_from_slice(other_data);
     }
 
-    pub fn load(buffer: &'a [u8], width: usize) -> Self {
-        Self {
-            data: Cow::from(unsafe { crate::io::load_bytes_as(&buffer[..]) }),
+    fn load_mut(self: &mut Self) -> (&mut Vec<T>, &mut usize) {
+        match self {
+            Self::File(mmap) => {
+                let (data, width) = Self::load_mmap(&mmap[..]);
+                *self = Self::Memory(Cow::Owned(data.to_vec()), width)
+            }
+            Self::Memory(_, _) => {}
+        }
+
+        match self {
+            Self::File(_) => unreachable!(),
+            Self::Memory(data, width) => (data.to_mut(), width),
+        }
+    }
+
+    fn load(self: &Self) -> (&[T], usize) {
+        match self {
+            Self::File(mmap) => Self::load_mmap(&mmap[..]),
+            Self::Memory(data, width) => (&data, *width),
+        }
+    }
+
+    fn load_mmap(buffer: &[u8]) -> (&[T], usize) {
+        let width = {
+            let mut buf = [0x0; U64_LEN];
+            buf.copy_from_slice(&buffer[..U64_LEN]);
+            u64::from_le_bytes(buf) as usize
+        };
+
+        (
+            unsafe { crate::io::load_bytes_as(&buffer[U64_LEN..]) },
             width,
-        }
+        )
     }
 
-    pub fn read<I: Read>(mut reader: I, width: usize) -> Result<Self> {
+    pub fn read<I: Read>(mut reader: I) -> Result<Self> {
+        let width = {
+            let mut buf = [0x0; U64_LEN];
+            reader.read_exact(&mut buf);
+            u64::from_le_bytes(buf) as usize
+        };
+
         let mut buffer = Vec::new();
         buffer.resize(width * ::std::mem::size_of::<T>(), 0);
 
@@ -143,11 +234,13 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         Ok(vec)
     }
 
-    pub fn read_with_capacity<I: Read>(
-        mut reader: I,
-        width: usize,
-        capacity: usize,
-    ) -> Result<Self> {
+    pub fn read_with_capacity<I: Read>(mut reader: I, capacity: usize) -> Result<Self> {
+        let width = {
+            let mut buf = [0x0; U64_LEN];
+            reader.read_exact(&mut buf);
+            u64::from_le_bytes(buf) as usize
+        };
+
         let mut buffer = Vec::new();
         buffer.resize(width * ::std::mem::size_of::<T>(), 0);
 
@@ -176,7 +269,7 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
         buffer.write_u64::<LittleEndian>(self.len() as u64)?;
 
         let zero_offset = Offset::try_from(0).unwrap();
-        write_as_bytes(&[zero_offset], buffer)?;
+        io::write_as_bytes(&[zero_offset], buffer)?;
         let mut offset_pos = buffer.seek(SeekFrom::Current(0))?;
         let offset_size = ::std::mem::size_of::<Offset>() as u64;
         let mut value_pos = offset_pos + self.len() as u64 * offset_size;
@@ -207,13 +300,13 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
                     }
                 }
                 total_count += slice_buffer.len();
-                write_as_bytes(slice_buffer.as_slice(), buffer)?;
+                io::write_as_bytes(slice_buffer.as_slice(), buffer)?;
                 offsets.push(Offset::try_from(total_count).unwrap());
             }
             value_pos = buffer.seek(SeekFrom::Current(0))?;
 
             buffer.seek(SeekFrom::Start(offset_pos))?;
-            write_as_bytes(offsets.as_slice(), buffer)?;
+            io::write_as_bytes(offsets.as_slice(), buffer)?;
             offset_pos = buffer.seek(SeekFrom::Current(0))?;
         }
 
@@ -228,16 +321,20 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     where
         'a: 'b,
     {
-        Self {
-            data: Cow::Borrowed(&self.data),
-            width: self.width,
-        }
+        let (data, width) = self.load();
+
+        Self::Memory(Cow::Borrowed(data), width)
     }
 
     pub fn into_owned(self: Self) -> FixedWidthSliceVector<'static, T> {
-        FixedWidthSliceVector {
-            data: self.data.into_owned().into(),
-            width: self.width,
+        match self {
+            Self::File(mmap) => {
+                let (data, width) = Self::load_mmap(&mmap[..]);
+                FixedWidthSliceVector::Memory(Cow::Owned(data.to_vec()), width)
+            }
+            Self::Memory(data, width) => {
+                FixedWidthSliceVector::Memory(Cow::Owned(data.into_owned()), width)
+            }
         }
     }
 
@@ -245,12 +342,14 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     where
         'a: 'b,
     {
+        let (data, width) = self.load();
+
         debug_assert!(idx < self.len());
 
-        let begin = idx * self.width;
-        let end = (idx + 1) * self.width;
+        let begin = idx * width;
+        let end = (idx + 1) * width;
 
-        &self.data[begin..end]
+        &data[begin..end]
     }
 
     pub fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
@@ -259,10 +358,12 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     {
         debug_assert!(idx < self.len());
 
-        let begin = idx * self.width;
-        let end = begin + self.width;
+        let (data, width) = self.load_mut();
 
-        &mut self.data.to_mut()[begin..end]
+        let begin = idx * *width;
+        let end = begin + *width;
+
+        &mut data[begin..end]
     }
 
     fn get_two_mut<'b>(self: &'b mut Self, idx0: usize, idx1: usize) -> (&'b mut [T], &'b mut [T])
@@ -271,36 +372,42 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     {
         assert!(idx0 != idx1);
 
+        let (data, width) = self.load_mut();
+        let width = *width;
+
         if idx0 < idx1 {
-            let (left, right) = self.data.to_mut().split_at_mut(idx1 * self.width);
+            let (left, right) = data.split_at_mut(idx1 * width);
 
-            let begin = idx0 * self.width;
-            let end = begin + self.width;
+            let begin = idx0 * width;
+            let end = begin + width;
 
-            (&mut left[begin..end], &mut right[..self.width])
+            (&mut left[begin..end], &mut right[..width])
         } else {
-            let (left, right) = self.data.to_mut().split_at_mut(idx0 * self.width);
+            let (left, right) = data.split_at_mut(idx0 * width);
 
-            let begin = idx1 * self.width;
-            let end = begin + self.width;
+            let begin = idx1 * width;
+            let end = begin + width;
 
-            (&mut right[..self.width], &mut left[begin..end])
+            (&mut right[..width], &mut left[begin..end])
         }
     }
 
-    pub fn push(self: &mut Self, data: &[T]) {
-        if self.width == 0 {
-            self.width = data.len();
+    pub fn push(self: &mut Self, new_data: &[T]) {
+        let (data, width) = self.load_mut();
+
+        if *width == 0 {
+            *width = new_data.len();
         }
 
-        assert_eq!(self.width, data.len());
+        assert_eq!(*width, new_data.len());
 
-        self.data.to_mut().extend_from_slice(data);
+        data.extend_from_slice(new_data);
     }
 
     pub fn len(self: &Self) -> usize {
-        if self.width > 0 {
-            self.data.len() / self.width
+        let (data, width) = self.load();
+        if width > 0 {
+            data.len() / width
         } else {
             0
         }
@@ -311,7 +418,8 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     }
 
     pub fn width(self: &Self) -> usize {
-        self.width
+        let (_, width) = self.load();
+        width
     }
 
     /// Permutes this vector by `permutation`. The element at index `permutation[i]` will
@@ -342,7 +450,11 @@ impl<'a, T: 'a + Clone> FixedWidthSliceVector<'a, T> {
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
-        write_as_bytes(&self.data[..], buffer)
+        let (data, width) = self.load();
+
+        buffer.write_all(&width.to_le_bytes())?;
+
+        io::write_as_bytes(&data[..], buffer)
     }
 }
 
@@ -351,14 +463,16 @@ impl<'a, T: 'a + Clone + Send + Sync> FixedWidthSliceVector<'a, T> {
     where
         'a: 'b,
     {
-        self.data.par_chunks(self.width)
+        let (data, width) = self.load();
+        data.par_chunks(width)
     }
 
     pub fn par_iter_mut<'b>(self: &'b mut Self) -> impl IndexedParallelIterator<Item = &'b mut [T]>
     where
         'a: 'b,
     {
-        self.data.to_mut().par_chunks_mut(self.width)
+        let (data, width) = self.load_mut();
+        data.par_chunks_mut(*width)
     }
 }
 
@@ -369,18 +483,36 @@ where
     <usize as std::convert::TryFrom<Offset>>::Error: std::fmt::Debug,
 {
     pub fn new() -> Self {
-        Self {
-            offsets: vec![Offset::try_from(0).unwrap()].into(),
-            data: Vec::new().into(),
-        }
+        Self::Memory(vec![Offset::try_from(0).unwrap()].into(), Vec::new().into())
+    }
+
+    pub fn from_file(path: &str) -> Self {
+        let file =
+            std::fs::File::open(path).expect(&format!("Could not open file at \"{}\".", path));
+        let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
+        file.advise_memory_access(AccessPattern::Random)
+            .expect("Error with madvise");
+        let slice_vec = Self::File(file);
+
+        // try to fail early
+        let (_offsets, _data) = slice_vec.load();
+
+        slice_vec
+    }
+
+    pub fn from_bytes(buffer: &'a [u8]) -> Self {
+        let (offsets, data) = Self::load_mmap(buffer);
+        Self::Memory(Cow::Borrowed(offsets), Cow::Borrowed(data))
     }
 
     pub fn extend_from_slice_vector(self: &mut Self, other: &VariableWidthSliceVector<T, Offset>) {
-        let prev_len = usize::try_from(*self.offsets.last().unwrap()).unwrap();
+        let (offsets, data) = self.load_mut();
+        let (other_offsets, other_data) = other.load();
 
-        self.offsets.to_mut().extend(
-            other
-                .offsets
+        let prev_len = usize::try_from(*offsets.last().unwrap()).unwrap();
+
+        offsets.extend(
+            other_offsets
                 .iter()
                 .skip(1) // skip the initial 0
                 .map(|&x| {
@@ -389,48 +521,32 @@ where
                 }),
         );
 
-        self.data.to_mut().extend_from_slice(&other.data);
+        data.extend_from_slice(other_data);
     }
 
     pub fn iter<'b>(self: &'b Self) -> impl Iterator<Item = &'b [T]>
     where
         'a: 'b,
     {
-        self.offsets
+        let (offsets, data) = self.load();
+
+        offsets
             .iter()
-            .zip(self.offsets.iter().skip(1))
+            .zip(offsets.iter().skip(1))
             .map(move |(&begin, &end)| {
                 let begin = usize::try_from(begin).unwrap();
                 let end = usize::try_from(end).unwrap();
 
-                &self.data[begin..end]
+                &data[begin..end]
             })
-    }
-
-    pub fn load(buffer: &'a [u8]) -> Self {
-        let u64_len = ::std::mem::size_of::<u64>();
-        let num_slices = (&buffer[..u64_len])
-            .read_u64::<LittleEndian>()
-            .expect("Could not read length") as usize;
-        let offset_len = ::std::mem::size_of::<Offset>();
-        let (offsets, data) = buffer[u64_len..].split_at((1 + num_slices) * offset_len);
-
-        unsafe {
-            Self {
-                offsets: Cow::from(crate::io::load_bytes_as::<Offset>(offsets)),
-                data: Cow::from(crate::io::load_bytes_as::<T>(data)),
-            }
-        }
     }
 
     pub fn borrow<'b>(self: &'a Self) -> VariableWidthSliceVector<'b, T, Offset>
     where
         'a: 'b,
     {
-        Self {
-            offsets: Cow::Borrowed(&self.offsets),
-            data: Cow::Borrowed(&self.data),
-        }
+        let (offsets, data) = self.load();
+        Self::Memory(Cow::Borrowed(offsets), Cow::Borrowed(data))
     }
 
     pub fn write_range<B: Write>(
@@ -443,70 +559,110 @@ where
         assert!(begin <= self.len());
         assert!(end <= self.len());
 
-        // write metadata
-        buffer
-            .write_u64::<LittleEndian>((end - begin) as u64)
-            .expect("Could not write length");
+        let (offsets, data) = self.load();
 
-        let offset_begin = usize::try_from(self.offsets[begin]).unwrap();
+        // write metadata
+        buffer.write(&((end - begin) as u64).to_le_bytes())?;
+        let mut bytes_written = std::mem::size_of::<u64>();
+
+        let offset_begin = usize::try_from(offsets[begin]).unwrap();
         for i in begin..=end {
-            let offset = usize::try_from(self.offsets[i]).unwrap();
+            let offset = usize::try_from(offsets[i]).unwrap();
             let offset = Offset::try_from(offset - offset_begin).unwrap();
-            write_as_bytes(&[offset], buffer)?;
+            io::write_as_bytes(&[offset], buffer)?;
         }
 
-        let data_begin = usize::try_from(self.offsets[begin]).unwrap();
-        let data_end = usize::try_from(self.offsets[end]).unwrap();
-        write_as_bytes(&self.data[data_begin..data_end], buffer)
+        let data_begin = usize::try_from(offsets[begin]).unwrap();
+        let data_end = usize::try_from(offsets[end]).unwrap();
+        io::write_as_bytes(&data[data_begin..data_end], buffer)
     }
 
-    pub fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
-    where
-        'a: 'b,
-    {
-        let begin = usize::try_from(self.offsets[idx]).unwrap();
-        let end = usize::try_from(self.offsets[idx + 1]).unwrap();
+    pub fn get(self: &Self, idx: usize) -> &[T] {
+        let (offsets, data) = self.load();
 
-        &self.data[begin..end]
+        let begin = usize::try_from(offsets[idx]).unwrap();
+        let end = usize::try_from(offsets[idx + 1]).unwrap();
+
+        &data[begin..end]
     }
 
-    pub fn get_mut<'b>(self: &'b mut Self, idx: usize) -> &'b mut [T]
-    where
-        'a: 'b,
-    {
-        let begin = usize::try_from(self.offsets[idx]).unwrap();
-        let end = usize::try_from(self.offsets[idx + 1]).unwrap();
+    pub fn get_mut(self: &mut Self, idx: usize) -> &mut [T] {
+        let (offsets, data) = self.load_mut();
 
-        &mut self.data.to_mut()[begin..end]
+        let begin = usize::try_from(offsets[idx]).unwrap();
+        let end = usize::try_from(offsets[idx + 1]).unwrap();
+
+        &mut data[begin..end]
     }
 
     pub fn len(self: &Self) -> usize {
-        self.offsets.len() - 1
+        let (offsets, _data) = self.load();
+        offsets.len() - 1
     }
 
     pub fn is_empty(self: &Self) -> bool {
         self.len() == 0
     }
 
-    pub fn push(self: &mut Self, data: &[T]) {
-        self.data.to_mut().extend_from_slice(data);
-        self.offsets
-            .to_mut()
-            .push(Offset::try_from(self.data.len()).unwrap());
+    pub fn push(self: &mut Self, new_data: &[T]) {
+        let (offsets, data) = self.load_mut();
+        data.extend_from_slice(new_data);
+        offsets.push(Offset::try_from(data.len()).unwrap());
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
-        // write metadata
-        buffer
-            .write_u64::<LittleEndian>(self.len() as u64)
-            .expect("Could not write length");
+        let (offsets, data) = self.load();
 
+        // write metadata
+        buffer.write(&self.len().to_le_bytes())?;
         let mut bytes_written = std::mem::size_of::<u64>();
 
-        bytes_written += write_as_bytes(&self.offsets[..], buffer)?;
-        bytes_written += write_as_bytes(&self.data[..], buffer)?;
+        bytes_written += io::write_as_bytes(&offsets[..], buffer)?;
+        bytes_written += io::write_as_bytes(&data[..], buffer)?;
 
         Ok(bytes_written)
+    }
+}
+
+impl<'a, T: Clone, Offset: Clone> VariableWidthSliceVector<'a, T, Offset> {
+    fn load(self: &Self) -> (&[Offset], &[T]) {
+        match self {
+            Self::File(mmap) => Self::load_mmap(&mmap[..]),
+            Self::Memory(offsets, data) => (&offsets, &data),
+        }
+    }
+
+    fn load_mut(self: &mut Self) -> (&mut Vec<Offset>, &mut Vec<T>) {
+        match self {
+            Self::File(mmap) => {
+                let (offsets, data) = Self::load_mmap(mmap);
+                *self = Self::Memory(Cow::Owned(offsets.to_vec()), Cow::Owned(data.to_vec()));
+            }
+            Self::Memory(_, _) => {}
+        }
+
+        match self {
+            Self::File(_) => unreachable!(),
+            Self::Memory(offsets, data) => (offsets.to_mut(), data.to_mut()),
+        }
+    }
+
+    fn load_mmap(buffer: &[u8]) -> (&[Offset], &[T]) {
+        let num_slices = {
+            let mut buf = [0x0; U64_LEN];
+            buf.copy_from_slice(&buffer[..U64_LEN]);
+            u64::from_le_bytes(buf) as usize
+        };
+
+        let offset_len = ::std::mem::size_of::<Offset>();
+        let (offsets, data) = buffer[U64_LEN..].split_at((1 + num_slices) * offset_len);
+
+        unsafe {
+            (
+                crate::io::load_bytes_as::<Offset>(offsets),
+                crate::io::load_bytes_as::<T>(data),
+            )
+        }
     }
 }
 
@@ -676,7 +832,7 @@ mod tests {
         let mut buffer = Vec::new();
         vec.write(&mut buffer).unwrap();
 
-        let loaded_vec = FixedWidthSliceVector::<i16>::load(&buffer, width);
+        let loaded_vec = FixedWidthSliceVector::<i16>::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 
@@ -697,7 +853,7 @@ mod tests {
         let mut buffer = Vec::new();
         vec.write(&mut buffer).unwrap();
 
-        let read_vec = FixedWidthSliceVector::<i16>::read(&mut buffer.as_slice(), width).unwrap();
+        let read_vec = FixedWidthSliceVector::<i16>::read(&mut buffer.as_slice()).unwrap();
 
         assert_eq!(vec.len(), read_vec.len());
 
@@ -717,7 +873,7 @@ mod tests {
         let mut buffer = Vec::new();
         vec.write(&mut buffer).unwrap();
 
-        let loaded_vec = VariableWidthSliceVector::<usize, usize>::load(&buffer);
+        let loaded_vec = VariableWidthSliceVector::<usize, usize>::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 
@@ -754,7 +910,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 
@@ -782,7 +938,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 
@@ -812,7 +968,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::from_bytes(&buffer);
 
         assert_eq!(0, loaded_vec.len());
     }
@@ -836,7 +992,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::load(&buffer);
+        let loaded_vec = VariableWidthSliceVector::<i16, Offset>::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 
@@ -858,7 +1014,7 @@ mod tests {
                 let mut buffer = Vec::new();
                 vec.write_range(&mut buffer, begin, end).unwrap();
 
-                let loaded_vec = VariableWidthSliceVector::<usize, usize>::load(&buffer);
+                let loaded_vec = VariableWidthSliceVector::<usize, usize>::from_bytes(&buffer);
 
                 assert_eq!(end - begin, loaded_vec.len());
 

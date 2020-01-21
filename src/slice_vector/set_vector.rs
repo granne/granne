@@ -19,6 +19,18 @@ impl<'a> MultiSetVector<'a> {
         }
     }
 
+    pub fn from_file(path: &str) -> Self {
+        Self {
+            data: CompressedVariableWidthSliceVector::from_file(path),
+        }
+    }
+
+    pub fn from_bytes(buffer: &'a [u8]) -> Self {
+        Self {
+            data: CompressedVariableWidthSliceVector::from_bytes(buffer),
+        }
+    }
+
     pub fn len(self: &Self) -> usize {
         self.data.len()
     }
@@ -61,12 +73,6 @@ impl<'a> MultiSetVector<'a> {
         self.data.write(buffer)
     }
 
-    pub fn load(buffer: &'a [u8]) -> Self {
-        Self {
-            data: CompressedVariableWidthSliceVector::load(buffer),
-        }
-    }
-
     pub fn borrow<'b>(self: &'a Self) -> MultiSetVector<'b>
     where
         'a: 'b,
@@ -85,8 +91,7 @@ fn decode_into(encoded_data: &[u8], decoded_nums: &mut Vec<u32>) {
     if encoded_data.len() != count * ::std::mem::size_of::<u32>() {
         decoded_nums.resize(std::cmp::max(MIN_NUMBERS_TO_ENCODE, count), 0);
 
-        /*        let bytes_decoded =
-        decode::<stream_vbyte::x86::Ssse3>(&encoded_data[1..], res.len(), res);*/
+        //let bytes_decoded = decode::<stream_vbyte::x86::Ssse3>(encoded_data, decoded_nums.len(), decoded_nums);
         let bytes_decoded = decode::<Scalar>(encoded_data, decoded_nums.len(), decoded_nums);
 
         debug_assert_eq!(encoded_data.len(), bytes_decoded);
@@ -341,7 +346,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = MultiSetVector::load(&buffer);
+        let loaded_vec = MultiSetVector::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 
@@ -367,7 +372,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = MultiSetVector::load(&buffer);
+        let loaded_vec = MultiSetVector::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 
@@ -393,7 +398,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = MultiSetVector::load(&buffer);
+        let loaded_vec = MultiSetVector::from_bytes(&buffer);
 
         assert_eq!(0, loaded_vec.len());
     }
@@ -415,7 +420,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let loaded_vec = MultiSetVector::load(&buffer);
+        let loaded_vec = MultiSetVector::from_bytes(&buffer);
 
         assert_eq!(vec.len(), loaded_vec.len());
 

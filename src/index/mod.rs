@@ -159,7 +159,9 @@ impl<'a, Elements: ElementContainer + Permutable + crate::io::Writeable + Sync>
                 .into_par_iter()
                 .map(|idx| {
                     if idx % step_size == 0 {
-                        progress_bar.as_ref().map(|pb| pb.lock().add(step_size as u64));
+                        progress_bar
+                            .as_ref()
+                            .map(|pb| pb.lock().add(step_size as u64));
                     }
 
                     let mut eps = find_entrypoint_trail(

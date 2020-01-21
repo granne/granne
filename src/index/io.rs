@@ -94,7 +94,7 @@ pub(super) fn load_layers(buffer: &'_ [u8]) -> Layers<'_> {
         for size in layer_sizes {
             let end = start + size;
             let layer = &buffer[start..end];
-            layers.push(MultiSetVector::load(layer));
+            layers.push(MultiSetVector::from_bytes(layer));
             start = end;
         }
 

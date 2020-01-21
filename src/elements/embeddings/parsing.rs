@@ -120,11 +120,11 @@ pub fn compute_embeddings_and_save_to_disk(
     let word_embeddings =
         File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
-    let embeddings = Embeddings::load(&word_embeddings, dimension);
+    let embeddings = Embeddings::from_bytes(&word_embeddings);
 
     let elements = File::open(&elements_path).expect("Could not open elements file");
     let elements = unsafe { memmap::Mmap::map(&elements).unwrap() };
-    let elements = Elements::load(&elements);
+    let elements = Elements::from_bytes(&elements);
 
     let elements = SumEmbeddings::from_parts(embeddings, elements);
 

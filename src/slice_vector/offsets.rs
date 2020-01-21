@@ -1,84 +1,143 @@
 use crate::io;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use madvise::{AccessPattern, AdviseMemory};
 use std::borrow::Cow;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 
+use super::U64_LEN;
 pub const OFFSETS_PER_CHUNK: usize = 60;
 type DeltaType = u16;
 
-#[derive(Clone)]
-pub struct CompressedVariableWidthSliceVector<'a, T: 'a + Clone> {
-    offsets: Offsets<'a>,
-    data: Cow<'a, [T]>,
+pub enum CompressedVariableWidthSliceVector<'a, T: Clone> {
+    File(memmap::Mmap),
+    Memory(Offsets<'a>, Cow<'a, [T]>),
 }
 
-impl<'a, T: 'a + Clone> CompressedVariableWidthSliceVector<'a, T> {
+impl<'a, T: Clone> Clone for CompressedVariableWidthSliceVector<'a, T> {
+    fn clone(self: &Self) -> Self {
+        match self {
+            Self::File(mmap) => {
+                let (offsets, data) = Self::load_mmap(&mmap[..]);
+                Self::Memory(offsets.into_owned(), Cow::Owned(data.to_vec()))
+            }
+            Self::Memory(offsets, data) => Self::Memory(offsets.clone(), data.clone()),
+        }
+    }
+}
+
+impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
     pub fn new() -> Self {
         let mut offsets = Offsets::new();
         offsets.push(0);
 
-        Self {
-            offsets,
-            data: Vec::new().into(),
-        }
+        Self::Memory(offsets, Cow::Owned(Vec::new()))
+    }
+
+    pub fn from_file(path: &str) -> Self {
+        let file =
+            std::fs::File::open(path).expect(&format!("Could not open file at \"{}\".", path));
+        let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
+        file.advise_memory_access(AccessPattern::Random)
+            .expect("Error with madvise");
+        let slice_vec = Self::File(file);
+
+        // try to fail early
+        let (_offsets, _data) = slice_vec.load();
+
+        slice_vec
+    }
+
+    pub fn from_bytes(buffer: &'a [u8]) -> Self {
+        let (offsets, data) = Self::load_mmap(buffer);
+        Self::Memory(offsets, Cow::Borrowed(data))
     }
 
     pub fn get<'b>(self: &'b Self, idx: usize) -> &'b [T]
     where
         'a: 'b,
     {
-        let (begin, end) = self.offsets.get_consecutive(idx);
+        let (offsets, data) = self.load();
 
-        &self.data[begin..end]
+        let (begin, end) = offsets.get_consecutive(idx);
+
+        &data[begin..end]
     }
 
     pub fn len(self: &Self) -> usize {
-        self.offsets.len() - 1
+        let (offsets, _data) = self.load();
+
+        offsets.len() - 1
     }
 
-    pub fn push(self: &mut Self, data: &[T]) {
-        self.data.to_mut().extend_from_slice(data);
-        self.offsets.push(self.data.len());
+    pub fn push(self: &mut Self, new_data: &[T]) {
+        let (offsets, data) = self.load_mut();
+
+        data.extend_from_slice(new_data);
+        offsets.push(data.len());
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
+        let (offsets, data) = self.load();
+
         // write metadata
         buffer
-            .write_u64::<LittleEndian>(self.offsets.num_bytes() as u64)
+            .write_u64::<LittleEndian>(offsets.num_bytes() as u64)
             .expect("Could not write length");
 
         let mut bytes_written = std::mem::size_of::<u64>();
 
-        bytes_written += self.offsets.write(buffer)?;
-        bytes_written += io::write_as_bytes(&self.data[..], buffer)?;
+        bytes_written += offsets.write(buffer)?;
+        bytes_written += io::write_as_bytes(&data[..], buffer)?;
 
         Ok(bytes_written)
     }
 
-    pub fn load(buffer: &'a [u8]) -> Self {
-        let u64_len = ::std::mem::size_of::<u64>();
-        let num_bytes = (&buffer[..u64_len])
-            .read_u64::<LittleEndian>()
-            .expect("Could not read length") as usize;
-
-        let (offsets, data) = buffer[u64_len..].split_at(num_bytes);
-
-        unsafe {
-            Self {
-                offsets: Offsets::load(offsets),
-                data: Cow::from(crate::io::load_bytes_as::<T>(data)),
-            }
+    fn load<'b>(self: &'b Self) -> (Offsets<'b>, &'b [T])
+    where
+        'a: 'b,
+    {
+        match self {
+            Self::File(mmap) => Self::load_mmap(&mmap[..]),
+            Self::Memory(offsets, data) => (offsets.borrow(), &data),
         }
+    }
+
+    fn load_mut(self: &mut Self) -> (&mut Offsets<'a>, &mut Vec<T>) {
+        match self {
+            Self::File(mmap) => {
+                let (offsets, data) = Self::load_mmap(mmap);
+                *self = Self::Memory(offsets.into_owned(), Cow::Owned(data.to_vec()));
+            }
+            Self::Memory(_, _) => {}
+        }
+
+        match self {
+            Self::File(_) => unreachable!(),
+            Self::Memory(ref mut offsets, data) => (offsets, data.to_mut()),
+        }
+    }
+
+    fn load_mmap<'b>(buffer: &'b [u8]) -> (Offsets<'b>, &'b [T]) {
+        let num_bytes = {
+            let mut buf = [0x0; U64_LEN];
+            buf.copy_from_slice(&buffer[..U64_LEN]);
+            u64::from_le_bytes(buf) as usize
+        };
+
+        let (offsets, data) = buffer[U64_LEN..].split_at(num_bytes);
+
+        (Offsets::load(offsets), unsafe {
+            crate::io::load_bytes_as::<T>(data)
+        })
     }
 
     pub fn borrow<'b>(self: &'a Self) -> CompressedVariableWidthSliceVector<'b, T>
     where
         'a: 'b,
     {
-        Self {
-            offsets: self.offsets.borrow(),
-            data: Cow::Borrowed(&self.data),
-        }
+        let (offsets, data) = self.load();
+
+        Self::Memory(offsets, Cow::Borrowed(data))
     }
 }
 
@@ -227,6 +286,12 @@ impl<'a> Offsets<'a> {
     {
         Self {
             chunks: Cow::Borrowed(&self.chunks),
+        }
+    }
+
+    pub fn into_owned(self: Self) -> Offsets<'static> {
+        Offsets {
+            chunks: Cow::Owned(self.chunks.into_owned()),
         }
     }
 }

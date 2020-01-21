@@ -41,8 +41,8 @@ macro_rules! dense_vector {
 
             /// Load a collection of vectors with dimension `dim` from a `u8` buffer.
             /// `buffer` needs to contain ...
-            pub fn load(buffer: &'a [u8], dim: usize) -> Self {
-                Self(FixedWidthSliceVector::load(buffer, dim))
+            pub fn from_bytes(buffer: &'a [u8]) -> Self {
+                Self(FixedWidthSliceVector::from_bytes(buffer))
             }
 
             /// Create a collection of vectors with dimension `dim` from a `Vec`.
@@ -139,67 +139,6 @@ macro_rules! dense_vector {
         impl<'a> Permutable for Vectors<'a> {
             fn permute(self: &mut Self, permutation: &[usize]) {
                 self.0.permute(permutation);
-            }
-        }
-
-        #[doc(hidden)]
-        pub mod mmap {
-            use super::*;
-            use madvise::{AccessPattern, AdviseMemory};
-            use memmap;
-
-            pub struct MmapVectors {
-                data: memmap::Mmap,
-                dim: usize,
-            }
-
-            impl MmapVectors {
-                pub fn new(filename: &str, dim: usize) -> Self {
-                    let data = std::fs::File::open(filename).unwrap();
-                    let data = unsafe { memmap::Mmap::map(&data).unwrap() };
-                    data.advise_memory_access(AccessPattern::Random)
-                        .expect("Error with madvise");
-
-                    Self { data, dim }
-                }
-
-                pub fn load<'a>(self: &'a Self) -> Vectors<'a> {
-                    Vectors::load(&self.data[..], self.dim)
-                }
-            }
-
-            impl ElementContainer for MmapVectors {
-                type Element = Vector<'static>;
-
-                fn get(self: &Self, idx: usize) -> Self::Element {
-                    self.load().get(idx)
-                }
-
-                fn len(self: &Self) -> usize {
-                    self.load().len()
-                }
-
-                fn dist_to_element(
-                    self: &Self,
-                    idx: usize,
-                    element: &Self::Element,
-                ) -> NotNan<f32> {
-                    self.load().dist_to_element(idx, element)
-                }
-
-                fn dist(self: &Self, i: usize, j: usize) -> NotNan<f32> {
-                    self.load().dist(i, j)
-                }
-
-                fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
-                    self.load().dists(idx, others)
-                }
-            }
-
-            impl io::Writeable for MmapVectors {
-                fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
-                    self.load().write(buffer)
-                }
             }
         }
     };
