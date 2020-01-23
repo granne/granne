@@ -1,4 +1,5 @@
 use fxhash::FxBuildHasher;
+use madvise::{AccessPattern, AdviseMemory};
 use ordered_float::NotNan;
 use parking_lot;
 use pbr;
@@ -30,7 +31,7 @@ const UNUSED: NeighborId = NeighborId::max_value();
 /// An index for fast approximate nearest neighbor search.
 /// The index is built by using `GranneBuilder` and can be stored to disk.
 pub struct Granne<'a, Elements: ElementContainer> {
-    layers: Layers<'a>,
+    layers: FileOrMemoryLayers<'a>, //Layers<'a>,
     elements: Elements,
 }
 
@@ -45,8 +46,9 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
     /// Returns the number of elements in this index.
     /// Note that it might be less than the number of elements in `elements`.
     fn len(self: &Self) -> usize {
-        if self.layers.len() > 0 {
-            self.layer_len(self.layers.len() - 1)
+        let layers = self.layers.load();
+        if layers.len() > 0 {
+            self.layer_len(layers.len() - 1)
         } else {
             0
         }
@@ -54,17 +56,17 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
 
     /// Returns the number of layers in this index.
     fn num_layers(self: &Self) -> usize {
-        self.layers.len()
+        self.layers.load().len()
     }
 
     /// Returns the number of nodes in `layer`.
     fn layer_len(self: &Self, layer: usize) -> usize {
-        self.layers.as_graph(layer).len()
+        self.layers.load().as_graph(layer).len()
     }
 
     /// Returns the neighbors of the node at `index` in `layer`.
     fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
-        self.layers.as_graph(layer).get_neighbors(index)
+        self.layers.load().as_graph(layer).get_neighbors(index)
     }
 }
 
@@ -72,9 +74,26 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     /// Loads this index lazily.
     pub fn load(index: &'a [u8], elements: Elements) -> Self {
         Self {
-            layers: io::load_layers(index),
+            layers: FileOrMemoryLayers::Memory(io::load_layers(index)),
             elements,
         }
+    }
+
+    pub fn from_file(index_path: &str, elements: Elements) -> std::io::Result<Self> {
+        let file = std::fs::File::open(index_path)?;
+        let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
+        file.advise_memory_access(AccessPattern::Random)
+            .expect("Error with madvise");
+
+        let index = Self {
+            layers: FileOrMemoryLayers::File(file),
+            elements,
+        };
+
+        // verify that it works
+        let _ = index.len();
+
+        Ok(index)
     }
 
     /// Searches for the `num_neighbors` neighbors closest to `element` in this index.
@@ -86,7 +105,7 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
         max_search: usize,
         num_neighbors: usize,
     ) -> Vec<(usize, f32)> {
-        match &self.layers {
+        match self.layers.load() {
             Layers::FixWidth(layers) => {
                 self.search_internal(&layers, element, max_search, num_neighbors)
             }
@@ -99,6 +118,11 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     /// Returns the element at `index`.
     pub fn get_element(self: &Self, index: usize) -> Elements::Element {
         self.elements.get(index)
+    }
+
+    /// Returns a reference to the elements of this index.
+    pub fn get_elements(self: &Self) -> &Elements {
+        &self.elements
     }
 }
 
@@ -132,9 +156,7 @@ fn find_entrypoint_trail<Elements: ElementContainer>(
     }
 }
 
-impl<'a, Elements: ElementContainer + Permutable + crate::io::Writeable + Sync>
-    Granne<'a, Elements>
-{
+impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
     /// Reorders the elements in this index. Returns the permutation used for the
     /// reordering. `permutation[i] == j`, means that the element with idx `j`, has
     /// been moved to idx `i`.
@@ -165,7 +187,7 @@ impl<'a, Elements: ElementContainer + Permutable + crate::io::Writeable + Sync>
                     }
 
                     let mut eps = find_entrypoint_trail(
-                        &self.layers,
+                        &self.layers.load(),
                         &self.elements,
                         layer,
                         &self.get_element(idx),
@@ -193,7 +215,11 @@ impl<'a, Elements: ElementContainer + Permutable + crate::io::Writeable + Sync>
             println!("Reordering index...");
         }
 
-        self.layers = reorder::reorder_layers(&self.layers, &order, show_progress);
+        self.layers = FileOrMemoryLayers::Memory(reorder::reorder_layers(
+            &self.layers.load(),
+            &order,
+            show_progress,
+        ));
 
         if show_progress {
             println!("Reordering elements...");
@@ -209,20 +235,6 @@ impl<'a, Elements: ElementContainer + Permutable + crate::io::Writeable + Sync>
         }
 
         order
-    }
-
-    pub fn reorder_and_save(
-        self: &mut Self,
-        index: &mut std::fs::File,
-        elements: &mut std::fs::File,
-        show_progress: bool,
-    ) -> std::io::Result<Vec<usize>> {
-        let order = self.reorder(show_progress);
-
-        io::write_index(&self.layers, index)?;
-        self.elements.write(elements)?;
-
-        Ok(order)
     }
 }
 
@@ -590,6 +602,23 @@ impl<'a> Graph for [parking_lot::RwLock<&'a mut [NeighborId]>] {
     }
 }
 
+enum FileOrMemoryLayers<'a> {
+    File(memmap::Mmap),
+    Memory(Layers<'a>),
+}
+
+impl<'a> FileOrMemoryLayers<'a> {
+    fn load<'b>(self: &'b Self) -> Layers<'b>
+    where
+        'a: 'b,
+    {
+        match self {
+            Self::File(mmap) => io::load_layers(&mmap[..]),
+            Self::Memory(layers) => layers.borrow(),
+        }
+    }
+}
+
 enum Layers<'a> {
     FixWidth(Vec<FixedWidthSliceVector<'a, NeighborId>>),
     Compressed(Vec<MultiSetVector<'a>>),
@@ -607,6 +636,18 @@ impl<'a> Layers<'a> {
         match self {
             Self::FixWidth(layers) => &layers[layer],
             Self::Compressed(layers) => &layers[layer],
+        }
+    }
+
+    fn borrow<'b>(self: &'b Self) -> Layers<'b>
+    where
+        'a: 'b,
+    {
+        match self {
+            Self::FixWidth(layers) => Layers::FixWidth(layers.iter().map(|l| l.borrow()).collect()),
+            Self::Compressed(layers) => {
+                Layers::Compressed(layers.iter().map(|l| l.borrow()).collect())
+            }
         }
     }
 }
@@ -728,7 +769,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         let (progress_bar, start_time) = {
             if config.show_progress {
                 let mut progress_bar = pbr::ProgressBar::new(elements.len() as u64);
-                let info_text = format!("Layer {}: ", prev_layers.layers.len());
+                let info_text = format!("Layer {}: ", prev_layers.layers.load().len());
                 progress_bar.message(&info_text);
                 progress_bar.set((step_size * (already_indexed / step_size)) as u64);
 
@@ -973,7 +1014,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     fn from_parts<L: Into<Layers<'a>>>(layers: L, elements: Elements) -> Self {
         Self {
-            layers: layers.into(),
+            layers: FileOrMemoryLayers::Memory(layers.into()),
             elements,
         }
     }

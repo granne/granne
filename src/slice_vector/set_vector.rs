@@ -1,6 +1,5 @@
 use super::{CompressedVariableWidthSliceVector, FixedWidthSliceVector, VariableWidthSliceVector};
 use crate::io::write_as_bytes;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::convert::TryFrom;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
 use stream_vbyte::{decode, encode, Scalar};
@@ -19,10 +18,10 @@ impl<'a> MultiSetVector<'a> {
         }
     }
 
-    pub fn from_file(path: &str) -> Self {
-        Self {
-            data: CompressedVariableWidthSliceVector::from_file(path),
-        }
+    pub fn from_file(path: &str) -> std::io::Result<Self> {
+        Ok(Self {
+            data: CompressedVariableWidthSliceVector::from_file(path)?,
+        })
     }
 
     pub fn from_bytes(buffer: &'a [u8]) -> Self {
@@ -98,11 +97,13 @@ fn decode_into(encoded_data: &[u8], decoded_nums: &mut Vec<u32>) {
 
         decoded_nums.resize(count, 0);
     } else {
-        for mut num in encoded_data
+        let mut buf = [0x0; ::std::mem::size_of::<u32>()];
+        for num in encoded_data
             .chunks_exact(::std::mem::size_of::<u32>())
             .take(count)
         {
-            decoded_nums.push(num.read_u32::<LittleEndian>().unwrap());
+            buf.copy_from_slice(num);
+            decoded_nums.push(u32::from_le_bytes(buf));
         }
     }
 
@@ -175,7 +176,7 @@ where
         let bytes_for_offsets = (1 + self.len() / super::offsets::OFFSETS_PER_CHUNK)
             * ::std::mem::size_of::<super::offsets::Chunk>();
 
-        buffer.write_u64::<LittleEndian>(bytes_for_offsets as u64)?;
+        buffer.write_all(&(bytes_for_offsets as u64).to_le_bytes())?;
 
         let mut offset_pos = buffer.seek(SeekFrom::Current(0))?;
         let mut offsets = super::Offsets::new();

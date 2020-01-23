@@ -1,5 +1,4 @@
 use crate::io;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use madvise::{AccessPattern, AdviseMemory};
 use std::borrow::Cow;
 use std::io::{Read, Result, Seek, SeekFrom, Write};
@@ -33,9 +32,8 @@ impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
         Self::Memory(offsets, Cow::Owned(Vec::new()))
     }
 
-    pub fn from_file(path: &str) -> Self {
-        let file =
-            std::fs::File::open(path).expect(&format!("Could not open file at \"{}\".", path));
+    pub fn from_file(path: &str) -> std::io::Result<Self> {
+        let file = std::fs::File::open(path)?;
         let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
         file.advise_memory_access(AccessPattern::Random)
             .expect("Error with madvise");
@@ -44,7 +42,7 @@ impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
         // try to fail early
         let (_offsets, _data) = slice_vec.load();
 
-        slice_vec
+        Ok(slice_vec)
     }
 
     pub fn from_bytes(buffer: &'a [u8]) -> Self {
@@ -80,9 +78,7 @@ impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
         let (offsets, data) = self.load();
 
         // write metadata
-        buffer
-            .write_u64::<LittleEndian>(offsets.num_bytes() as u64)
-            .expect("Could not write length");
+        buffer.write_all(&(offsets.num_bytes() as u64).to_le_bytes())?;
 
         let mut bytes_written = std::mem::size_of::<u64>();
 

@@ -1,7 +1,5 @@
 #![allow(unused)]
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-
 use rayon::prelude::ParallelSliceMut;
 use rayon::prelude::*;
 
@@ -16,7 +14,7 @@ use memmap;
 
 use crate::io;
 
-use offsets::{Chunk, CompressedVariableWidthSliceVector, Offsets};
+pub use offsets::{Chunk, CompressedVariableWidthSliceVector, Offsets};
 
 pub use set_vector::MultiSetVector;
 
@@ -102,9 +100,8 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
         Self::Memory(data, width)
     }
 
-    pub fn from_file(path: &str) -> Self {
-        let file =
-            std::fs::File::open(path).expect(&format!("Could not open file at \"{}\".", path));
+    pub fn from_file(path: &str) -> std::io::Result<Self> {
+        let file = std::fs::File::open(path)?;
         let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
         file.advise_memory_access(AccessPattern::Random)
             .expect("Error with madvise");
@@ -113,7 +110,7 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
         // try to fail early
         let (_data, _width) = slice_vec.load();
 
-        slice_vec
+        Ok(slice_vec)
     }
 
     pub fn from_bytes(buffer: &'a [u8]) -> Self {
@@ -266,7 +263,7 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
     {
         let initial_pos = buffer.seek(SeekFrom::Current(0))?;
 
-        buffer.write_u64::<LittleEndian>(self.len() as u64)?;
+        buffer.write_all(&(self.len() as u64).to_le_bytes())?;
 
         let zero_offset = Offset::try_from(0).unwrap();
         io::write_as_bytes(&[zero_offset], buffer)?;
@@ -486,9 +483,8 @@ where
         Self::Memory(vec![Offset::try_from(0).unwrap()].into(), Vec::new().into())
     }
 
-    pub fn from_file(path: &str) -> Self {
-        let file =
-            std::fs::File::open(path).expect(&format!("Could not open file at \"{}\".", path));
+    pub fn from_file(path: &str) -> std::io::Result<Self> {
+        let file = std::fs::File::open(path)?;
         let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
         file.advise_memory_access(AccessPattern::Random)
             .expect("Error with madvise");
@@ -497,7 +493,7 @@ where
         // try to fail early
         let (_offsets, _data) = slice_vec.load();
 
-        slice_vec
+        Ok(slice_vec)
     }
 
     pub fn from_bytes(buffer: &'a [u8]) -> Self {

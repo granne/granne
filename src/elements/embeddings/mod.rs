@@ -64,6 +64,22 @@ impl<'a> SumEmbeddings<'a> {
         }
     }
 
+    pub fn from_files(
+        embeddings_path: &str,
+        elements_path: Option<impl AsRef<str>>,
+    ) -> std::io::Result<Self> {
+        let elements = if let Some(elements_path) = elements_path {
+            Elements::from_file(elements_path.as_ref())?
+        } else {
+            Elements::new()
+        };
+
+        Ok(Self {
+            embeddings: Embeddings::from_file(embeddings_path)?,
+            elements,
+        })
+    }
+
     /// Borrows the data
     pub fn borrow(self: &'a Self) -> SumEmbeddings<'a> {
         Self {
