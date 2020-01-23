@@ -4,6 +4,7 @@ extern crate cpython;
 use cpython::{PyObject, PyResult, Python};
 use granne::{self, Builder};
 use std::cell::RefCell;
+use std::path::Path;
 
 mod variants;
 
@@ -28,22 +29,23 @@ py_class!(class Granne |py| {
                 index_path: String,
                 element_type: String,
                 elements_path: String,
-                dimension: Option<usize> = None,
                 embeddings_path: Option<String> = None,
                 words_path: Option<String> = None
     ) -> PyResult<Granne> {
 
         let index: Box<dyn PyGranne + Send + Sync> = match element_type.to_ascii_lowercase().as_str() {
-            "angular" => Box::new(variants::index::AngularGranne::new(
-                &index_path,
-                &elements_path,
-                dimension.expect("dimension missing!"),
-            )),
-            "angular_int" => Box::new(variants::index::AngularIntGranne::new(
-                &index_path,
-                &elements_path,
-                dimension.expect("dimension missing!"),
-            )),
+            "angular" => Box::new(
+                granne::Granne::from_file(
+                    &index_path,
+                    granne::angular::Vectors::from_file(&elements_path).expect("Could not load elements."),
+                ).expect("Could not load index."),
+            ),
+            "angular_int" => Box::new(
+                granne::Granne::from_file(
+                    &index_path,
+                    granne::angular_int::Vectors::from_file(&elements_path).expect("Could not load elements."),
+                ).expect("Could not load index."),
+            ),
             "embeddings" => Box::new(variants::index::WordEmbeddingsGranne::new(
                 &index_path,
                 &elements_path,
@@ -78,25 +80,33 @@ py_class!(class Granne |py| {
     /// Returns the neighbors of the element at idx in layer (default: last layer) in the HNSW graph.
     def get_neighbors(&self, idx: usize, layer: Option<usize> = None) -> PyResult<Vec<usize>> {
         if let Some(layer) = layer {
-            Ok(self.index(py).borrow().get_neighbors(idx, layer))
+            Ok(self.index(py).borrow().as_index().get_neighbors(idx, layer))
         } else {
             let index = self.index(py).borrow();
+            let index = index.as_index();
             Ok(index.get_neighbors(idx, index.num_layers() - 1))
         }
     }
 
     def __len__(&self) -> PyResult<usize> {
-        Ok(self.index(py).borrow().len())
+        Ok(self.index(py).borrow().as_index().len())
     }
 
     /// Returns the number of layers in this index..
     def num_layers(&self) -> PyResult<usize> {
-        Ok(self.index(py).borrow().num_layers())
+        Ok(self.index(py).borrow().as_index().num_layers())
     }
 
     /// Returns the number of elements in layer.
     def layer_len(&self, layer: usize) -> PyResult<usize> {
-        Ok(self.index(py).borrow().layer_len(layer))
+        Ok(self.index(py).borrow().as_index().layer_len(layer))
+    }
+
+    /// Reorder
+    def reorder(&self, show_progress: bool = true) -> PyResult<Vec<usize>> {
+        let order = self.index(py).borrow_mut().reorder(show_progress);
+
+        Ok(order)
     }
 });
 
@@ -106,7 +116,6 @@ py_class!(class GranneBuilder |py| {
     def __new__(_cls,
                 element_type: String,
                 elements_path: Option<String> = None,
-                dimension: Option<usize> = None,
                 embeddings_path: Option<String> = None,
                 words_path: Option<String> = None,
                 index_path: Option<String> = None,
@@ -137,7 +146,7 @@ py_class!(class GranneBuilder |py| {
             )),
             (Some(path), "angular") => Box::new(granne::GranneBuilder::new(
                 config,
-                granne::angular::mmap::MmapVectors::new(path, dimension.expect("dimension missing")),
+                granne::angular::Vectors::from_file(path).unwrap(),
             )),
             (None, "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
@@ -145,10 +154,7 @@ py_class!(class GranneBuilder |py| {
             )),
             (Some(path), "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
-                granne::angular_int::mmap::MmapVectors::new(
-                    path,
-                    dimension.expect("dimension missing"),
-                ),
+                granne::angular_int::Vectors::from_file(path).unwrap(),
             )),
             (Some(path), "embeddings") => {
                 Box::new(variants::builder::WordEmbeddingsBuilder::new(
@@ -178,16 +184,16 @@ py_class!(class GranneBuilder |py| {
     /// Builds an index with the first num_elements elements (or all if not specified).
     def build(&self, num_elements: usize = <usize>::max_value()) -> PyResult<PyObject> {
         if num_elements == usize::max_value() {
-            self.builder(py).borrow_mut().build();
+            self.builder(py).borrow_mut().as_mut_builder().build();
         } else {
-            self.builder(py).borrow_mut().build_partial(num_elements);
+            self.builder(py).borrow_mut().as_mut_builder().build_partial(num_elements);
         }
 
         Ok(py.None())
     }
 
     /// Saves the index to a file.
-    def save_index(&self, path: &str/*, compress: bool = false*/) -> PyResult<PyObject> {
+    def save_index(&self, path: &str) -> PyResult<PyObject> {
         self.builder(py).borrow().save_index(path).expect(&format!("Could not save index to {}", path));
 
         Ok(py.None())
@@ -212,34 +218,64 @@ py_class!(class GranneBuilder |py| {
     /// Returns the neighbors of the element at idx in layer in the HNSW graph.
     def get_neighbors(&self, idx: usize, layer: Option<usize> = None) -> PyResult<Vec<usize>> {
         if let Some(layer) = layer {
-            Ok(self.builder(py).borrow().get_neighbors(idx, layer))
+            Ok(self.builder(py).borrow().as_index().get_neighbors(idx, layer))
         } else {
             let index = self.builder(py).borrow();
+            let index = index.as_index();
             Ok(index.get_neighbors(idx, index.num_layers() - 1))
         }
     }
 
     def __len__(&self) -> PyResult<usize> {
-        Ok(self.builder(py).borrow().len())
+        Ok(self.builder(py).borrow().as_index().len())
     }
 
     /// Returns the number of elements in this builder.
     def num_elements(&self) -> PyResult<usize> {
-        Ok(self.builder(py).borrow().num_elements())
+        Ok(self.builder(py).borrow().as_builder().num_elements())
     }
 
     /// Returns the number of layers in this index..
     def num_layers(&self) -> PyResult<usize> {
-        Ok(self.builder(py).borrow().num_layers())
+        Ok(self.builder(py).borrow().as_index().num_layers())
     }
 
     /// Returns the number of elements in layer.
     def layer_len(&self, layer: usize) -> PyResult<usize> {
-        Ok(self.builder(py).borrow().layer_len(layer))
+        Ok(self.builder(py).borrow().as_index().layer_len(layer))
     }
 });
 
-trait PyGranne: granne::Index {
+trait AsIndex {
+    fn as_index(self: &Self) -> &dyn granne::Index;
+    fn as_mut_index(self: &mut Self) -> &mut dyn granne::Index;
+}
+
+impl<'a, Elements: granne::ElementContainer> AsIndex for granne::Granne<'a, Elements> {
+    fn as_index(self: &Self) -> &dyn granne::Index {
+        self
+    }
+
+    fn as_mut_index(self: &mut Self) -> &mut dyn granne::Index {
+        self
+    }
+}
+
+trait Reorder {
+    fn reorder(self: &mut Self, _show_progress: bool) -> Vec<usize> {
+        unimplemented!()
+    }
+}
+
+impl<'a, Elements: granne::ElementContainer + granne::Permutable + Sync> Reorder
+    for granne::Granne<'a, Elements>
+{
+    fn reorder(self: &mut Self, show_progress: bool) -> Vec<usize> {
+        granne::Granne::reorder(self, show_progress)
+    }
+}
+
+trait PyGranne: AsIndex + Reorder {
     fn search(
         self: &Self,
         py: Python,
@@ -253,7 +289,8 @@ trait PyGranne: granne::Index {
     }
 }
 
-trait SaveIndex: granne::Builder {
+// todo: Move to the granne::Index trait?
+trait SaveIndex {
     fn save_index(self: &Self, path: &str) -> std::io::Result<()>;
 
     fn save_elements(self: &Self, path: &str) -> std::io::Result<()>;
@@ -273,7 +310,32 @@ impl<Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex
     }
 }
 
-trait PyGranneBuilder: granne::Builder + granne::Index + SaveIndex {
+trait AsBuilder {
+    fn as_builder(self: &Self) -> &dyn granne::Builder;
+    fn as_mut_builder(self: &mut Self) -> &mut dyn granne::Builder;
+}
+
+impl<Elements: granne::ElementContainer + Sync> AsBuilder for granne::GranneBuilder<Elements> {
+    fn as_builder(self: &Self) -> &dyn granne::Builder {
+        self
+    }
+
+    fn as_mut_builder(self: &mut Self) -> &mut dyn granne::Builder {
+        self
+    }
+}
+
+impl<Elements: granne::ElementContainer + Sync> AsIndex for granne::GranneBuilder<Elements> {
+    fn as_index(self: &Self) -> &dyn granne::Index {
+        self
+    }
+
+    fn as_mut_index(self: &mut Self) -> &mut dyn granne::Index {
+        self
+    }
+}
+
+trait PyGranneBuilder: AsBuilder + AsIndex + SaveIndex {
     fn push(self: &mut Self, _py: Python, _element: &PyObject) -> PyResult<PyObject> {
         panic!("Not possible with this builder type!");
     }

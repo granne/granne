@@ -1,20 +1,8 @@
-use super::{PyGranne, PyGranneBuilder, SaveIndex};
-
-use madvise::{AccessPattern, AdviseMemory};
-use memmap;
 use std::collections::HashMap;
 use std::io::BufRead;
 
 pub mod builder;
 pub mod index;
-
-fn open_random_access_mmap(path: &str) -> memmap::Mmap {
-    let file = std::fs::File::open(path).expect(&format!("Could not open file at \"{}\".", path));
-    let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
-    file.advise_memory_access(AccessPattern::Random)
-        .expect("Error with madvise");
-    file
-}
 
 struct WordDict {
     word_to_id: HashMap<String, usize>,
