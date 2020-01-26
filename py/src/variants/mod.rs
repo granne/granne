@@ -1,10 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::io::BufRead;
+use std::io::Write;
 
 pub mod builder;
 pub mod index;
 
-struct WordDict {
+#[derive(Default)]
+pub struct WordDict {
     word_to_id: HashMap<String, usize>,
     id_to_word: Vec<String>,
 }
@@ -58,5 +60,24 @@ impl WordDict {
             .split_whitespace()
             .filter_map(|w| self.word_to_id.get(w).cloned())
             .collect()
+    }
+
+    pub fn push(self: &mut Self, word: String) -> bool {
+        match self.word_to_id.entry(word.clone()) {
+            hash_map::Entry::Vacant(e) => e.insert(self.id_to_word.len()),
+            _ => return true,
+        };
+
+        self.id_to_word.push(word);
+
+        false
+    }
+
+    pub fn write<B: Write>(self: &Self, buffer: &mut B) -> std::io::Result<()> {
+        for word in &self.id_to_word {
+            buffer.write_all(format!("{}\n", serde_json::to_string(word).unwrap()).as_bytes())?;
+        }
+
+        Ok(())
     }
 }

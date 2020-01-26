@@ -2,16 +2,16 @@
 
 use ordered_float::NotNan;
 
-use super::{angular, angular_int, Dist, ElementContainer, ExtendableElementContainer};
+use super::{angular, Dist, ElementContainer, ExtendableElementContainer};
 use crate::io;
-use crate::slice_vector::VariableWidthSliceVector;
+use crate::slice_vector::{FixedWidthSliceVector, VariableWidthSliceVector};
 use crate::{math, FiveByteInt, ThreeByteInt};
 use std::io::{Result, Write};
 
 pub mod parsing;
 pub mod reorder;
 
-type Embeddings<'a> = angular::Vectors<'a>; // replace with something else??
+type Embeddings<'a> = FixedWidthSliceVector<'a, f32>;
 
 type EmbeddingId = ThreeByteInt;
 type ElementOffset = FiveByteInt;
@@ -19,7 +19,7 @@ type ElementOffset = FiveByteInt;
 type Elements<'a> = VariableWidthSliceVector<'a, EmbeddingId, ElementOffset>;
 
 /// A data structure containing elements that can be embedded into a vector space.
-/// `SumEmbeddings` consists of `elements` and `embeddings`. The vector for each
+/// `SumEmbeddings` consists of `embeddings` and `elements`. The vector for each
 /// element is created by summing a subset of the vectors from `embeddings`.
 ///
 /// # Example - text/sentence vectors based on word vectors:
@@ -33,15 +33,22 @@ type Elements<'a> = VariableWidthSliceVector<'a, EmbeddingId, ElementOffset>;
 ///
 /// and the element of interest is `hello world`, then its representation in `elements` would be `[0, 2]`.
 ///
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SumEmbeddings<'a> {
     embeddings: Embeddings<'a>,
     elements: Elements<'a>,
 }
 
 impl<'a> SumEmbeddings<'a> {
-    /// Constructs `SumEmbeddings` with no elements.
-    pub fn new(embeddings: Embeddings<'a>) -> Self {
+    /// Constructs empty `SumEmbeddings` with no embeddings nor elements.
+    pub fn new() -> Self {
+        Self {
+            embeddings: Embeddings::new(),
+            elements: Elements::new(),
+        }
+    }
+
+    pub fn old_new(embeddings: Embeddings<'a>) -> Self {
         Self {
             embeddings,
             elements: Elements::new(),
@@ -64,10 +71,7 @@ impl<'a> SumEmbeddings<'a> {
         }
     }
 
-    pub fn from_files(
-        embeddings_path: &str,
-        elements_path: Option<impl AsRef<str>>,
-    ) -> std::io::Result<Self> {
+    pub fn from_files(embeddings_path: &str, elements_path: Option<&str>) -> std::io::Result<Self> {
         let elements = if let Some(elements_path) = elements_path {
             Elements::from_file(elements_path.as_ref())?
         } else {
@@ -92,6 +96,11 @@ impl<'a> SumEmbeddings<'a> {
     pub fn push<Element: AsRef<[usize]>>(self: &mut Self, element: Element) {
         let data: Vec<EmbeddingId> = element.as_ref().iter().map(|&id| id.into()).collect();
         self.elements.push(&data);
+    }
+
+    /// Inserts a new element into the collection at the end.
+    pub fn push_embedding(self: &mut Self, embedding: &[f32]) {
+        self.embeddings.push(embedding)
     }
 
     /// Returns the embedding ids for the element at `element_idx`.
@@ -121,19 +130,19 @@ impl<'a> SumEmbeddings<'a> {
     ) -> Vec<f32> {
         if embedding_ids.is_empty() {
             if self.embeddings.len() > 0 {
-                return vec![0.0f32; self.embeddings.get_element(0).len()];
+                return vec![0.0f32; self.embeddings.width()];
             } else {
                 return Vec::new();
             }
         }
 
         let w: usize = embedding_ids[0].into();
-        let mut data: Vec<f32> = self.embeddings.get_element(w).to_vec();
+        let mut data: Vec<f32> = self.embeddings.get(w).to_vec();
 
         for w in embedding_ids.iter().skip(1).map(|&id| id.into()) {
-            let embedding = self.embeddings.get_element(w);
+            let embedding = self.embeddings.get(w);
 
-            math::sum_into_f32(&mut data, embedding.as_slice());
+            math::sum_into_f32(&mut data, embedding);
         }
 
         data
@@ -147,6 +156,10 @@ impl<'a> SumEmbeddings<'a> {
     /// Returns the number of embeddings in this collection.
     pub fn num_embeddings(self: &Self) -> usize {
         self.embeddings.len()
+    }
+
+    pub fn write_embeddings<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
+        self.embeddings.write(buffer)
     }
 }
 
@@ -182,17 +195,9 @@ impl<'a> io::Writeable for SumEmbeddings<'a> {
 
 impl<'a> super::Permutable for SumEmbeddings<'a> {
     fn permute(self: &mut Self, permutation: &[usize]) {
-        use pbr::ProgressBar;
         use rayon::prelude::*;
 
         assert_eq!(self.len(), permutation.len());
-
-        let show_progress = true;
-        let mut progress_bar = if show_progress {
-            Some(ProgressBar::new(self.len() as u64))
-        } else {
-            None
-        };
 
         let chunk_size = std::cmp::max(10_000, self.len() / 400);
         let chunks: Vec<_> = permutation
@@ -209,14 +214,6 @@ impl<'a> super::Permutable for SumEmbeddings<'a> {
         let mut new_elements = Elements::new();
         for chunk in chunks {
             new_elements.extend_from_slice_vector(&chunk);
-
-            if let Some(ref mut progress_bar) = progress_bar {
-                progress_bar.set(new_elements.len() as u64);
-            }
-        }
-
-        if let Some(ref mut progress_bar) = progress_bar {
-            progress_bar.finish_println("");
         }
 
         self.elements = new_elements;

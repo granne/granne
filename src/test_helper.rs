@@ -31,11 +31,10 @@ pub fn random_sum_embeddings(
     num_embeddings: usize,
     num_elements: usize,
 ) -> crate::embeddings::SumEmbeddings<'static> {
-    let embeddings: crate::angular::Vectors = (0..num_embeddings)
-        .map(|_| random_vector::<crate::angular::Vector>(dim))
-        .collect();
-
-    let mut sum_embeddings = crate::embeddings::SumEmbeddings::new(embeddings);
+    let mut sum_embeddings = crate::embeddings::SumEmbeddings::new();
+    for _ in 0..num_embeddings {
+        sum_embeddings.push_embedding(&random_vector::<Vec<f32>>(dim));
+    }
 
     for i in 0..num_elements {
         let len = 2 + i % 8;

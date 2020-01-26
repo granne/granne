@@ -86,15 +86,16 @@ impl PyGranne for WordEmbeddingsGranne {
         max_search: usize,
         num_elements: usize,
     ) -> PyResult<Vec<(usize, f32)>> {
-        let element =
-            granne::angular::Vector::from(if let Ok(element) = Vec::<f32>::extract(py, element) {
-                element
-            } else {
-                let words = String::extract(py, element)?;
-                let ids = self.words.get_word_ids(&words);
+        let data: Vec<f32> = if let Ok(data) = Vec::<f32>::extract(py, element) {
+            data
+        } else {
+            let words = String::extract(py, element)?;
+            let ids = self.words.get_word_ids(&words);
 
-                self.index.get_elements().create_embedding(&ids)
-            });
+            self.index.get_elements().create_embedding(&ids)
+        };
+
+        let element = granne::angular::Vector::from(data);
 
         Ok(self.index.search(&element, max_search, num_elements))
     }

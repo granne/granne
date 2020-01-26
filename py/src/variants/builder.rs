@@ -32,7 +32,7 @@ impl WordEmbeddingsBuilder {
 
         let builder = granne::GranneBuilder::new(
             config,
-            granne::embeddings::SumEmbeddings::from_files(elements, Some(embeddings))
+            granne::embeddings::SumEmbeddings::from_files(embeddings, Some(elements))
                 .expect("Could not load elements."),
         );
 

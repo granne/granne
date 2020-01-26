@@ -6,7 +6,10 @@ use granne::{self, Builder};
 use std::cell::RefCell;
 use std::path::Path;
 
+mod embeddings;
 mod variants;
+
+use variants::WordDict;
 
 const DEFAULT_MAX_SEARCH: usize = 200;
 const DEFAULT_NUM_ELEMENTS: usize = 10;
@@ -102,7 +105,9 @@ py_class!(class Granne |py| {
         Ok(self.index(py).borrow().as_index().layer_len(layer))
     }
 
-    /// Reorder
+    /// Tries to reorder the nodes and elements of this index inder order to achieve better cache locality.
+    /// Returns a mapping from new to old, i.e., order[i] == j, means that the node/element at index j was
+    /// moved to index i.
     def reorder(&self, show_progress: bool = true) -> PyResult<Vec<usize>> {
         let order = self.index(py).borrow_mut().reorder(show_progress);
 

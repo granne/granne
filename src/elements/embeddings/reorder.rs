@@ -3,48 +3,6 @@ use ordered_float::NotNan;
 use pbr::ProgressBar;
 use rayon::prelude::*;
 
-pub fn reorder_sum_embeddings<'a>(
-    sum_embeddings: &SumEmbeddings<'a>,
-    mapping: &[usize],
-    show_progress: bool,
-) -> SumEmbeddings<'static> {
-    // this deep copy of the embeddings is necessary as long as the lifetimes of the members of
-    // SumEmbeddings are the same
-    let mut reordered = SumEmbeddings::new(sum_embeddings.embeddings.clone().into_owned());
-
-    let mut progress_bar = if show_progress {
-        Some(ProgressBar::new(sum_embeddings.len() as u64))
-    } else {
-        None
-    };
-
-    let chunk_size = std::cmp::max(10_000, sum_embeddings.len() / 400);
-    let chunks: Vec<_> = mapping
-        .par_chunks(chunk_size)
-        .map(|c| {
-            let mut elements = super::Elements::new();
-            for &id in c {
-                elements.push(sum_embeddings.elements.get(id));
-            }
-            elements
-        })
-        .collect();
-
-    for chunk in chunks {
-        reordered.elements.extend_from_slice_vector(&chunk);
-
-        if let Some(ref mut progress_bar) = progress_bar {
-            progress_bar.set(reordered.len() as u64);
-        }
-    }
-
-    if let Some(ref mut progress_bar) = progress_bar {
-        progress_bar.finish_println("");
-    }
-
-    reordered
-}
-
 /// Finds a reordering of queries by sorting elements based on their embedding id with largest norm
 /// while respecting the Hnsw layer structure
 pub fn find_reordering_based_on_embeddings<'a>(
@@ -102,6 +60,7 @@ fn find_reordering_in_last_layer<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::elements::Permutable;
     use crate::test_helper;
 
     #[test]
@@ -125,7 +84,8 @@ mod tests {
         let queries = test_helper::random_sum_embeddings(25, 225, 200);
         let mapping: Vec<usize> = (0..queries.len()).rev().collect();
 
-        let rev_queries = reorder_sum_embeddings(&queries, &mapping, false);
+        let mut rev_queries = queries.clone();
+        rev_queries.permute(&mapping);
 
         assert_eq!(queries.len(), rev_queries.len());
 

@@ -56,6 +56,12 @@ impl<'a, T: Clone> Clone for FixedWidthSliceVector<'a, T> {
     }
 }
 
+impl<'a, T: Clone> Default for FixedWidthSliceVector<'a, T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, T: Clone> Into<Vec<T>> for FixedWidthSliceVector<'a, T> {
     fn into(self: Self) -> Vec<T> {
         match self {
@@ -473,7 +479,19 @@ impl<'a, T: 'a + Clone + Send + Sync> FixedWidthSliceVector<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Clone, Offset: TryFrom<usize> + Copy> VariableWidthSliceVector<'a, T, Offset>
+impl<'a, T: Clone, Offset: TryFrom<usize> + Copy> Default
+    for VariableWidthSliceVector<'a, T, Offset>
+where
+    usize: TryFrom<Offset>,
+    <Offset as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
+    <usize as std::convert::TryFrom<Offset>>::Error: std::fmt::Debug,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a, T: Clone, Offset: TryFrom<usize> + Copy> VariableWidthSliceVector<'a, T, Offset>
 where
     usize: TryFrom<Offset>,
     <Offset as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
