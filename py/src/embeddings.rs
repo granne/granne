@@ -14,7 +14,10 @@ py_class!(pub class Embeddings |py| {
                 words_path: Option<String> = None
     ) -> PyResult<Embeddings> {
 
-        let (embeddings, words) = match (embeddings_path, words_path) {
+        let embeddings = embeddings_path
+            .map(|path| std::fs::File::open(path).expect("Could not open embeddings file"));
+
+        let (embeddings, words) = match (embeddings, words_path) {
             (Some(_), None) => {panic!("embeddings_path specifiec, but not words_path");},
             (None, Some(_)) => {panic!("words_path specified, but not embeddings_path!");},
             (Some(embeddings), Some(words)) => {

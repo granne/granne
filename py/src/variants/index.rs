@@ -50,7 +50,12 @@ pub struct WordEmbeddingsGranne {
 }
 
 impl WordEmbeddingsGranne {
-    pub fn new(index: &str, elements: &str, embeddings: &str, words: &str) -> Self {
+    pub fn new(
+        index: &std::fs::File,
+        elements: &std::fs::File,
+        embeddings: &std::fs::File,
+        words: &str,
+    ) -> Self {
         let words = WordDict::new(words);
 
         let elements = granne::embeddings::SumEmbeddings::from_files(embeddings, Some(elements))

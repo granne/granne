@@ -27,7 +27,12 @@ pub struct WordEmbeddingsBuilder {
 }
 
 impl WordEmbeddingsBuilder {
-    pub fn new(config: granne::BuildConfig, elements: &str, embeddings: &str, words: &str) -> Self {
+    pub fn new(
+        config: granne::BuildConfig,
+        elements: &std::fs::File,
+        embeddings: &std::fs::File,
+        words: &str,
+    ) -> Self {
         let words = WordDict::new(words);
 
         let builder = granne::GranneBuilder::new(

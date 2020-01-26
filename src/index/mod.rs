@@ -80,11 +80,9 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     }
 
     /// Loads the index from a file. The index will be memory mapped.
-    pub fn from_file(index_path: &str, elements: Elements) -> std::io::Result<Self> {
-        let file = std::fs::File::open(index_path)?;
-        let file = unsafe { memmap::Mmap::map(&file).expect("Mmap failed!") };
-        file.advise_memory_access(AccessPattern::Random)
-            .expect("Error with madvise");
+    pub fn from_file(file: &std::fs::File, elements: Elements) -> std::io::Result<Self> {
+        let file = unsafe { memmap::Mmap::map(file)? };
+        file.advise_memory_access(AccessPattern::Random)?;
 
         let index = Self {
             layers: FileOrMemoryLayers::File(file),

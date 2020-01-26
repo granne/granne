@@ -46,8 +46,8 @@ macro_rules! dense_vector {
             }
 
             /// Lazy-load a collection of vectors from a file.
-            pub fn from_file(path: &str) -> std::io::Result<Self> {
-                Ok(Self(FixedWidthSliceVector::from_file(path)?))
+            pub fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
+                Ok(Self(FixedWidthSliceVector::from_file(file)?))
             }
 
             /// Create a collection of vectors with dimension `dim` from a `Vec`.

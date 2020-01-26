@@ -18,9 +18,9 @@ impl<'a> MultiSetVector<'a> {
         }
     }
 
-    pub fn from_file(path: &str) -> std::io::Result<Self> {
+    pub fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
         Ok(Self {
-            data: CompressedVariableWidthSliceVector::from_file(path)?,
+            data: CompressedVariableWidthSliceVector::from_file(file)?,
         })
     }
 

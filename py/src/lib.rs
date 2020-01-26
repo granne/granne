@@ -29,30 +29,35 @@ py_class!(class Granne |py| {
     data index: RefCell<Box<dyn PyGranne + Send + Sync>>;
 
     def __new__(_cls,
-                index_path: String,
+                index_path: &str,
                 element_type: String,
-                elements_path: String,
+                elements_path: &str,
                 embeddings_path: Option<String> = None,
                 words_path: Option<String> = None
     ) -> PyResult<Granne> {
 
+        let index = std::fs::File::open(index_path).expect("Could not open index file");
+        let elements = std::fs::File::open(elements_path).expect("Could not open elements file");
+
         let index: Box<dyn PyGranne + Send + Sync> = match element_type.to_ascii_lowercase().as_str() {
             "angular" => Box::new(
                 granne::Granne::from_file(
-                    &index_path,
-                    granne::angular::Vectors::from_file(&elements_path).expect("Could not load elements."),
+                    &index,
+                    granne::angular::Vectors::from_file(&elements).expect("Could not load elements."),
                 ).expect("Could not load index."),
             ),
             "angular_int" => Box::new(
                 granne::Granne::from_file(
-                    &index_path,
-                    granne::angular_int::Vectors::from_file(&elements_path).expect("Could not load elements."),
+                    &index,
+                    granne::angular_int::Vectors::from_file(&elements).expect("Could not load elements."),
                 ).expect("Could not load index."),
             ),
             "embeddings" => Box::new(variants::index::WordEmbeddingsGranne::new(
-                &index_path,
-                &elements_path,
-                &embeddings_path.expect("embeddings_path required for this element type!"),
+                &index,
+                &elements,
+                &std::fs::File::open(
+                    embeddings_path.expect("embeddings_path required for this element type!")
+                ).expect("Could not open embeddings file."),
                 &words_path.expect("words_path required for this element type!"),
             )),
             _ => panic!("Invalid element type"),
@@ -141,31 +146,38 @@ py_class!(class GranneBuilder |py| {
         config = num_neighbors.map_or(config.clone(), |x| config.num_neighbors(x));
         config = max_search.map_or(config.clone(), |x| config.max_search(x));
 
+        let index = index_path
+            .map(|path| std::fs::File::open(path).expect("Could not open index file"));
+        let elements = elements_path
+            .map(|path| std::fs::File::open(path).expect("Could not open elements file"));
+
         let builder: Box<dyn PyGranneBuilder + Send + Sync> = match (
-            elements_path.as_ref(),
+            elements.as_ref(),
             element_type.to_ascii_lowercase().as_str(),
         ) {
             (None, "angular") => Box::new(granne::GranneBuilder::new(
                 config,
                 granne::angular::Vectors::new(),
             )),
-            (Some(path), "angular") => Box::new(granne::GranneBuilder::new(
+            (Some(elements), "angular") => Box::new(granne::GranneBuilder::new(
                 config,
-                granne::angular::Vectors::from_file(path).unwrap(),
+                granne::angular::Vectors::from_file(elements).unwrap(),
             )),
             (None, "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
                 granne::angular_int::Vectors::new(),
             )),
-            (Some(path), "angular_int") => Box::new(granne::GranneBuilder::new(
+            (Some(elements), "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
-                granne::angular_int::Vectors::from_file(path).unwrap(),
+                granne::angular_int::Vectors::from_file(elements).unwrap(),
             )),
-            (Some(path), "embeddings") => {
+            (Some(elements), "embeddings") => {
                 Box::new(variants::builder::WordEmbeddingsBuilder::new(
                     config,
-                    path,
-                    &embeddings_path.expect("embeddings_path required for this element type!"),
+                    elements,
+                    &std::fs::File::open(
+                        embeddings_path.expect("embeddings_path required for this element type!")
+                    ).expect("Could not open embeddings file"),
                     &words_path.expect("words_path required for this element type!"),
                 ))
             }

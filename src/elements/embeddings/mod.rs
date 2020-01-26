@@ -71,15 +71,18 @@ impl<'a> SumEmbeddings<'a> {
         }
     }
 
-    pub fn from_files(embeddings_path: &str, elements_path: Option<&str>) -> std::io::Result<Self> {
-        let elements = if let Some(elements_path) = elements_path {
-            Elements::from_file(elements_path.as_ref())?
+    pub fn from_files(
+        embeddings: &std::fs::File,
+        elements: Option<&std::fs::File>,
+    ) -> std::io::Result<Self> {
+        let elements = if let Some(elements) = elements {
+            Elements::from_file(elements)?
         } else {
             Elements::new()
         };
 
         Ok(Self {
-            embeddings: Embeddings::from_file(embeddings_path)?,
+            embeddings: Embeddings::from_file(embeddings)?,
             elements,
         })
     }
