@@ -8,7 +8,7 @@ use revord::RevOrd;
 use std::cmp;
 use std::collections::{BinaryHeap, HashSet};
 use std::convert::TryFrom;
-use time;
+use std::time;
 
 #[cfg(test)]
 mod tests;
@@ -166,7 +166,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
         let mut order: Vec<usize> = (0..self.len()).collect();
         let mut order_inv = vec![0; self.layer_len(self.num_layers() - 2)];
 
-        let start_time = time::PreciseTime::now();
+        let start_time = time::Instant::now();
         let progress_bar = if show_progress {
             println!("Computing ordering...");
 
@@ -232,7 +232,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
         if show_progress {
             println!(
                 "Total time: {} s",
-                start_time.to(time::PreciseTime::now()).num_seconds()
+                start_time.elapsed().as_secs()
             );
         }
 
@@ -784,7 +784,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
                 (
                     Some(parking_lot::Mutex::new(progress_bar)),
-                    Some(time::PreciseTime::now()),
+                    Some(time::Instant::now()),
                 )
             } else {
                 (None, None)
@@ -839,8 +839,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         });
 
         if let Some(start_time) = start_time {
-            let end_time = time::PreciseTime::now();
-            println!("Time: {} s", start_time.to(end_time).num_seconds());
+            println!("Time: {} s", start_time.elapsed().as_secs());
         }
     }
 
