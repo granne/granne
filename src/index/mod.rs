@@ -21,7 +21,7 @@ pub use rw::RwGranneBuilder;
 
 use crate::{
     max_size_heap,
-    slice_vector::{FixedWidthSliceVector, MultiSetVector, VariableWidthSliceVector},
+    slice_vector::{FixedWidthSliceVector, MultiSetVector},
     {ElementContainer, ExtendableElementContainer, Permutable},
 };
 
@@ -143,7 +143,7 @@ fn find_entrypoint_trail<Elements: ElementContainer>(
     ) -> Vec<usize> {
         let mut eps = Vec::new();
         eps.reserve(layers.len());
-        for (i, layer) in layers.iter().enumerate().take(max_layer) {
+        for layer in layers.iter().take(max_layer) {
             let ep = *eps.last().unwrap_or(&0);
             let max_search = if layer.len() < 10_000 { 5 } else { 10 };
             let res = search_for_neighbors(layer, ep, elements, element, max_search);

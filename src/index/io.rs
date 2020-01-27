@@ -1,7 +1,7 @@
 use super::*;
 
 use serde_json;
-use std::io::{BufReader, BufWriter, Read, Result, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Read, Result, Seek, SeekFrom, Write};
 use std::io::{Error, ErrorKind};
 
 const METADATA_LEN: usize = 1024;

@@ -1,6 +1,5 @@
 use super::*;
 use ordered_float::NotNan;
-use pbr::ProgressBar;
 use rayon::prelude::*;
 
 /// Finds a reordering of queries by sorting elements based on their embedding id with largest norm

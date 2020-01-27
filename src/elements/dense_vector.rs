@@ -1,21 +1,26 @@
 macro_rules! dense_vector {
     ($scalar_type:ty) => {
+        /// A vector element.
         #[derive(Clone)]
         pub struct Vector<'a>(pub Cow<'a, [$scalar_type]>);
 
         impl<'a> Vector<'a> {
+            /// Returns the number of elements in this `Vector`.
             pub fn len(self: &Self) -> usize {
                 self.0.len()
             }
 
+            /// Clones the underlying data if not already owned.
             pub fn into_owned(self: Self) -> Vector<'static> {
                 Vector(self.0.into_owned().into())
             }
 
+            /// Converts this `Vector` into a `Vec`.
             pub fn to_vec(self: Self) -> Vec<$scalar_type> {
                 self.0.into_owned()
             }
 
+            /// Returns a reference to the underlying slice.
             pub fn as_slice(self: &Self) -> &[$scalar_type] {
                 &self.0[..]
             }
@@ -28,19 +33,19 @@ macro_rules! dense_vector {
             }
         }
 
+        /// A collection of `Vector`s.
         #[derive(Clone)]
-        /// A collection of `Vector`s
         pub struct Vectors<'a>(FixedWidthSliceVector<'a, $scalar_type>);
 
         impl<'a> Vectors<'a> {
-            /// Create a new collection vector. The dimension will be set once the first vector is pushed
+            /// Creates a new collection vector. The dimension will be set once the first vector is pushed
             /// into the collection.
             pub fn new() -> Self {
                 Self(FixedWidthSliceVector::new())
             }
 
-            /// Load a collection of vectors with dimension `dim` from a `u8` buffer.
-            /// `buffer` needs to contain ...
+            /// Loads a collection of vectors from a `u8` buffer.
+            /// `buffer` needs to contain data in a compatible format (e.g. written with `Vectors::write`).
             pub fn from_bytes(buffer: &'a [u8]) -> Self {
                 Self(FixedWidthSliceVector::from_bytes(buffer))
             }
@@ -53,13 +58,14 @@ macro_rules! dense_vector {
                 Ok(Self(FixedWidthSliceVector::from_file(file)?))
             }
 
-            /// Create a collection of vectors with dimension `dim` from a `Vec`.
+            /// Creates a collection of vectors with dimension `dim` from a `Vec`.
             ///
+            /// `dim` needs to be non-zero and divide the length of `vec`.
             pub fn from_vec(vec: Vec<$scalar_type>, dim: usize) -> Self {
                 Self(FixedWidthSliceVector::with_data(vec, dim))
             }
 
-            /// Borrows the data
+            /// Borrows the data.
             pub fn borrow(self: &'a Self) -> Vectors<'a> {
                 Self(self.0.borrow())
             }
@@ -69,6 +75,7 @@ macro_rules! dense_vector {
                 Self(self.0.into_owned())
             }
 
+            /// Extends `Vectors` with the elements from `vec`.
             pub fn extend(self: &mut Self, vec: Vectors<'_>) {
                 self.0.extend_from_slice_vector(&vec.0)
             }
@@ -101,6 +108,7 @@ macro_rules! dense_vector {
         }
 
         impl<'a> io::Writeable for Vectors<'a> {
+            /// Writes `Vectors` to a `buffer`.
             fn write<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
                 self.0.write(buffer)
             }

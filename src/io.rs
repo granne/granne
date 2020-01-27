@@ -10,16 +10,6 @@ pub unsafe fn load_bytes_as<T>(bytes: &[u8]) -> &[T] {
     elements
 }
 
-/// Loads a slice of a type T as a slice of bytes
-pub fn load_as_bytes<T>(slice: &[T]) -> &[u8] {
-    unsafe {
-        ::std::slice::from_raw_parts(
-            slice.as_ptr() as *const u8,
-            slice.len() * ::std::mem::size_of::<T>(),
-        )
-    }
-}
-
 pub fn write_as_bytes<T, B: Write>(elements: &[T], buffer: &mut B) -> Result<usize> {
     let size = elements.len() * ::std::mem::size_of::<T>();
     let data = unsafe { ::std::slice::from_raw_parts(elements.as_ptr() as *const u8, size) };
