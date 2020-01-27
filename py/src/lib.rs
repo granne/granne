@@ -41,16 +41,16 @@ py_class!(class Granne |py| {
 
         let index: Box<dyn PyGranne + Send + Sync> = match element_type.to_ascii_lowercase().as_str() {
             "angular" => Box::new(
-                granne::Granne::from_file(
+                unsafe { granne::Granne::from_file(
                     &index,
                     granne::angular::Vectors::from_file(&elements).expect("Could not load elements."),
-                ).expect("Could not load index."),
+                ).expect("Could not load index.") },
             ),
             "angular_int" => Box::new(
-                granne::Granne::from_file(
+                unsafe { granne::Granne::from_file(
                     &index,
                     granne::angular_int::Vectors::from_file(&elements).expect("Could not load elements."),
-                ).expect("Could not load index."),
+                ).expect("Could not load index.") },
             ),
             "embeddings" => Box::new(variants::index::WordEmbeddingsGranne::new(
                 &index,
@@ -161,7 +161,7 @@ py_class!(class GranneBuilder |py| {
             )),
             (Some(elements), "angular") => Box::new(granne::GranneBuilder::new(
                 config,
-                granne::angular::Vectors::from_file(elements).unwrap(),
+                unsafe { granne::angular::Vectors::from_file(elements).unwrap() },
             )),
             (None, "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
@@ -169,7 +169,7 @@ py_class!(class GranneBuilder |py| {
             )),
             (Some(elements), "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
-                granne::angular_int::Vectors::from_file(elements).unwrap(),
+                unsafe { granne::angular_int::Vectors::from_file(elements).unwrap() },
             )),
             (Some(elements), "embeddings") => {
                 Box::new(variants::builder::WordEmbeddingsBuilder::new(

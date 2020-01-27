@@ -71,7 +71,11 @@ impl<'a> SumEmbeddings<'a> {
         }
     }
 
-    pub fn from_files(
+    /// Loads a memory-mapped `SumEmbeddings` from `embeddings` (and optionally `elements`).
+    ///
+    /// This is unsafe because the underlying file can be modified, which would result in undefined behavior.
+    /// The caller needs to guarantee that the file is not modified while being memory-mapped.
+    pub unsafe fn from_files(
         embeddings: &std::fs::File,
         elements: Option<&std::fs::File>,
     ) -> std::io::Result<Self> {

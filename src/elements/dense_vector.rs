@@ -45,8 +45,11 @@ macro_rules! dense_vector {
                 Self(FixedWidthSliceVector::from_bytes(buffer))
             }
 
-            /// Lazy-load a collection of vectors from a file.
-            pub fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
+            /// Loads a memory-mapped a collection of vectors from a file.
+            ///
+            /// This is unsafe because the underlying file can be modified, which would result in undefined behavior.
+            /// The caller needs to guarantee that the file is not modified while being memory-mapped.
+            pub unsafe fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
                 Ok(Self(FixedWidthSliceVector::from_file(file)?))
             }
 

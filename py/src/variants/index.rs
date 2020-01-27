@@ -58,10 +58,13 @@ impl WordEmbeddingsGranne {
     ) -> Self {
         let words = WordDict::new(words);
 
-        let elements = granne::embeddings::SumEmbeddings::from_files(embeddings, Some(elements))
-            .expect("Could not open embeddings/elements");
+        let elements = unsafe {
+            granne::embeddings::SumEmbeddings::from_files(embeddings, Some(elements))
+                .expect("Could not open embeddings/elements")
+        };
 
-        let index = granne::Granne::from_file(index, elements).expect("Could not load index.");
+        let index =
+            unsafe { granne::Granne::from_file(index, elements).expect("Could not load index.") };
 
         Self { index, words }
     }

@@ -367,11 +367,8 @@ fn write_and_load() {
     builder.write_index(&mut file).unwrap();
 
     file.seek(SeekFrom::Start(0)).unwrap();
-    let mut data = Vec::new();
-    file.read_to_end(&mut data).unwrap();
-    assert!(data.len() > 2000);
 
-    let index = Granne::load(&data[..], &elements);
+    let index = unsafe { Granne::from_file(&file, &elements).unwrap() };
 
     assert_eq!(builder.layers.len(), index.num_layers());
     assert_eq!(builder.len(), index.len());

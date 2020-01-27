@@ -35,11 +35,10 @@ impl WordEmbeddingsBuilder {
     ) -> Self {
         let words = WordDict::new(words);
 
-        let builder = granne::GranneBuilder::new(
-            config,
+        let builder = granne::GranneBuilder::new(config, unsafe {
             granne::embeddings::SumEmbeddings::from_files(embeddings, Some(elements))
-                .expect("Could not load elements."),
-        );
+                .expect("Could not load elements.")
+        });
 
         Self { builder, words }
     }

@@ -22,8 +22,10 @@ py_class!(pub class Embeddings |py| {
             (None, Some(_)) => {panic!("words_path specified, but not embeddings_path!");},
             (Some(embeddings), Some(words)) => {
                 let words = WordDict::new(&words);
-                let embeddings = granne::embeddings::SumEmbeddings::from_files(&embeddings, None)
-                    .expect("Could not load embeddings.");
+                let embeddings = unsafe {
+                    granne::embeddings::SumEmbeddings::from_files(&embeddings, None)
+                        .expect("Could not load embeddings.")
+                };
 
                 (embeddings, words)
             },

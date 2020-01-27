@@ -80,8 +80,11 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     }
 
     /// Loads the index from a file. The index will be memory mapped.
-    pub fn from_file(file: &std::fs::File, elements: Elements) -> std::io::Result<Self> {
-        let file = unsafe { memmap::Mmap::map(file)? };
+    ///
+    /// This is unsafe because the underlying file can be modified, which would result in undefined behavior.
+    /// The caller needs to guarantee that the file is not modified while being memory-mapped.
+    pub unsafe fn from_file(file: &std::fs::File, elements: Elements) -> std::io::Result<Self> {
+        let file = memmap::Mmap::map(file)?;
         file.advise_memory_access(AccessPattern::Random)?;
 
         let index = Self {

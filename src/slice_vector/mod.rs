@@ -106,8 +106,8 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
         Self::Memory(data, width)
     }
 
-    pub fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
-        let file = unsafe { memmap::Mmap::map(&file)? };
+    pub unsafe fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
+        let file = memmap::Mmap::map(&file)?;
         file.advise_memory_access(AccessPattern::Random)?;
         let slice_vec = Self::File(file);
 
@@ -499,8 +499,8 @@ where
         Self::Memory(vec![Offset::try_from(0).unwrap()].into(), Vec::new().into())
     }
 
-    pub fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
-        let file = unsafe { memmap::Mmap::map(&file)? };
+    pub unsafe fn from_file(file: &std::fs::File) -> std::io::Result<Self> {
+        let file = memmap::Mmap::map(&file)?;
         file.advise_memory_access(AccessPattern::Random)?;
 
         let slice_vec = Self::File(file);
