@@ -1,4 +1,10 @@
-//! This module contains element types for angular vectors using `f32` as scalars.
+/*!
+This module contains element types for angular vectors using `f32` as scalars.
+
+Vectors are normalized.
+
+Todo: Explain how to read e.g. glove vectors?
+*/
 
 use super::{Dist, ElementContainer, ExtendableElementContainer};
 use crate::{io, math, slice_vector::FixedWidthSliceVector};
@@ -14,13 +20,6 @@ dense_vector!(f32);
 
 impl From<Vec<f32>> for Vector<'static> {
     fn from(mut v: Vec<f32>) -> Self {
-        /*        // todo speedup
-                let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-                if norm >= 0.0 {
-                    v.iter_mut().for_each(|x| *x /= norm);
-                }
-
-        */
         math::normalize_f32(&mut v);
 
         Self(Cow::from(v))

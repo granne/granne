@@ -49,7 +49,7 @@ pub trait ElementContainer {
 
 /// A trait for ElementContainers that can be extended with more elements
 pub trait ExtendableElementContainer: ElementContainer {
-    /// Internal representation of an element (can be the same as ElementContainer::Element)
+    /// Internal representation of an element (can be the same as [`ElementContainer::Element`](trait.ElementContainer.html#associatedtype.Element))
     type InternalElement;
 
     /// Moves an element into the container

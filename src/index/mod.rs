@@ -29,16 +29,24 @@ type NeighborId = u32;
 const UNUSED: NeighborId = NeighborId::max_value();
 
 /// An index for fast approximate nearest neighbor search.
-/// The index is built by using `GranneBuilder` and can be stored to disk.
+/// The index is built by using [`GranneBuilder`](struct.GranneBuilder.html) and can be stored to disk.
 pub struct Granne<'a, Elements: ElementContainer> {
     layers: FileOrMemoryLayers<'a>, //Layers<'a>,
     elements: Elements,
 }
 
+/// This trait is implemented for any `Granne` and contains methods that are common for all element types.
 pub trait Index {
+    /// Returns the number of elements in this index.
     fn len(self: &Self) -> usize;
+
+    /// Returns the number of layers in this index.
     fn num_layers(self: &Self) -> usize;
+
+    /// Returns the number of nodes in `layer`.
     fn layer_len(self: &Self, layer: usize) -> usize;
+
+    /// Returns the neighbors of the node at `index` in `layer`.
     fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize>;
 }
 
@@ -230,17 +238,14 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
         self.elements.permute(&order);
 
         if show_progress {
-            println!(
-                "Total time: {} s",
-                start_time.elapsed().as_secs()
-            );
+            println!("Total time: {} s", start_time.elapsed().as_secs());
         }
 
         order
     }
 }
 
-/// `BuildConfig` is used to configure a `GranneBuilder`.
+/// `BuildConfig` is used to configure a [`GranneBuilder`](struct.GranneBuilder.html).
 ///
 /// # Examples
 /// ```
@@ -262,7 +267,7 @@ pub struct BuildConfig {
     /// The maximum number of neighbors per node and layer.
     num_neighbors: usize,
 
-    /// The `max_search` parameter used during build time (see `granne::search`).
+    /// The `max_search` parameter used during build time (see [`Granne::search`](struct.Granne.html#method.search)).
     max_search: usize,
 
     /// Whether to reinsert all the elements in each layers. Takes more time, but improves recall.
@@ -286,7 +291,7 @@ impl Default for BuildConfig {
 }
 
 impl BuildConfig {
-    /// Creates a BuildConfig for GranneBuilder with default settings.
+    /// Creates a `BuildConfig` for `GranneBuilder` with default settings.
     pub fn new() -> Self {
         Self::default()
     }
@@ -299,7 +304,7 @@ impl BuildConfig {
         self
     }
 
-    /// Configures the `max_search` parameter used during build time (see `Granne::search`).
+    /// Configures the `max_search` parameter used during build time (see [`Granne::search`](struct.Granne.html#method.search)).
     /// Larger values increase recall but makes building slower.
     ///
     /// Default: 200
@@ -308,7 +313,7 @@ impl BuildConfig {
         self
     }
 
-    /// Configures the expected number of elements in the final graph. This is only required if
+    /// Configures the expected number of elements in the final graph. This is only required
     /// when building (`builder.build()`) before all elements have been inserted into the builder.
     pub fn expected_num_elements(mut self: Self, expected_num_elements: usize) -> Self {
         self.expected_num_elements = Some(expected_num_elements);
@@ -343,18 +348,28 @@ impl BuildConfig {
     }
 }
 
-/// A builder for creating an index to be searched using `Granne`
+/// A builder for creating an index to be searched using [`Granne`](struct.Granne.html). Configured by [`BuildConfig`](struct.BuildConfig.html).
 pub struct GranneBuilder<Elements: ElementContainer> {
     elements: Elements,
     layers: Vec<FixedWidthSliceVector<'static, NeighborId>>,
     config: BuildConfig,
 }
 
+/// This trait is implemented for any `GranneBuilder` and contains methods that are common for all element types.
 pub trait Builder: Index {
-    // methods
+    /// Builds an index for approximate nearest neighbor search.
     fn build(self: &mut Self);
+
+    /// Builds the search index for the first num_elements elements
+    /// Can be used for long-running jobs where intermediate steps needs to be stored
+    ///
+    /// Note: already indexed elements are not reindexed
     fn build_partial(self: &mut Self, num_elements: usize);
+
+    /// Returns the number of elements.
     fn num_elements(self: &Self) -> usize;
+
+    /// Write the index to `buffer`.
     fn write_index<B: std::io::Write + std::io::Seek>(
         self: &Self,
         buffer: &mut B,
@@ -364,7 +379,6 @@ pub trait Builder: Index {
 }
 
 impl<Elements: ElementContainer + Sync> Index for GranneBuilder<Elements> {
-    // TODO: FIGURE OUT WHAT LEN MEANS FOR A BUILDER
     /// Returns the number of indexed elements.
     /// Note that it might be less than the number of elements in `elements`.
     /// # Examples
@@ -462,7 +476,7 @@ impl<Elements: ElementContainer + Sync> Builder for GranneBuilder<Elements> {
 }
 
 impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
-    /// Creates a new GranneBuilder with `elements`. The builder can be configured using `BuildConfig`.
+    /// Creates a new GranneBuilder with a `BuildConfig` and `elements`.
     /// # Examples
     ///
     /// ```
@@ -471,6 +485,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     /// let mut builder = GranneBuilder::new(config, angular::Vectors::new());
     /// ```
     pub fn new(config: BuildConfig, elements: Elements) -> Self {
+        assert!(elements.len() < UNUSED as usize);
         Self {
             elements,
             layers: Vec::new(),
@@ -551,6 +566,7 @@ impl<Elements: ExtendableElementContainer> GranneBuilder<Elements> {
     /// assert_eq!(2, builder.len());
     /// ```
     pub fn push(self: &mut Self, element: Elements::InternalElement) {
+        assert!(self.elements.len() < UNUSED as usize - 1);
         self.elements.push(element);
     }
 }
