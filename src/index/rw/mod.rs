@@ -152,7 +152,8 @@ where
 
             assert!(current_layer.len() >= elements.len());
 
-            // insert elements that fit in the current layer (the remaining will be inserted in a recursive call)
+            // insert elements that fit in the current layer (the remaining will be inserted in a
+            // recursive call)
             let num_to_insert = std::cmp::min(
                 elements_to_insert.len(),
                 current_layer.len() - elements.len(),
@@ -198,7 +199,8 @@ where
                 })
             }
 
-            // locks go out of scope and are released before potentially inserting the remaining elements
+            // locks go out of scope and are released before potentially inserting the remaining
+            // elements
             (ids, remaining)
         };
 

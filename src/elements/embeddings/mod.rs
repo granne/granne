@@ -31,8 +31,8 @@ type Elements<'a> = VariableWidthSliceVector<'a, EmbeddingId, ElementOffset>;
 ///
 /// `embeddings = [v_{hello}, v_{rust}, v_{world}, ...]`,
 ///
-/// and the element of interest is `hello world`, then its representation in `elements` would be `[0, 2]`.
-///
+/// and the element of interest is `hello world`, then its representation in `elements` would be
+/// `[0, 2]`.
 #[derive(Clone, Default)]
 pub struct SumEmbeddings<'a> {
     embeddings: Embeddings<'a>,
@@ -73,8 +73,9 @@ impl<'a> SumEmbeddings<'a> {
 
     /// Loads a memory-mapped `SumEmbeddings` from `embeddings` (and optionally `elements`).
     ///
-    /// This is unsafe because the underlying file can be modified, which would result in undefined behavior.
-    /// The caller needs to guarantee that the file is not modified while being memory-mapped.
+    /// This is unsafe because the underlying file can be modified, which would result in undefined
+    /// behavior. The caller needs to guarantee that the file is not modified while being
+    /// memory-mapped.
     pub unsafe fn from_files(
         embeddings: &std::fs::File,
         elements: Option<&std::fs::File>,

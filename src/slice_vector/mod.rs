@@ -85,7 +85,8 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
         Self::Memory(Vec::new().into(), width)
     }
 
-    /// Creates an empty FixedWidthSliceVector with space for at least `capacity` slices with `width`.
+    /// Creates an empty FixedWidthSliceVector with space for at least `capacity` slices with
+    /// `width`.
     ///
     /// `width` must be greater than 0.
     pub fn with_capacity(width: usize, capacity: usize) -> Self {
@@ -140,7 +141,8 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
         data.chunks_mut(*width)
     }
 
-    /// Creates a new FixedWidthSliceVector containing all slices in `self` between `begin` and `end`.
+    /// Creates a new FixedWidthSliceVector containing all slices in `self` between `begin` and
+    /// `end`.
     pub fn subslice(self: &'_ Self, begin: usize, end: usize) -> FixedWidthSliceVector<'_, T> {
         let (data, width) = self.load();
 

@@ -140,6 +140,8 @@ pub use elements::{Dist, ElementContainer, ExtendableElementContainer, Permutabl
 pub use index::{BuildConfig, Builder, Granne, GranneBuilder, Index};
 pub use io::Writeable;
 
+pub mod pydoc;
+
 #[cfg(feature = "rw_granne")]
 pub use index::RwGranneBuilder;
 

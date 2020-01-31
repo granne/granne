@@ -49,7 +49,8 @@ pub trait ElementContainer {
 
 /// A trait for ElementContainers that can be extended with more elements
 pub trait ExtendableElementContainer: ElementContainer {
-    /// Internal representation of an element (can be the same as [`ElementContainer::Element`](trait.ElementContainer.html#associatedtype.Element))
+    /// Internal representation of an element (can be the same as
+    /// [`ElementContainer::Element`](trait.ElementContainer.html#associatedtype.Element))
     type InternalElement;
 
     /// Moves an element into the container
@@ -62,7 +63,8 @@ pub trait Permutable {
 
 /// `Dist<Other>` - A trait for types `E` and `Other` between which a distance can be computed.
 ///
-/// By implementing `Dist<E>` for a type `E` one gets the `ElementContainer` trait implemented for slices and `Vec`s of `E`, i.e., `[E]: ElementContainer` and `Vec<E>: ElementContainer`
+/// By implementing `Dist<E>` for a type `E` one gets the `ElementContainer` trait implemented for
+/// slices and `Vec`s of `E`, i.e., `[E]: ElementContainer` and `Vec<E>: ElementContainer`
 pub trait Dist<Other> {
     /// Returns the distance between `self` and `other`
     fn dist(self: &Self, other: &Other) -> NotNan<f32>;

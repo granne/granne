@@ -90,7 +90,8 @@ fn decode_into(encoded_data: &[u8], decoded_nums: &mut Vec<u32>) {
     if encoded_data.len() != count * ::std::mem::size_of::<u32>() {
         decoded_nums.resize(std::cmp::max(MIN_NUMBERS_TO_ENCODE, count), 0);
 
-        //let bytes_decoded = decode::<stream_vbyte::x86::Ssse3>(encoded_data, decoded_nums.len(), decoded_nums);
+        //let bytes_decoded = decode::<stream_vbyte::x86::Ssse3>(encoded_data, decoded_nums.len(),
+        // decoded_nums);
         let bytes_decoded = decode::<Scalar>(encoded_data, decoded_nums.len(), decoded_nums);
 
         debug_assert_eq!(encoded_data.len(), bytes_decoded);
@@ -270,7 +271,8 @@ mod tests {
     }
 
     #[test]
-    // this tests the case where the size of the encoded data has the same size as the original (2 * 4 bytes)
+    // this tests the case where the size of the encoded data has the same size as the original (2 *
+    // 4 bytes)
     fn push_and_get_4_bytes_per_number() {
         let mut vec = MultiSetVector::new();
 

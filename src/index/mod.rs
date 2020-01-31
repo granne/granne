@@ -28,13 +28,15 @@ type NeighborId = u32;
 const UNUSED: NeighborId = NeighborId::max_value();
 
 /// An index for fast approximate nearest neighbor search.
-/// The index is built by using [`GranneBuilder`](struct.GranneBuilder.html) and can be stored to disk.
+/// The index is built by using [`GranneBuilder`](struct.GranneBuilder.html) and can be stored to
+/// disk.
 pub struct Granne<'a, Elements: ElementContainer> {
     layers: FileOrMemoryLayers<'a>, //Layers<'a>,
     elements: Elements,
 }
 
-/// This trait is implemented for any `Granne` and contains methods that are common for all element types.
+/// This trait is implemented for any `Granne` and contains methods that are common for all element
+/// types.
 pub trait Index {
     /// Returns the number of elements in this index.
     fn len(self: &Self) -> usize;
@@ -104,8 +106,9 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
 
     /// Loads the index from a file. The index will be memory mapped.
     ///
-    /// This is unsafe because the underlying file can be modified, which would result in undefined behavior.
-    /// The caller needs to guarantee that the file is not modified while being memory-mapped.
+    /// This is unsafe because the underlying file can be modified, which would result in undefined
+    /// behavior. The caller needs to guarantee that the file is not modified while being
+    /// memory-mapped.
     pub unsafe fn from_file(file: &std::fs::File, elements: Elements) -> std::io::Result<Self> {
         let file = memmap::Mmap::map(file)?;
         file.advise_memory_access(AccessPattern::Random)?;
@@ -292,7 +295,8 @@ pub struct BuildConfig {
     /// The maximum number of neighbors per node and layer.
     num_neighbors: usize,
 
-    /// The `max_search` parameter used during build time (see [`Granne::search`](struct.Granne.html#method.search)).
+    /// The `max_search` parameter used during build time (see
+    /// [`Granne::search`](struct.Granne.html#method.search)).
     max_search: usize,
 
     /// Whether to reinsert all the elements in each layers. Takes more time, but improves recall.
@@ -329,8 +333,9 @@ impl BuildConfig {
         self
     }
 
-    /// Configures the `max_search` parameter used during build time (see [`Granne::search`](struct.Granne.html#method.search)).
-    /// Larger values increase recall but makes building slower.
+    /// Configures the `max_search` parameter used during build time (see
+    /// [`Granne::search`](struct.Granne.html#method.search)). Larger values increase recall but
+    /// makes building slower.
     ///
     /// Default: 200
     pub fn max_search(mut self: Self, max_search: usize) -> Self {
@@ -356,7 +361,8 @@ impl BuildConfig {
         self
     }
 
-    /// Enables reinsertion of all the elements in each layers. Takes more time, but improves recall.
+    /// Enables reinsertion of all the elements in each layers. Takes more time, but improves
+    /// recall.
     ///
     /// This option is enabled by default.
     pub fn reinsert_elements(mut self: Self, yes: bool) -> Self {
@@ -373,14 +379,16 @@ impl BuildConfig {
     }
 }
 
-/// A builder for creating an index to be searched using [`Granne`](struct.Granne.html). Configured by [`BuildConfig`](struct.BuildConfig.html).
+/// A builder for creating an index to be searched using [`Granne`](struct.Granne.html). Configured
+/// by [`BuildConfig`](struct.BuildConfig.html).
 pub struct GranneBuilder<Elements: ElementContainer> {
     elements: Elements,
     layers: Vec<FixedWidthSliceVector<'static, NeighborId>>,
     config: BuildConfig,
 }
 
-/// This trait is implemented for any `GranneBuilder` and contains methods that are common for all element types.
+/// This trait is implemented for any `GranneBuilder` and contains methods that are common for all
+/// element types.
 pub trait Builder: Index {
     /// Builds an index for approximate nearest neighbor search.
     fn build(self: &mut Self);
@@ -886,6 +894,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     ) {
         // do not index elements that are zero
         if elements.dist(idx, idx) > NotNan::new(0.0001).unwrap() {
+            // 
             // * Element::eps() {
             return;
         }
@@ -906,8 +915,8 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 
         let neighbors = Self::select_neighbors(elements, candidates, config.num_neighbors);
 
-        // if the current element is a duplicate of too many of its potential neighbors, do not connect it to the graph,
-        // this effectively creates a dead node
+        // if the current element is a duplicate of too many of its potential neighbors, do not
+        // connect it to the graph, this effectively creates a dead node
         if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
             if *d < NotNan::new(0.000001).unwrap() {
                 return;
@@ -929,7 +938,6 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     }
 
     /// Given a vec of `candidates`, selects the neighbors for an element.
-    ///
     fn select_neighbors(
         elements: &Elements,
         candidates: Vec<(usize, NotNan<f32>)>,
