@@ -4,7 +4,6 @@ use ordered_float::NotNan;
 use parking_lot;
 use pbr;
 use rayon::prelude::*;
-use revord::RevOrd;
 use std::cmp;
 use std::collections::{BinaryHeap, HashSet};
 use std::convert::TryFrom;
@@ -48,6 +47,14 @@ pub trait Index {
 
     /// Returns the neighbors of the node at `index` in `layer`.
     fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize>;
+
+    /// Write the index to `buffer`.
+    fn write_index<B: std::io::Write + std::io::Seek>(
+        self: &Self,
+        buffer: &mut B,
+    ) -> std::io::Result<()>
+    where
+        Self: Sized;
 }
 
 impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
@@ -75,6 +82,14 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
     /// Returns the neighbors of the node at `index` in `layer`.
     fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
         self.layers.load().as_graph(layer).get_neighbors(index)
+    }
+
+    /// Write the index to `buffer`.
+    fn write_index<B: std::io::Write + std::io::Seek>(
+        self: &Self,
+        buffer: &mut B,
+    ) -> std::io::Result<()> {
+        io::write_index(&self.layers.load(), buffer)
     }
 }
 
@@ -163,6 +178,16 @@ fn find_entrypoint_trail<Elements: ElementContainer>(
     match layers {
         Layers::FixWidth(layers) => _find_entrypoint_trail(layers, elements, max_layer, element),
         Layers::Compressed(layers) => _find_entrypoint_trail(layers, elements, max_layer, element),
+    }
+}
+
+impl<'a, Elements: ElementContainer + crate::io::Writeable> Granne<'a, Elements> {
+    /// Writes the elements of this index to `buffer`.
+    pub fn write_elements<B: std::io::Write>(
+        self: &Self,
+        buffer: &mut B,
+    ) -> std::io::Result<usize> {
+        self.elements.write(buffer)
     }
 }
 
@@ -368,14 +393,6 @@ pub trait Builder: Index {
 
     /// Returns the number of elements.
     fn num_elements(self: &Self) -> usize;
-
-    /// Write the index to `buffer`.
-    fn write_index<B: std::io::Write + std::io::Seek>(
-        self: &Self,
-        buffer: &mut B,
-    ) -> std::io::Result<()>
-    where
-        Self: Sized;
 }
 
 impl<Elements: ElementContainer + Sync> Index for GranneBuilder<Elements> {
@@ -407,6 +424,25 @@ impl<Elements: ElementContainer + Sync> Index for GranneBuilder<Elements> {
     /// Returns the neighbors of the node at `index` in `layer`.
     fn get_neighbors(self: &Self, index: usize, layer: usize) -> Vec<usize> {
         self.get_index().get_neighbors(index, layer)
+    }
+
+    /// Writes the index to `buffer`.
+    /// # Examples
+    /// ```
+    /// # use granne::*;
+    /// # let builder = GranneBuilder::new(BuildConfig::default(), angular::Vectors::new());
+    /// # let path = "/tmp/write_index.bin";
+    /// let mut file = std::fs::File::create(path)?;
+    /// builder.write_index(&mut file)?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    fn write_index<B: std::io::Write + std::io::Seek>(
+        self: &Self,
+        buffer: &mut B,
+    ) -> std::io::Result<()> {
+        let layers: Layers =
+            Layers::FixWidth(self.layers.iter().map(|layer| layer.borrow()).collect());
+        io::write_index(&layers, buffer)
     }
 }
 
@@ -453,25 +489,6 @@ impl<Elements: ElementContainer + Sync> Builder for GranneBuilder<Elements> {
     /// Returns the number of elements.
     fn num_elements(self: &Self) -> usize {
         self.elements.len()
-    }
-
-    /// Write the index to `buffer`.
-    /// # Examples
-    /// ```
-    /// # use granne::*;
-    /// # let builder = GranneBuilder::new(BuildConfig::default(), angular::Vectors::new());
-    /// # let path = "/tmp/write_index.bin";
-    /// let mut file = std::fs::File::create(path)?;
-    /// builder.write_index(&mut file)?;
-    /// # Ok::<(), std::io::Error>(())
-    /// ```
-    fn write_index<B: std::io::Write + std::io::Seek>(
-        self: &Self,
-        buffer: &mut B,
-    ) -> std::io::Result<()> {
-        let layers: Layers =
-            Layers::FixWidth(self.layers.iter().map(|layer| layer.borrow()).collect());
-        io::write_index(&layers, buffer)
     }
 }
 
@@ -532,7 +549,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 }
 
 impl<Elements: ElementContainer + crate::io::Writeable> GranneBuilder<Elements> {
-    /// Write the elements of this builder to `buffer`.
+    /// Writes the elements of this builder to `buffer`.
     /// # Examples
     /// ```
     /// # use granne::*;
@@ -1087,7 +1104,7 @@ fn search_for_neighbors<Layer: Graph + ?Sized, Elements: ElementContainer>(
 ) -> Vec<(usize, NotNan<f32>)> {
     let mut res: max_size_heap::MaxSizeHeap<(NotNan<f32>, usize)> =
         max_size_heap::MaxSizeHeap::new(max_search); // TODO: should this really be max_search or num_neighbors?
-    let mut pq: BinaryHeap<RevOrd<_>> = BinaryHeap::new();
+    let mut pq: BinaryHeap<cmp::Reverse<_>> = BinaryHeap::new();
 
     let num_neighbors = 20; //layer.at(0).len();
     let mut visited =
@@ -1095,11 +1112,11 @@ fn search_for_neighbors<Layer: Graph + ?Sized, Elements: ElementContainer>(
 
     let distance = elements.dist_to_element(entrypoint, goal);
 
-    pq.push(RevOrd((distance, entrypoint)));
+    pq.push(cmp::Reverse((distance, entrypoint)));
 
     visited.insert(entrypoint);
 
-    while let Some(RevOrd((d, idx))) = pq.pop() {
+    while let Some(cmp::Reverse((d, idx))) = pq.pop() {
         if res.is_full() && d > res.peek().unwrap().0 {
             break;
         }
@@ -1111,7 +1128,7 @@ fn search_for_neighbors<Layer: Graph + ?Sized, Elements: ElementContainer>(
                 let distance = elements.dist_to_element(neighbor_idx, goal);
 
                 if !res.is_full() || distance < res.peek().unwrap().0 {
-                    pq.push(RevOrd((distance, neighbor_idx)));
+                    pq.push(cmp::Reverse((distance, neighbor_idx)));
                 }
             }
         }
