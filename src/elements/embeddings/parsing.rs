@@ -111,7 +111,6 @@ pub fn parse_elements_and_save_shards_to_disk(
 
 // TODO: Make it possible to write i8 and f32 vectors
 pub fn compute_embeddings_and_save_to_disk(
-    dimension: usize,
     elements_path: &Path,
     word_embeddings_path: &Path,
     output_path: &Path,

@@ -210,7 +210,6 @@ fn incremental_build_1() {
     verify_search(&builder.get_index(), 0.95, 5);
 }
 
-/*
 #[test]
 fn incremental_build_with_write_and_read() {
     const DIM: usize = 25;
@@ -219,13 +218,7 @@ fn incremental_build_with_write_and_read() {
         .map(|_| test_helper::random_vector::<angular::Vector>(DIM))
         .collect();
 
-    let config = Config {
-        num_layers: 4,
-        num_neighbors: 20,
-        max_search: 50,
-        reinsert_elements: true,
-        show_progress: false,
-    };
+    let config = BuildConfig::default().reinsert_elements(false);
 
     let num_chunks = 10;
     let chunk_size = elements.len() / num_chunks;
@@ -233,14 +226,20 @@ fn incremental_build_with_write_and_read() {
 
     let mut file: File = tempfile::tempfile().unwrap();
     {
-        let builder = GranneBuilder::new(config.clone(), elements);
+        let builder = GranneBuilder::new(config.clone(), &elements);
 
         builder.write_index(&mut file).unwrap();
     }
 
     for i in 0..num_chunks {
         file.seek(SeekFrom::Start(0)).unwrap();
-        let mut builder = GranneBuilder::read(config.clone(), &mut file, elements);
+
+        let mut builder = {
+            let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
+
+            GranneBuilder::from_bytes(config.clone(), &mmap[..], &elements)
+        };
+
         assert_eq!(i * chunk_size, builder.len());
 
         builder.build_partial((i + 1) * chunk_size);
@@ -255,17 +254,16 @@ fn incremental_build_with_write_and_read() {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
 
-    let index = Granne::<angular::Vectors>::load(buffer.as_slice(), &elements);
-    assert_eq!(config.num_layers, index.num_layers());
+    let index = Granne::from_bytes(buffer.as_slice(), &elements);
     assert_eq!(elements.len(), index.len());
 
     verify_search(&index, 0.95, 40);
 }
 
 #[test]
-fn read_index_with_owned_elements() {
+fn read_index_reduce_num_neighbors() {
     let num_elements = 1000;
-    const DIM: usize = 25;
+    const DIM: usize = 5;
     type Element = angular::Vector<'static>;
 
     let mut owning_builder = {
@@ -273,28 +271,29 @@ fn read_index_with_owned_elements() {
             .map(|_| test_helper::random_vector::<Element>(DIM))
             .collect();
 
-        let config = Config {
-            num_layers: 4,
-            num_neighbors: 20,
-            max_search: 50,
-            reinsert_elements: true,
-            show_progress: false,
-        };
+        let config = BuildConfig::default().max_search(10).num_neighbors(20);
 
-        let mut builder = GranneBuilder::with_borrowed_elements(config.clone(), elements.as_slice());
+        let mut builder = GranneBuilder::new(config, elements.as_slice());
         builder.build_partial(num_elements / 2);
 
         let mut file: File = tempfile::tempfile().unwrap();
-        builder.write(&mut file).unwrap();
+        builder.write_index(&mut file).unwrap();
 
         file.seek(SeekFrom::Start(0)).unwrap();
-        let owning_builder: GranneBuilder<[Element], Element> =
-            GranneBuilder::read_index_with_owned_elements(config.clone(), &mut file, elements.clone()).unwrap();
+
+        // not necessarily true, but should be valid
+        assert!(builder.get_neighbors(0, builder.layers.len() - 1).len() > 5);
+
+        let owning_builder = {
+            let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
+
+            // lower num_neighbors
+            let config = BuildConfig::default().max_search(10).num_neighbors(5);
+            GranneBuilder::from_bytes(config, &mmap[..], elements.clone())
+        };
 
         assert_eq!(num_elements / 2, builder.len());
         assert_eq!(num_elements / 2, owning_builder.len());
-        assert_eq!(num_elements, builder.len());
-        assert_eq!(num_elements, owning_builder.len());
 
         assert_eq!(builder.layers.len(), owning_builder.layers.len());
 
@@ -307,9 +306,14 @@ fn read_index_with_owned_elements() {
     owning_builder.build();
 
     assert_eq!(num_elements, owning_builder.len());
-    assert_eq!(num_elements, owning_builder.len());
+    assert!(
+        owning_builder
+            .get_neighbors(0, owning_builder.layers.len() - 1)
+            .len()
+            <= 5
+    );
 }
-*/
+
 #[test]
 fn empty_build() {
     let elements: angular::Vectors = (0..100)
@@ -418,7 +422,7 @@ fn write_and_load_compressed() {
         let mut data = Vec::new();
         file.read_to_end(&mut data).unwrap();
 
-        let index = Granne::load(&data[..], &elements);
+        let index = Granne::from_bytes(&data[..], &elements);
 
         assert_eq!(builder.layers.len(), index.num_layers());
         assert_eq!(builder.len(), index.len());

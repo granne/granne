@@ -97,7 +97,7 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
 
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     /// Loads this index lazily.
-    pub fn load(index: &'a [u8], elements: Elements) -> Self {
+    pub fn from_bytes(index: &'a [u8], elements: Elements) -> Self {
         Self {
             layers: FileOrMemoryLayers::Memory(io::load_layers(index)),
             elements,
@@ -460,10 +460,10 @@ impl<Elements: ElementContainer + Sync> Builder for GranneBuilder<Elements> {
         self.build_partial(self.elements.len())
     }
 
-    /// Builds the search index for the first num_elements elements
-    /// Can be used for long-running jobs where intermediate steps needs to be stored
+    /// Builds the search index for the first num_elements elements.
+    /// Can be used for long-running jobs where intermediate steps needs to be stored.
     ///
-    /// Note: already indexed elements are not reindexed
+    /// Note: already indexed elements are not reindexed.
     fn build_partial(self: &mut Self, num_elements: usize) {
         if num_elements == 0 {
             return;
@@ -518,18 +518,53 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         }
     }
 
-    /*
-       /// Creates a `GranneBuilder` by reading an already built index from `buffer` together with `elements`
-       pub fn read(config: BuildConfig, buffer: &mut [u8], elements: Elements) -> Self {
-           let mut builder = Self::new(config, elements);
+    /// Creates a `GranneBuilder` by reading an already built index from `buffer` together with
+    /// `elements`.
+    pub fn from_bytes(config: BuildConfig, buffer: &[u8], elements: Elements) -> Self {
+        let mut builder = Self::new(config, elements);
 
-           builder.layers = io::read_layers(buffer, builder.config.num_neighbors);
+        let layers = io::load_layers(buffer);
 
-           builder
-       }
-    */
+        match layers {
+            Layers::FixWidth(layers) => {
+                builder.layers = layers.iter().map(|l| l.borrow().into_owned()).collect();
+            }
+            Layers::Compressed(layers) => {
+                for layer in layers {
+                    builder.layers.push({
+                        let mut new_layer =
+                            FixedWidthSliceVector::with_width(builder.config.num_neighbors);
+                        new_layer.reserve(layer.len());
 
-    // methods
+                        let mut neighbors = Vec::new();
+                        for i in 0..layer.len() {
+                            layer.get_into(i, &mut neighbors);
+                            neighbors.resize(builder.config.num_neighbors, UNUSED);
+
+                            new_layer.push(&neighbors);
+                            neighbors.clear();
+                        }
+
+                        new_layer
+                    });
+                }
+            }
+        }
+
+        builder
+    }
+
+    /// Creates a `GranneBuilder` by reading an already built index from `buffer` together with
+    /// `elements`.
+    pub fn from_file(
+        config: BuildConfig,
+        file: &std::fs::File,
+        elements: Elements,
+    ) -> std::io::Result<Self> {
+        let bytes = unsafe { memmap::Mmap::map(file)? };
+
+        Ok(Self::from_bytes(config, &bytes[..], elements))
+    }
 
     /// Returns a searchable index from this builder.
     /// # Examples
@@ -894,7 +929,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     ) {
         // do not index elements that are zero
         if elements.dist(idx, idx) > NotNan::new(0.0001).unwrap() {
-            // 
+            //
             // * Element::eps() {
             return;
         }

@@ -2,36 +2,25 @@
 //#![deny(missing_docs)]
 
 /*!
-Granne (**gr**aph-based **a**pproximate **n**earest **ne**ighbors) provides
-approximate nearest neighbor search among (typically) high-dimensional vectors.
+Granne (**gr**aph-based **a**pproximate **n**earest **ne**ighbors) provides approximate nearest neighbor search among (typically) high-dimensional vectors. It focuses on reducing memory usage in order to allow [indexing billions of vectors](https://0x65.dev/blog/2019-12-07/indexing-billions-of-text-vectors.html).
 
-Supports billion scale indexes
-
-Discussion on RAM vs. SSD, during build and search time.
-
-Note: There is currently a limit on the number of elements that can be
-indexed: `2^32 - 2 == 4_294_967_294`.
+Note: There is currently a limit on the number of elements that can be indexed: `2^32 - 2 == 4_294_967_294`.
 
 # Overview
 
-* [`Granne`](struct.Granne.html) what is this?
-* [`GranneBuilder`](struct.GranneBuilder.html) what is this?
-* [`Index`](trait.Index.html) and [`Builder`](trait.Builder.html) are traits that ... Since both `Granne`
-and `GranneBuilder` are generic over the type of elements, these traits contain methods that are the same
-over all element types.
+* [`Granne`](struct.Granne.html) is the main struct used for querying/searching for nearest neighbors.
+* [`GranneBuilder`](struct.GranneBuilder.html) is used to build `Granne` indexes.
+* [`Index`](trait.Index.html) and [`Builder`](trait.Builder.html) are traits implemented for all `Granne` and `GranneBuilder` types, since both `Granne` and `GranneBuilder` are generic over the type of elements.
+* [`SumEmbeddings`](embeddings/struct.SumEmbeddings.html) support the use case where the element are constructed by summing a smaller number of embeddings.
 
 # Memory-mapping
 
-Granne allows memory-mapping both index and elements. ---. Unfortunately, xxx
+Granne uses [memory-mapping](https://en.wikipedia.org/wiki/Memory-mapped_file) for both index and elements. This makes it possibly to lazy-load and use the index without loading all of it into memory (or share the index between different process).
 
-Using the [`memmap`](https://crates.io/crates/memmap) crate.
+Unfortunately, memory-mapping requires `unsafe` code to load the index/elements. The reason is that `Granne` cannot guarantee that the underlying file is not modified (by some other thread or process) while being memory-mapped.
 
-For more information on the unsafe:ness of `memmap`, please refer to this discussion on
+For more information on the unsafe:ness of `memmap`, please see the [`memmap`](https://crates.io/crates/memmap) crate or refer to this discussion on
 [users.rust-lang.org](https://users.rust-lang.org/t/how-unsafe-is-mmap/19635).
-
-# Summed Embeddings
-
-An important use case is ...
 
 # Examples
 

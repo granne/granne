@@ -1,9 +1,43 @@
 /*!
 This module contains element types for angular vectors using `f32` as scalars.
 
-Vectors are normalized.
+The vectors are normalized.
 
-Todo: Explain how to read e.g. glove vectors?
+# Example
+This example shows how to read [GloVe](https://github.com/stanfordnlp/GloVe) vectors into `angular::Vectors`.
+
+```
+# /*
+use granne;
+# */
+use std::io::{BufRead, BufReader};
+# use tempfile;
+
+# fn main() -> std::io::Result<()> {
+# /*
+let file = BufReader::new(std::fs::File::open("/path/to/glove.txt")?;
+# */
+# let file = BufReader::new(tempfile::tempfile()?);
+
+let parse_line = |line: &str| -> std::io::Result<(String, granne::angular::Vector<'static>)> {
+    let mut line_iter = line.split_whitespace();
+    let token = line_iter.next().ok_or(std::io::ErrorKind::InvalidData)?;
+    let vec: granne::angular::Vector = line_iter.map(|d| d.parse::<f32>().unwrap()).collect();
+
+    Ok((token.to_string(), vec))
+};
+
+let mut elements = granne::angular::Vectors::new();
+let mut tokens = Vec::new();
+for line in file.lines() {
+    let (token, vector) = parse_line(&line?)?;
+
+    tokens.push(token);
+    elements.push(&vector);
+}
+# Ok(())
+# }
+```
 */
 
 use super::{Dist, ElementContainer, ExtendableElementContainer};
