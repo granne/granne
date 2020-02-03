@@ -612,7 +612,7 @@ impl<Elements: ElementContainer + crate::io::Writeable> GranneBuilder<Elements> 
 
 impl<Elements: ExtendableElementContainer> GranneBuilder<Elements> {
     /// Push a new element into this builder. In order to insert it into the index
-    /// a call to `build` or `build_part` is required.
+    /// a call to `build` or `build_partial` is required.
     /// # Examples
     /// ```
     /// # use granne::*;
@@ -759,17 +759,18 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
             .expected_num_elements
             .unwrap_or(self.elements.len());
         let ideal_num_elements_in_layer = compute_num_elements_in_layer(
-            total_num_elements,
+            cmp::max(total_num_elements, self.elements.len()),
             self.config.layer_multiplier,
             self.layers.len() - 1,
         );
-        let num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
-        let additional = ideal_num_elements_in_layer - self.layers.last().unwrap().len();
 
-        if additional == 0 {
+        if ideal_num_elements_in_layer <= self.layers.last().unwrap().len() {
             // nothing to index in this layer
             return;
         }
+
+        let num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
+        let additional = ideal_num_elements_in_layer - self.layers.last().unwrap().len();
 
         let mut config = self.config.clone();
 
