@@ -2,7 +2,7 @@
 extern crate cpython;
 
 use cpython::{PyObject, PyResult, Python};
-use granne::{self, Builder};
+use granne::{self, Index};
 use std::cell::RefCell;
 use std::path::Path;
 
@@ -22,11 +22,78 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     )?;
     m.add_class::<Granne>(py)?;
     m.add_class::<GranneBuilder>(py)?;
+    m.add_class::<embeddings::Embeddings>(py)?;
+    m.add(
+        py,
+        "compute_embeddings_and_save_to_disk",
+        py_fn!(
+            py,
+            py_compute_embeddings_and_save_to_disk(
+                embeddings_path: String,
+                elements_path: String,
+                output_path: String,
+                show_progress: bool
+            )
+        ),
+    )?;
     Ok(())
 });
 
+/// Precomputes embedding vectors
+///
+/// Parameters
+/// ----------
+/// Required:
+/// embeddings_path: str
+///     Path to embeddings
+/// elements_path : str
+///     Path to elements
+/// output_path: str
+///     Path where to write the vectors.
+/// show_progress: bool
+///     Default: True
+pub fn py_compute_embeddings_and_save_to_disk(
+    py: Python,
+    embeddings_path: String,
+    elements_path: String,
+    output_path: String,
+    show_progress: bool = true,
+) -> PyResult<PyObject> {
+    granne::embeddings::parsing::compute_embeddings_and_save_to_disk(
+        &Path::new(&elements_path),
+        &Path::new(&embeddings_path),
+        &Path::new(&output_path),
+        show_progress,
+    );
+
+    Ok(py.None())
+}
+
 py_class!(class Granne |py| {
     data index: RefCell<Box<dyn PyGranne + Send + Sync>>;
+
+    // Required since rust-cpython cannot add docs for "special" functions
+    /// Note: This is the documentation for the `__new__` method:
+    /// Constructs a new Granne index from file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// index_path: str
+    ///     Path to existing index
+    /// element_type : str
+    ///     Type of element (angular, angular_int or embeddings)
+    /// elements_path: str
+    ///     Path to elements
+    ///
+    /// Optional (Required if `element_type == "embeddings"`):
+    /// embeddings_path: str
+    ///     Path to embeddings
+    /// words_path: str
+    ///     Path to words
+    ///
+    @classmethod
+    def __init__(_cls) -> PyResult<PyObject> { Ok(py.None()) }
 
     def __new__(_cls,
                 index_path: &str,
@@ -67,6 +134,19 @@ py_class!(class Granne |py| {
     }
 
     /// Searches for nearest neighbors to an element. The type of element depends on the element type of this index.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// element: array or str
+    ///     Search for nearest neighbors to this element.
+    ///
+    /// Optional:
+    /// max_search: int
+    ///     `max_search` parameter to use during the search.
+    /// num_elements: int
+    ///     Maximum number of neighbors to return.
+    ///
     def search(&self,
                element: &PyObject,
                max_search: usize = DEFAULT_MAX_SEARCH,
@@ -76,16 +156,40 @@ py_class!(class Granne |py| {
     }
 
     /// Returns the element at index idx.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
     def get_element(&self, idx: usize) -> PyResult<PyObject> {
         Ok(self.index(py).borrow().get_element(py, idx))
     }
 
     /// Returns the internal element at index idx (may be the same as the element at idx).
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
     def get_internal_element(&self, idx: usize) -> PyResult<PyObject> {
         Ok(self.index(py).borrow().get_internal_element(py, idx))
     }
 
     /// Returns the neighbors of the element at idx in layer (default: last layer) in the HNSW graph.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
+    /// Optional:
+    /// layer: int
+    ///     Index of layer. Defaults to last layer.
     def get_neighbors(&self, idx: usize, layer: Option<usize> = None) -> PyResult<Vec<usize>> {
         if let Some(layer) = layer {
             Ok(self.index(py).borrow().as_index().get_neighbors(idx, layer))
@@ -106,6 +210,13 @@ py_class!(class Granne |py| {
     }
 
     /// Returns the number of elements in layer.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// layer: int
+    ///     Index of layer.
+    ///
     def layer_len(&self, layer: usize) -> PyResult<usize> {
         Ok(self.index(py).borrow().as_index().layer_len(layer))
     }
@@ -113,15 +224,85 @@ py_class!(class Granne |py| {
     /// Tries to reorder the nodes and elements of this index inder order to achieve better cache locality.
     /// Returns a mapping from new to old, i.e., order[i] == j, means that the node/element at index j was
     /// moved to index i.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// show_progress: bool
+    ///     Default: True
+    ///
     def reorder(&self, show_progress: bool = true) -> PyResult<Vec<usize>> {
         let order = self.index(py).borrow_mut().reorder(show_progress);
 
         Ok(order)
     }
+
+    /// Saves the index to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save index
+    ///
+    def save_index(&self, path: &str) -> PyResult<PyObject> {
+        self.index(py).borrow().save_index(path).expect(&format!("Could not save index to {}", path));
+
+        Ok(py.None())
+    }
+
+    /// Saves the elements to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save elements
+    ///
+    def save_elements(&self, path: &str) -> PyResult<PyObject> {
+        self.index(py).borrow().save_elements(path).expect(&format!("Could not save elements to {}", path));
+
+        Ok(py.None())
+    }
 });
 
 py_class!(class GranneBuilder |py| {
     data builder: RefCell<Box<dyn PyGranneBuilder + Send + Sync>>;
+
+    // Required since rust-cpython cannot add docs for "special" functions
+    /// Note: This is the documentation for the `__new__` method:
+    /// A new GranneBuilder is constructed with the following parameters:
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// element_type : str
+    ///     Type of element (angular, angular_int or embeddings)
+    ///
+    /// Optional (use keywords to specify optional parameters):
+    /// elements_path: str
+    ///     Path to elements
+    /// embeddings_path: str
+    ///     Path to embeddings
+    /// words_path: str
+    ///     Path to words (Required if `embeddings_path` was provided.)
+    /// index_path: str
+    ///     Path to existing index
+    /// layer_multiplier: f32
+    ///     Each layer includes `layer_multiplier` times more elements than the previous layer. (Default: 15.0)
+    /// expected_num_elements: int
+    ///     Needs to be used when building before all elements have been inserted into the builder.
+    /// num_neighbors: int
+    ///     The maximum number of neighbors per node and layer. (Default: 200)
+    /// max_search: int
+    ///     The `max_search` parameter used during build time
+    /// reinsert_elements: bool
+    ///     Whether to reinsert all the elements in each layers. Takes more time, but improves recall. (Default: True)
+    /// show_progress: bool
+    ///     Whether to output progress information to STDOUT while building. (Default: True)
+    ///
+    @classmethod
+    def __init__(_cls) -> PyResult<PyObject> { Ok(py.None()) }
 
     def __new__(_cls,
                 element_type: String,
@@ -152,26 +333,37 @@ py_class!(class GranneBuilder |py| {
             .map(|path| std::fs::File::open(path).expect("Could not open elements file"));
 
         let builder: Box<dyn PyGranneBuilder + Send + Sync> = match (
+            index.as_ref(),
             elements.as_ref(),
             element_type.to_ascii_lowercase().as_str(),
         ) {
-            (None, "angular") => Box::new(granne::GranneBuilder::new(
+            (None, None, "angular") => Box::new(granne::GranneBuilder::new(
                 config,
                 granne::angular::Vectors::new(),
             )),
-            (Some(elements), "angular") => Box::new(granne::GranneBuilder::new(
+            (None, Some(elements), "angular") => Box::new(granne::GranneBuilder::new(
                 config,
                 unsafe { granne::angular::Vectors::from_file(elements).unwrap() },
             )),
-            (None, "angular_int") => Box::new(granne::GranneBuilder::new(
+            (Some(index), Some(elements), "angular") => Box::new(granne::GranneBuilder::from_file(
+                config,
+                index,
+                unsafe { granne::angular::Vectors::from_file(elements).unwrap() },
+            ).expect("Could not read index!")),
+            (None, None, "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
                 granne::angular_int::Vectors::new(),
             )),
-            (Some(elements), "angular_int") => Box::new(granne::GranneBuilder::new(
+            (None, Some(elements), "angular_int") => Box::new(granne::GranneBuilder::new(
                 config,
                 unsafe { granne::angular_int::Vectors::from_file(elements).unwrap() },
             )),
-            (Some(elements), "embeddings") => {
+            (Some(index), Some(elements), "angular_int") => Box::new(granne::GranneBuilder::from_file(
+                config,
+                index,
+                unsafe { granne::angular_int::Vectors::from_file(elements).unwrap() },
+            ).expect("Could not read index!")),
+            (index, Some(elements), "embeddings") => {
                 Box::new(variants::builder::WordEmbeddingsBuilder::new(
                     config,
                     elements,
@@ -179,6 +371,7 @@ py_class!(class GranneBuilder |py| {
                         embeddings_path.expect("embeddings_path required for this element type!")
                     ).expect("Could not open embeddings file"),
                     &words_path.expect("words_path required for this element type!"),
+                    index,
                 ))
             }
             _ => panic!(),
@@ -194,11 +387,25 @@ py_class!(class GranneBuilder |py| {
      */
 
     /// Append one element to this builder. Note: the element will not be indexed until GranneBuilder.build() is called.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// element: array or str
+    ///     Append this element to the builder.
+    ///
     def append(&self, element: &PyObject) -> PyResult<PyObject> {
         self.builder(py).borrow_mut().push(py, element)
     }
 
     /// Builds an index with the first num_elements elements (or all if not specified).
+    ///
+    /// Parameters
+    /// ----------
+    /// Optional:
+    /// num_elements: int
+    ///     Number of elements to index (Default: all).
+    ///
     def build(&self, num_elements: usize = <usize>::max_value()) -> PyResult<PyObject> {
         if num_elements == usize::max_value() {
             self.builder(py).borrow_mut().as_mut_builder().build();
@@ -210,6 +417,13 @@ py_class!(class GranneBuilder |py| {
     }
 
     /// Saves the index to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save index
+    ///
     def save_index(&self, path: &str) -> PyResult<PyObject> {
         self.builder(py).borrow().save_index(path).expect(&format!("Could not save index to {}", path));
 
@@ -217,6 +431,13 @@ py_class!(class GranneBuilder |py| {
     }
 
     /// Saves the elements to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save elements
+    ///
     def save_elements(&self, path: &str) -> PyResult<PyObject> {
         self.builder(py).borrow().save_elements(path).expect(&format!("Could not save elements to {}", path));
 
@@ -233,6 +454,16 @@ py_class!(class GranneBuilder |py| {
      */
 
     /// Returns the neighbors of the element at idx in layer in the HNSW graph.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
+    /// Optional:
+    /// layer: int
+    ///     Index of layer. Defaults to last layer.
     def get_neighbors(&self, idx: usize, layer: Option<usize> = None) -> PyResult<Vec<usize>> {
         if let Some(layer) = layer {
             Ok(self.builder(py).borrow().as_index().get_neighbors(idx, layer))
@@ -258,6 +489,13 @@ py_class!(class GranneBuilder |py| {
     }
 
     /// Returns the number of elements in layer.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// layer: int
+    ///     Index of layer.
+    ///
     def layer_len(&self, layer: usize) -> PyResult<usize> {
         Ok(self.builder(py).borrow().as_index().layer_len(layer))
     }
@@ -292,7 +530,7 @@ impl<'a, Elements: granne::ElementContainer + granne::Permutable + Sync> Reorder
     }
 }
 
-trait PyGranne: AsIndex + Reorder {
+trait PyGranne: AsIndex + Reorder + SaveIndex {
     fn search(
         self: &Self,
         py: Python,
@@ -306,11 +544,24 @@ trait PyGranne: AsIndex + Reorder {
     }
 }
 
-// todo: Move to the granne::Index trait?
 trait SaveIndex {
     fn save_index(self: &Self, path: &str) -> std::io::Result<()>;
 
     fn save_elements(self: &Self, path: &str) -> std::io::Result<()>;
+}
+
+impl<'a, Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex
+    for granne::Granne<'a, Elements>
+{
+    fn save_index(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.write_index(&mut file)
+    }
+
+    fn save_elements(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.write_elements(&mut file).map(|_| {})
+    }
 }
 
 impl<Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex

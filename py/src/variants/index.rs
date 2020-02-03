@@ -2,7 +2,7 @@ use cpython::{FromPyObject, PyObject, PyResult, Python, PythonObject, ToPyObject
 
 use super::WordDict;
 use crate::{AsIndex, PyGranne};
-use granne;
+use granne::{self, Index};
 
 impl<'a> PyGranne for granne::Granne<'a, granne::angular::Vectors<'a>> {
     fn search(
@@ -83,6 +83,18 @@ impl AsIndex for WordEmbeddingsGranne {
 impl crate::Reorder for WordEmbeddingsGranne {
     fn reorder(self: &mut Self, show_progress: bool) -> Vec<usize> {
         self.index.reorder(show_progress)
+    }
+}
+
+impl crate::SaveIndex for WordEmbeddingsGranne {
+    fn save_index(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.index.write_index(&mut file)
+    }
+
+    fn save_elements(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.index.write_elements(&mut file).map(|_| {})
     }
 }
 

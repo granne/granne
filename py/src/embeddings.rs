@@ -9,6 +9,21 @@ py_class!(pub class Embeddings |py| {
     data embeddings: RefCell<granne::embeddings::SumEmbeddings<'static>>;
     data words: RefCell<WordDict>;
 
+    // Required since rust-cpython cannot add docs for "special" functions
+    /// Note: This is the documentation for the `__new__` method:
+    /// Constructs a new Embeddings object.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// embeddings_path: str
+    ///     Path to embeddings
+    /// words_path: str
+    ///     Path to words
+    ///
+    @classmethod
+    def __init__(_cls) -> PyResult<PyObject> { Ok(py.None()) }
+
     def __new__(_cls,
                 embeddings_path: Option<String> = None,
                 words_path: Option<String> = None
