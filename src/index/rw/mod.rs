@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use super::*;
 
 use parking_lot::{self, RwLock};

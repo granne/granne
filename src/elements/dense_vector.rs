@@ -16,7 +16,7 @@ macro_rules! dense_vector {
             }
 
             /// Converts this `Vector` into a `Vec`.
-            pub fn to_vec(self: Self) -> Vec<$scalar_type> {
+            pub fn into_vec(self: Self) -> Vec<$scalar_type> {
                 self.0.into_owned()
             }
 
@@ -52,6 +52,8 @@ macro_rules! dense_vector {
             }
 
             /// Loads a memory-mapped a collection of vectors from a file.
+            ///
+            /// # Safety
             ///
             /// This is unsafe because the underlying file can be modified, which would result in
             /// undefined behavior. The caller needs to guarantee that the file is not modified
@@ -95,6 +97,11 @@ macro_rules! dense_vector {
             /// Returns a reference to the vector at `index`.
             pub fn get_element(self: &'a Self, index: usize) -> Vector<'a> {
                 Vector(Cow::Borrowed(self.0.get(index)))
+            }
+
+            /// Returns a reference to the underlying slice.
+            pub fn as_slice(self: &Self) -> &[$scalar_type] {
+                self.0.as_slice()
             }
         }
 

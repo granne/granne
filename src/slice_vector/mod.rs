@@ -425,6 +425,11 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
         width
     }
 
+    pub fn as_slice(self: &Self) -> &[T] {
+        let (data, _width) = self.load();
+        &data[..]
+    }
+
     /// Permutes this vector by `permutation`. The element at index `permutation[i]` will
     /// move to index `i`.
     ///
@@ -575,12 +580,13 @@ where
         let (offsets, data) = self.load();
 
         // write metadata
-        buffer.write(&((end - begin) as u64).to_le_bytes())?;
+        buffer.write_all(&((end - begin) as u64).to_le_bytes())?;
         let mut bytes_written = std::mem::size_of::<u64>();
 
         let offset_begin = usize::try_from(offsets[begin]).unwrap();
-        for i in begin..=end {
-            let offset = usize::try_from(offsets[i]).unwrap();
+
+        for &offset in &offsets[begin..=end] {
+            let offset = usize::try_from(offset).unwrap();
             let offset = Offset::try_from(offset - offset_begin).unwrap();
             io::write_as_bytes(&[offset], buffer)?;
         }
@@ -627,7 +633,7 @@ where
         let (offsets, data) = self.load();
 
         // write metadata
-        buffer.write(&self.len().to_le_bytes())?;
+        buffer.write_all(&self.len().to_le_bytes())?;
         let mut bytes_written = std::mem::size_of::<u64>();
 
         bytes_written += io::write_as_bytes(&offsets[..], buffer)?;

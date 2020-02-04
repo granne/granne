@@ -9,7 +9,9 @@ use crate::{math, FiveByteInt, ThreeByteInt};
 use std::io::{Result, Write};
 
 pub mod parsing;
-pub mod reorder;
+
+// todo: decide what to do with this one
+mod reorder;
 
 type Embeddings<'a> = FixedWidthSliceVector<'a, f32>;
 
@@ -48,13 +50,6 @@ impl<'a> SumEmbeddings<'a> {
         }
     }
 
-    pub fn old_new(embeddings: Embeddings<'a>) -> Self {
-        Self {
-            embeddings,
-            elements: Elements::new(),
-        }
-    }
-
     /// Loads `SumEmbeddings` from a buffer `elements`.
     pub fn from_bytes(embeddings: Embeddings<'a>, elements: &'a [u8]) -> Self {
         Self {
@@ -72,6 +67,8 @@ impl<'a> SumEmbeddings<'a> {
     }
 
     /// Loads a memory-mapped `SumEmbeddings` from `embeddings` (and optionally `elements`).
+    ///
+    /// # Safety
     ///
     /// This is unsafe because the underlying file can be modified, which would result in undefined
     /// behavior. The caller needs to guarantee that the file is not modified while being
@@ -166,6 +163,7 @@ impl<'a> SumEmbeddings<'a> {
         self.embeddings.len()
     }
 
+    /// Writes the embeddings to `buffer`.
     pub fn write_embeddings<B: Write>(self: &Self, buffer: &mut B) -> Result<usize> {
         self.embeddings.write(buffer)
     }

@@ -14,9 +14,9 @@ mod tests;
 
 mod io;
 mod reorder;
-mod rw;
 
-pub use rw::RwGranneBuilder;
+#[cfg(feature = "rw_granne")]
+pub mod rw;
 
 use crate::{
     max_size_heap,
@@ -27,9 +27,57 @@ use crate::{
 type NeighborId = u32;
 const UNUSED: NeighborId = NeighborId::max_value();
 
-/// An index for fast approximate nearest neighbor search.
-/// The index is built by using [`GranneBuilder`](struct.GranneBuilder.html) and can be stored to
-/// disk.
+/** An index for fast approximate nearest neighbor search.
+ The index is built by using [`GranneBuilder`](struct.GranneBuilder.html) and can be stored to
+ disk.
+## Reordering
+
+Reordering of the index can be useful in a couple of situation:
+* Since the neighbors of each node in the index is stored using a variable int encoding, reordering might make size of index smaller.
+* Improve data locality for serving the index from disk. See
+[Indexing Billions of Text Vectors](https://0x65.dev/blog/2019-12-07/indexing-billions-of-text-vectors.html)
+ for a more thorough explanation of this use case.
+
+```
+# use granne::{Granne, GranneBuilder, Index, Builder, BuildConfig, angular};
+# use tempfile;
+# const DIM: usize = 5;
+# fn main() -> std::io::Result<()> {
+# let elements: angular::Vectors = granne::test_helper::random_vectors(DIM, 1000);
+# let random_vector: angular::Vector = granne::test_helper::random_vector(DIM);
+# let num_results = 10;
+#
+# let mut builder = GranneBuilder::new(BuildConfig::default(), elements);
+# builder.build();
+# let mut index_file = tempfile::tempfile()?;
+# builder.write_index(&mut index_file)?;
+# let mut elements_file = tempfile::tempfile()?;
+# builder.write_elements(&mut elements_file)?;
+# let max_search = 10;
+# let num_neighbors = 10;
+use granne::{angular, Granne};
+
+// loading index and vectors (original)
+let elements = unsafe { angular::Vectors::from_file(&elements_file)? };
+let index = unsafe { Granne::from_file(&index_file, elements)? };
+
+// loading index and vectors (for reordering)
+let elements = unsafe { angular::Vectors::from_file(&elements_file)? };
+let mut reordered_index = unsafe { Granne::from_file(&index_file, elements)? };
+let order = reordered_index.reorder(false);
+
+// verify that results are the same
+let element = index.get_element(123);
+let res = index.search(&element, max_search, num_neighbors);
+let reordered_res = reordered_index.search(&element, max_search, num_neighbors);
+for (r, rr) in res.iter().zip(&reordered_res) {
+    assert_eq!(r.0, order[rr.0]);
+}
+
+# Ok(())
+# }
+```
+*/
 pub struct Granne<'a, Elements: ElementContainer> {
     layers: FileOrMemoryLayers<'a>, //Layers<'a>,
     elements: Elements,
@@ -105,6 +153,8 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     }
 
     /// Loads the index from a file. The index will be memory mapped.
+    ///
+    /// # Safety
     ///
     /// This is unsafe because the underlying file can be modified, which would result in undefined
     /// behavior. The caller needs to guarantee that the file is not modified while being
@@ -772,7 +822,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         let num_elements_in_layer = cmp::min(max_num_elements, ideal_num_elements_in_layer);
         let additional = ideal_num_elements_in_layer - self.layers.last().unwrap().len();
 
-        let mut config = self.config.clone();
+        let mut config = self.config;
 
         // if not last layer
         if ideal_num_elements_in_layer < total_num_elements {
@@ -929,9 +979,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         idx: usize,
     ) {
         // do not index elements that are zero
-        if elements.dist(idx, idx) > NotNan::new(0.0001).unwrap() {
-            //
-            // * Element::eps() {
+        if elements.dist(idx, idx) > NotNan::new(100.0 * std::f32::EPSILON).unwrap() {
             return;
         }
 
@@ -954,7 +1002,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         // if the current element is a duplicate of too many of its potential neighbors, do not
         // connect it to the graph, this effectively creates a dead node
         if let Some((_, d)) = neighbors.get(config.num_neighbors / 2) {
-            if *d < NotNan::new(0.000001).unwrap() {
+            if *d < NotNan::new(100.0 * std::f32::EPSILON).unwrap() {
                 return;
             }
         }
@@ -1015,10 +1063,11 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
         node: &parking_lot::RwLock<&mut [NeighborId]>,
         neighbors: &[(usize, NotNan<f32>)],
     ) {
+        debug_assert_eq!(&UNUSED, &node.read()[0]);
+
         // Write Lock!
         let mut node = node.write();
 
-        debug_assert_eq!(UNUSED, node[0]);
         for (i, &(idx, _)) in neighbors.iter().enumerate().take(node.len()) {
             node[i] = NeighborId::try_from(idx).unwrap();
         }

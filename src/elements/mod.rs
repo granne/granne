@@ -47,7 +47,7 @@ pub trait ElementContainer {
     }
 }
 
-/// A trait for ElementContainers that can be extended with more elements
+/// A trait for `ElementContainer`s that can be extended with more elements
 pub trait ExtendableElementContainer: ElementContainer {
     /// Internal representation of an element (can be the same as
     /// [`ElementContainer::Element`](trait.ElementContainer.html#associatedtype.Element))
@@ -57,7 +57,9 @@ pub trait ExtendableElementContainer: ElementContainer {
     fn push(self: &mut Self, element: Self::InternalElement);
 }
 
+/// A trait for `ElementContainer`s that can be permuted/reordered
 pub trait Permutable {
+    /// Reorder the elements such that the element at position `idx` is moved to `permutation[idx]`.
     fn permute(self: &mut Self, permutation: &[usize]);
 }
 

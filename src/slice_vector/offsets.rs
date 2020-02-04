@@ -111,7 +111,7 @@ impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
         }
     }
 
-    fn load_mmap<'b>(buffer: &'b [u8]) -> (Offsets<'b>, &'b [T]) {
+    fn load_mmap(buffer: &[u8]) -> (Offsets<'_>, &[T]) {
         let num_bytes = {
             let mut buf = [0x0; U64_LEN];
             buf.copy_from_slice(&buffer[..U64_LEN]);
@@ -168,7 +168,7 @@ impl Chunk {
     fn get(self: &Self, index: usize) -> usize {
         assert!(index < OFFSETS_PER_CHUNK);
         let mut res = 0;
-        for i in 0..(index + 1) {
+        for i in 0..=index {
             debug_assert!(UNUSED != self.deltas[i]);
             res += self.deltas[i] as usize;
         }

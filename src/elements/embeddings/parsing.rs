@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use super::*;
 use crate::elements::angular;
 use crate::io::Writeable;
@@ -153,7 +155,11 @@ pub fn compute_embeddings_and_save_to_disk(
             vectors.push(&v);
         }
 
-        vectors.write(&mut file).unwrap();
+        if i == 0 {
+            vectors.write(&mut file).unwrap();
+        } else {
+            crate::io::write_as_bytes(vectors.as_slice(), &mut file).unwrap();
+        }
 
         if let Some(ref mut progress_bar) = progress_bar {
             progress_bar.add(vectors.len() as u64);

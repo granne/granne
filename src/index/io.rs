@@ -70,115 +70,27 @@ pub(super) fn write_index(layers: &Layers, buffer: impl Write + Seek) -> Result<
 
     Ok(())
 }
-/*
-pub fn compress_index(input: &str, output: &str) -> Result<()> {
-    let index = File::open(input)?;
-    let index = unsafe { Mmap::map(&index)? };
 
-    let layers = load_layers(&index[..]);
-    let mut file = File::create(output)?;
-
-    save_index_to_disk(&layers, &mut file, true)
-}
-*/
 pub(super) fn load_layers(buffer: &'_ [u8]) -> Layers<'_> {
-    let (num_neighbors, layer_sizes, compressed) =
-        read_metadata(buffer).expect("Could not read metadata");
+    let layer_sizes = read_layer_sizes(buffer).expect("Could not read metadata");
 
     let mut start = METADATA_LEN;
 
     // load graph
-    if compressed {
-        let mut layers = Vec::new();
-        for size in layer_sizes {
-            let end = start + size;
-            let layer = &buffer[start..end];
-            layers.push(MultiSetVector::from_bytes(layer));
-            start = end;
-        }
-
-        Layers::Compressed(layers)
-    } else {
-        panic!()
-    }
-}
-/*
-pub fn read_layers(
-    buffer: &mut [u8],
-    num_neighbors: usize,
-) -> Vec<FixedWidthSliceVector<'static, NeighborId>> {
-    match io::load_layers(buffer) {
-        Layers::FixWidth(layers) => layers.into_iter().map(|l| l.into_owned()).collect(),
-        Layers::VarWidth(layers) => {
-            let fix_width_layers = Vec::new();
-
-            for layer in layers {
-                let mut fix_width_layer = FixedWidthSliceVector::with_width(num_neighbors);
-                fix_width_layer.resize(layer.len(), UNUSED);
-
-                for (i, node) in layer.iter().enumerate() {
-                    // clone at most num_neighbors neighbors
-                    let n = cmp::min(num_neighbors, node.len());
-
-                    fix_width_layer.get_mut(i)[..n].clone_from_slice(&node[..n]);
-                }
-            }
-
-            fix_width_layers
-        }
-    }
-}
-*/
-/*
-pub fn read_layers<I: Read>(
-    index_reader: I,
-    num_layers_and_count: Option<(usize, usize)>,
-) -> Result<Vec<FixedWidthSliceVector<'static, NeighborId>>> {
-    use std::mem::size_of;
-
-    let mut index_reader = BufReader::new(index_reader);
-
-    let (num_neighbors, layer_sizes, compressed) = read_metadata(index_reader.by_ref())?;
-
-    assert!(!compressed, "Cannot read compressed index");
-
-    // read graph
     let mut layers = Vec::new();
-    let node_size = num_neighbors * size_of::<NeighborId>();
-
-    // if last layer idx and size was passed in, we use this to allocate the full layer before reading
-    let (last_layer_idx, last_layer_count) =
-        if let Some((num_layers, last_layer_count)) = num_layers_and_count {
-            (num_layers - 1, last_layer_count)
-        } else {
-            (<usize>::max_value(), 0)
-        };
-
-    for (layer_idx, layer_size) in layer_sizes.into_iter().enumerate() {
-        let layer_reader = index_reader.by_ref().take(layer_size as u64);
-
-        let layer = if layer_idx != last_layer_idx {
-            FixedWidthSliceVector::read(layer_reader, num_neighbors)?
-        } else {
-            FixedWidthSliceVector::read_with_capacity(
-                layer_reader,
-                num_neighbors,
-                last_layer_count,
-            )?
-        };
-
-        assert_eq!(layer_size / node_size, layer.len());
-
-        layers.push(layer);
+    for size in layer_sizes {
+        let end = start + size;
+        let layer = &buffer[start..end];
+        layers.push(MultiSetVector::from_bytes(layer));
+        start = end;
     }
 
-    Ok(layers)
+    Layers::Compressed(layers)
 }
-*/
-fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>, bool)> {
+
+fn read_layer_sizes<I: Read>(index_reader: I) -> Result<Vec<usize>> {
     let mut index_reader = index_reader.take(METADATA_LEN as u64);
 
-    // Check if the file is a current or old version of an granne index
     let mut lib_str = Vec::new();
     index_reader
         .by_ref()
@@ -192,25 +104,14 @@ fn read_metadata<I: Read>(index_reader: I) -> Result<(usize, Vec<usize>, bool)> 
     let metadata: serde_json::Value =
         serde_json::from_reader(index_reader).expect("Could not read metadata");
 
-    let num_neighbors: usize = serde_json::from_value(metadata["num_neighbors"].clone())
-        .expect("Could not read num_neighbors");
     let num_layers: usize =
         serde_json::from_value(metadata["num_layers"].clone()).expect("Could not read num_layers");
     let layer_counts: Vec<usize> = serde_json::from_value(metadata["layer_counts"].clone())
         .expect("Could not read layer_counts");
     assert_eq!(num_layers, layer_counts.len());
 
-    let version: usize = serde_json::from_value(metadata["version"].clone()).unwrap_or(0);
-
-    let mut compressed: bool =
-        serde_json::from_value(metadata["compressed"].clone()).unwrap_or(version >= 2);
-
-    if compressed && version < 2 {
-        compressed = false;
-    }
-
     let layer_sizes = &metadata["layer_sizes"];
     let layer_sizes: Vec<usize> = serde_json::from_value(layer_sizes.clone())?;
 
-    Ok((num_neighbors, layer_sizes, compressed))
+    Ok(layer_sizes)
 }
