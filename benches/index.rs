@@ -94,7 +94,7 @@ mod index {
                 let mut data = Vec::new();
                 file.read_to_end(&mut data).unwrap();
 
-                let index = Granne::load(&data[..], builder.get_elements());
+                let index = Granne::from_bytes(&data[..], builder.get_elements());
 
                 b.iter(|| {
                     for i in (0..index.len()).step_by(10) {

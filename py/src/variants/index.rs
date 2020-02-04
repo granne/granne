@@ -18,7 +18,7 @@ impl<'a> PyGranne for granne::Granne<'a, granne::angular::Vectors<'a>> {
 
     fn get_element(self: &Self, py: Python, idx: usize) -> PyObject {
         self.get_element(idx)
-            .to_vec()
+            .into_vec()
             .into_py_object(py)
             .into_object()
     }
@@ -38,7 +38,7 @@ impl<'a> PyGranne for granne::Granne<'a, granne::angular_int::Vectors<'a>> {
 
     fn get_element(self: &Self, py: Python, idx: usize) -> PyObject {
         self.get_element(idx)
-            .to_vec()
+            .into_vec()
             .into_py_object(py)
             .into_object()
     }
@@ -123,7 +123,7 @@ impl PyGranne for WordEmbeddingsGranne {
     fn get_element(self: &Self, py: Python, idx: usize) -> PyObject {
         self.index
             .get_element(idx)
-            .to_vec()
+            .into_vec()
             .into_py_object(py)
             .into_object()
     }

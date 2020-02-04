@@ -32,7 +32,7 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
                 embeddings_path: String,
                 elements_path: String,
                 output_path: String,
-                show_progress: bool
+                show_progress: bool = true
             )
         ),
     )?;
@@ -57,7 +57,7 @@ pub fn py_compute_embeddings_and_save_to_disk(
     embeddings_path: String,
     elements_path: String,
     output_path: String,
-    show_progress: bool = true,
+    show_progress: bool
 ) -> PyResult<PyObject> {
     granne::embeddings::parsing::compute_embeddings_and_save_to_disk(
         &Path::new(&elements_path),
