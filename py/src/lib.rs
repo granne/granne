@@ -25,6 +25,19 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     m.add_class::<embeddings::Embeddings>(py)?;
     m.add(
         py,
+        "parse_elements_and_save_to_disk",
+        py_fn!(
+            py,
+            py_parse_elements_and_save_to_disk(
+                elements_path: String,
+                words_path: String,
+                output_path: String,
+                show_progress: bool = true
+            )
+        ),
+    )?;
+    m.add(
+        py,
         "compute_embeddings_and_save_to_disk",
         py_fn!(
             py,
@@ -39,25 +52,55 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     Ok(())
 });
 
+/// Parses XXXXXXXXXXXXXXX
+///
+/// Parameters
+/// ----------
+/// Required:
+/// elements_path : str
+///     Path to elements
+/// words_path: str
+///     Path to words
+/// output_path: str
+///     Path where to write the elements
+/// show_progress: bool
+///     Default: True
+pub fn py_parse_elements_and_save_to_disk(
+    py: Python,
+    elements_path: String,
+    words_path: String,
+    output_path: String,
+    show_progress: bool,
+) -> PyResult<PyObject> {
+    granne::embeddings::parsing::parse_elements_and_save_to_disk(
+        &Path::new(&elements_path),
+        &Path::new(&words_path),
+        &Path::new(&output_path),
+        show_progress,
+    );
+
+    Ok(py.None())
+}
+
 /// Precomputes embedding vectors
 ///
 /// Parameters
 /// ----------
 /// Required:
-/// embeddings_path: str
-///     Path to embeddings
 /// elements_path : str
 ///     Path to elements
+/// embeddings_path: str
+///     Path to embeddings
 /// output_path: str
 ///     Path where to write the vectors.
 /// show_progress: bool
 ///     Default: True
 pub fn py_compute_embeddings_and_save_to_disk(
     py: Python,
-    embeddings_path: String,
     elements_path: String,
+    embeddings_path: String,
     output_path: String,
-    show_progress: bool
+    show_progress: bool,
 ) -> PyResult<PyObject> {
     granne::embeddings::parsing::compute_embeddings_and_save_to_disk(
         &Path::new(&elements_path),
@@ -293,9 +336,9 @@ py_class!(class GranneBuilder |py| {
     /// expected_num_elements: int
     ///     Needs to be used when building before all elements have been inserted into the builder.
     /// num_neighbors: int
-    ///     The maximum number of neighbors per node and layer. (Default: 200)
+    ///     The maximum number of neighbors per node and layer (Default: 20).
     /// max_search: int
-    ///     The `max_search` parameter used during build time
+    ///     The `max_search` parameter used during build time (Default: 200).
     /// reinsert_elements: bool
     ///     Whether to reinsert all the elements in each layers. Takes more time, but improves recall. (Default: True)
     /// show_progress: bool

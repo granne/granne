@@ -65,12 +65,12 @@ impl WordDict {
     pub fn push(self: &mut Self, word: String) -> bool {
         match self.word_to_id.entry(word.clone()) {
             hash_map::Entry::Vacant(e) => e.insert(self.id_to_word.len()),
-            _ => return true,
+            _ => return false,
         };
 
         self.id_to_word.push(word);
 
-        false
+        true
     }
 
     pub fn write<B: Write>(self: &Self, buffer: &mut B) -> std::io::Result<()> {
