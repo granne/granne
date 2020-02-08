@@ -133,6 +133,22 @@ impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
 
         Self::Memory(offsets, Cow::Borrowed(data))
     }
+
+    pub fn into_owned(self: Self) -> CompressedVariableWidthSliceVector<'static, T> {
+        match self {
+            Self::File(mmap) => {
+                let (offsets, data) = Self::load_mmap(&mmap[..]);
+                CompressedVariableWidthSliceVector::Memory(
+                    offsets.into_owned(),
+                    Cow::Owned(data.to_vec()),
+                )
+            }
+            Self::Memory(offsets, data) => CompressedVariableWidthSliceVector::Memory(
+                offsets.into_owned(),
+                Cow::Owned(data.into_owned()),
+            ),
+        }
+    }
 }
 
 #[repr(C)]

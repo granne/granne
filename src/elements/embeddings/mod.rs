@@ -11,7 +11,7 @@ use std::io::{Result, Write};
 pub mod parsing;
 
 // todo: decide what to do with this one
-mod reorder;
+pub mod reorder;
 
 type Embeddings<'a> = FixedWidthSliceVector<'a, f32>;
 

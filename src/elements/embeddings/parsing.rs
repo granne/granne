@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
 use super::*;
-use crate::elements::angular;
+use crate::elements::angular_int;
 use crate::io::Writeable;
 
 use flate2;
@@ -144,12 +144,12 @@ pub fn compute_embeddings_and_save_to_disk(
     for i in 0..num_chunks {
         let chunk =
             (i * chunk_size..cmp::min((i + 1) * chunk_size, elements.len())).collect::<Vec<_>>();
-        let vectors_vec: Vec<angular::Vector> = chunk
+        let vectors_vec: Vec<angular_int::Vector> = chunk
             .par_iter()
             .map(|&i| elements.get_embedding(i).into())
             .collect();
 
-        let mut vectors = angular::Vectors::new();
+        let mut vectors = angular_int::Vectors::new();
 
         for v in vectors_vec {
             vectors.push(&v);

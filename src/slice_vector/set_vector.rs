@@ -80,6 +80,12 @@ impl<'a> MultiSetVector<'a> {
             data: self.data.borrow(),
         }
     }
+
+    pub fn into_owned(self: Self) -> MultiSetVector<'static> {
+        MultiSetVector {
+            data: self.data.into_owned(),
+        }
+    }
 }
 
 fn decode_into(encoded_data: &[u8], decoded_nums: &mut Vec<u32>) {

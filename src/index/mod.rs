@@ -77,10 +77,38 @@ for (r, rr) in res.iter().zip(&reordered_res) {
 # Ok(())
 # }
 ```
-*/
-pub struct Granne<'a, Elements: ElementContainer> {
-    layers: FileOrMemoryLayers<'a>, //Layers<'a>,
+ */
+pub struct Granne<'a, Elements> {
+    layers: FileOrMemoryLayers<'a>,
     elements: Elements,
+}
+
+impl<'a, Elements> Granne<'a, Elements> {
+    fn from_parts<L: Into<Layers<'a>>>(layers: L, elements: Elements) -> Self {
+        Self {
+            layers: FileOrMemoryLayers::Memory(layers.into()),
+            elements,
+        }
+    }
+}
+
+impl<'a, Elements> Granne<'a, &Elements>
+where
+    Elements: std::borrow::ToOwned,
+{
+    /// Creates an owned index from a borrowed one.
+    pub fn to_owned(self: &Self) -> Granne<'static, Elements::Owned> {
+        let layers = match self.layers.load() {
+            Layers::FixWidth(layers) => {
+                Layers::FixWidth(layers.into_iter().map(|layer| layer.into_owned()).collect())
+            }
+            Layers::Compressed(layers) => {
+                Layers::Compressed(layers.into_iter().map(|layer| layer.into_owned()).collect())
+            }
+        };
+
+        Granne::from_parts(layers, self.elements.to_owned())
+    }
 }
 
 /// This trait is implemented for any `Granne` and contains methods that are common for all element
@@ -144,7 +172,7 @@ impl<'a, Elements: ElementContainer> Index for Granne<'a, Elements> {
 }
 
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
-    /// Loads this index lazily.
+    /// Loads this index from bytes.
     pub fn from_bytes(index: &'a [u8], elements: Elements) -> Self {
         Self {
             layers: FileOrMemoryLayers::Memory(io::load_layers(index)),
@@ -204,36 +232,6 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
     }
 }
 
-/// Returns a vector with the id of the "closest" element in each layer.
-fn find_entrypoint_trail<Elements: ElementContainer>(
-    layers: &Layers,
-    elements: &Elements,
-    max_layer: usize,
-    element: &Elements::Element,
-) -> Vec<usize> {
-    fn _find_entrypoint_trail<Layer: Graph, Elements: ElementContainer>(
-        layers: &[Layer],
-        elements: &Elements,
-        max_layer: usize,
-        element: &Elements::Element,
-    ) -> Vec<usize> {
-        let mut eps = Vec::new();
-        eps.reserve(layers.len());
-        for layer in layers.iter().take(max_layer) {
-            let ep = *eps.last().unwrap_or(&0);
-            let max_search = if layer.len() < 10_000 { 5 } else { 10 };
-            let res = search_for_neighbors(layer, ep, elements, element, max_search);
-            eps.push(res[0].0);
-        }
-        eps
-    }
-
-    match layers {
-        Layers::FixWidth(layers) => _find_entrypoint_trail(layers, elements, max_layer, element),
-        Layers::Compressed(layers) => _find_entrypoint_trail(layers, elements, max_layer, element),
-    }
-}
-
 impl<'a, Elements: ElementContainer + crate::io::Writeable> Granne<'a, Elements> {
     /// Writes the elements of this index to `buffer`.
     pub fn write_elements<B: std::io::Write>(
@@ -241,85 +239,6 @@ impl<'a, Elements: ElementContainer + crate::io::Writeable> Granne<'a, Elements>
         buffer: &mut B,
     ) -> std::io::Result<usize> {
         self.elements.write(buffer)
-    }
-}
-
-impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
-    /// Reorders the elements in this index. Returns the permutation used for the
-    /// reordering. `permutation[i] == j`, means that the element with idx `j`, has
-    /// been moved to idx `i`.
-    pub fn reorder(self: &mut Self, show_progress: bool) -> Vec<usize> {
-        let mut order: Vec<usize> = (0..self.len()).collect();
-        let mut order_inv = vec![0; self.layer_len(self.num_layers() - 2)];
-
-        let start_time = time::Instant::now();
-        let progress_bar = if show_progress {
-            println!("Computing ordering...");
-
-            Some(parking_lot::Mutex::new(pbr::ProgressBar::new(
-                self.len() as u64
-            )))
-        } else {
-            None
-        };
-
-        let step_size = cmp::max(100, self.len() / 400);
-        for layer in 1..self.num_layers() {
-            let eps: Vec<_> = (self.layer_len(layer - 1)..self.layer_len(layer))
-                .into_par_iter()
-                .map(|idx| {
-                    if idx % step_size == 0 {
-                        progress_bar
-                            .as_ref()
-                            .map(|pb| pb.lock().add(step_size as u64));
-                    }
-
-                    let mut eps = find_entrypoint_trail(
-                        &self.layers.load(),
-                        &self.elements,
-                        layer,
-                        &self.get_element(idx),
-                    );
-                    eps.iter_mut().for_each(|i| *i = order_inv[*i]);
-
-                    eps
-                })
-                .collect();
-
-            order[self.layer_len(layer - 1)..self.layer_len(layer)]
-                .par_sort_by_key(|idx| &eps[idx - self.layer_len(layer - 1)]);
-
-            if layer < self.num_layers() - 1 {
-                for i in self.layer_len(layer - 1)..self.layer_len(layer) {
-                    order_inv[order[i]] = i;
-                }
-            }
-        }
-
-        progress_bar.map(|pb| pb.lock().set(self.len() as u64));
-
-        if show_progress {
-            println!("Ordering computed!");
-            println!("Reordering index...");
-        }
-
-        self.layers = FileOrMemoryLayers::Memory(reorder::reorder_layers(
-            &self.layers.load(),
-            &order,
-            show_progress,
-        ));
-
-        if show_progress {
-            println!("Reordering elements...");
-        }
-
-        self.elements.permute(&order);
-
-        if show_progress {
-            println!("Total time: {} s", start_time.elapsed().as_secs());
-        }
-
-        order
     }
 }
 
@@ -621,7 +540,7 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
     /// ```
     /// # use granne::*;
     /// # let elements: angular::Vectors = test_helper::random_vectors(3, 1000);
-    /// # let element = elements.get(123);
+    /// # let element = elements.get_element(123).into_owned();
     /// # let max_search = 10; let num_neighbors = 20;
     /// let mut builder = GranneBuilder::new(BuildConfig::default(), elements);
     /// builder.build();
@@ -1139,13 +1058,6 @@ impl<Elements: ElementContainer + Sync> GranneBuilder<Elements> {
 }
 
 impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
-    fn from_parts<L: Into<Layers<'a>>>(layers: L, elements: Elements) -> Self {
-        Self {
-            layers: FileOrMemoryLayers::Memory(layers.into()),
-            elements,
-        }
-    }
-
     fn search_internal(
         self: &Self,
         layers: &[impl Graph],
