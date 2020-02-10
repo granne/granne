@@ -1,7 +1,0 @@
-output_file = "index.granne"
-vectors_output_file = "vectors.bin"
-dimension = 100
-scalar = "f32"
-num_layers = 6
-max_search = 200
-num_build_chunks = 1

@@ -1,98 +1,50 @@
 #[macro_use]
 extern crate cpython;
 
-extern crate granne;
-extern crate madvise;
-extern crate memmap;
-extern crate rayon;
-extern crate serde_json;
-
 use cpython::{PyObject, PyResult, Python};
-use granne::Search;
-use madvise::{AccessPattern, AdviseMemory};
-use memmap::Mmap;
-use rayon::prelude::*;
+use granne::{self, Index};
 use std::cell::RefCell;
-use std::fs::File;
-use std::io::BufReader;
+use std::path::Path;
 
-mod query_embeddings;
-use query_embeddings::{
-    py_compress_index, py_compute_query_vectors_and_save_to_disk, py_parse_queries_and_save_to_disk,
-};
+mod embeddings;
+mod variants;
 
-const DEFAULT_NUM_NEIGHBORS: usize = 20;
+use variants::WordDict;
+
 const DEFAULT_MAX_SEARCH: usize = 200;
-
-pub enum DTYPE {
-    F32,
-    I8,
-}
-
-impl DTYPE {
-    fn default() -> DTYPE {
-        DTYPE::F32
-    }
-
-    fn from_str(s: &str) -> DTYPE {
-        match s {
-            "f32" | "F32" => DTYPE::F32,
-            "i8" | "I8" => DTYPE::I8,
-            _ => panic!("Invalid dtype"),
-        }
-    }
-}
-
-impl<'source> cpython::FromPyObject<'source> for DTYPE {
-    fn extract(py: Python, obj: &'source PyObject) -> PyResult<Self> {
-        let dtype_string: String = String::extract(py, obj)?;
-
-        Ok(DTYPE::from_str(&dtype_string))
-    }
-}
+const DEFAULT_NUM_ELEMENTS: usize = 10;
 
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     m.add(
         py,
         "__doc__",
-        "granne - Graph-based Retrieval of Approximate Nearest Neighbors",
+        "Graph-based Retrieval of Approximate Nearest Neighbors",
     )?;
-    m.add_class::<Hnsw>(py)?;
-    m.add_class::<ShardedHnsw>(py)?;
-    m.add_class::<HnswBuilder>(py)?;
-    m.add_class::<query_embeddings::Embeddings>(py)?;
-    m.add_class::<query_embeddings::QueryHnsw>(py)?;
-    m.add_class::<query_embeddings::QueryHnswBuilder>(py)?;
+    m.add_class::<Granne>(py)?;
+    m.add_class::<GranneBuilder>(py)?;
+    m.add_class::<embeddings::Embeddings>(py)?;
     m.add(
         py,
-        "compress_index",
-        py_fn!(py, py_compress_index(input_path: String, output_path: String)),
-    )?;
-    m.add(
-        py,
-        "parse_queries_and_save_to_disk",
+        "parse_elements_and_save_to_disk",
         py_fn!(
             py,
-            py_parse_queries_and_save_to_disk(
-                queries_path: String,
+            py_parse_elements_and_save_to_disk(
+                elements_path: String,
                 words_path: String,
                 output_path: String,
-                num_shards: usize = 1,
                 show_progress: bool = true
             )
         ),
     )?;
     m.add(
         py,
-        "compute_query_vectors_and_save_to_disk",
+        "compute_embeddings_and_save_to_disk",
         py_fn!(
             py,
-            py_compute_query_vectors_and_save_to_disk(
-                dimension: usize,
-                queries_path: String,
-                word_embeddings_path: String,
+            py_compute_embeddings_and_save_to_disk(
+                embeddings_path: String,
+                elements_path: String,
                 output_path: String,
-                dtype: DTYPE = DTYPE::default(),
                 show_progress: bool = true
             )
         ),
@@ -100,448 +52,602 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     Ok(())
 });
 
-py_class!(class Hnsw |py| {
-    data index: memmap::Mmap;
-    data elements: memmap::Mmap;
-    data dimension: usize;
+/// Parses XXXXXXXXXXXXXXX
+///
+/// Parameters
+/// ----------
+/// Required:
+/// elements_path : str
+///     Path to elements
+/// words_path: str
+///     Path to words
+/// output_path: str
+///     Path where to write the elements
+/// show_progress: bool
+///     Default: True
+pub fn py_parse_elements_and_save_to_disk(
+    py: Python,
+    elements_path: String,
+    words_path: String,
+    output_path: String,
+    show_progress: bool,
+) -> PyResult<PyObject> {
+    granne::embeddings::parsing::parse_elements_and_save_to_disk(
+        &Path::new(&elements_path),
+        &Path::new(&words_path),
+        &Path::new(&output_path),
+        show_progress,
+    );
+
+    Ok(py.None())
+}
+
+/// Precomputes embedding vectors
+///
+/// Parameters
+/// ----------
+/// Required:
+/// elements_path : str
+///     Path to elements
+/// embeddings_path: str
+///     Path to embeddings
+/// output_path: str
+///     Path where to write the vectors.
+/// show_progress: bool
+///     Default: True
+pub fn py_compute_embeddings_and_save_to_disk(
+    py: Python,
+    elements_path: String,
+    embeddings_path: String,
+    output_path: String,
+    show_progress: bool,
+) -> PyResult<PyObject> {
+    granne::embeddings::parsing::compute_embeddings_and_save_to_disk(
+        &Path::new(&elements_path),
+        &Path::new(&embeddings_path),
+        &Path::new(&output_path),
+        show_progress,
+    );
+
+    Ok(py.None())
+}
+
+py_class!(class Granne |py| {
+    data index: RefCell<Box<dyn PyGranne + Send + Sync>>;
+
+    // Required since rust-cpython cannot add docs for "special" functions
+    /// Note: This is the documentation for the `__new__` method:
+    /// Constructs a new Granne index from file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// index_path: str
+    ///     Path to existing index
+    /// element_type : str
+    ///     Type of element (angular, angular_int or embeddings)
+    /// elements_path: str
+    ///     Path to elements
+    ///
+    /// Optional (Required if `element_type == "embeddings"`):
+    /// embeddings_path: str
+    ///     Path to embeddings
+    /// words_path: str
+    ///     Path to words
+    ///
+    @classmethod
+    def __init__(_cls) -> PyResult<PyObject> { Ok(py.None()) }
 
     def __new__(_cls,
                 index_path: &str,
+                element_type: String,
                 elements_path: &str,
-                dimension: usize) -> PyResult<Hnsw> {
+                embeddings_path: Option<String> = None,
+                words_path: Option<String> = None
+    ) -> PyResult<Granne> {
 
-        let index = File::open(index_path).unwrap();
-        let index = unsafe { Mmap::map(&index).unwrap() };
-        index.advise_memory_access(AccessPattern::Random).expect("Error with madvise");
+        let index = std::fs::File::open(index_path).expect("Could not open index file");
+        let elements = std::fs::File::open(elements_path).expect("Could not open elements file");
 
-        let elements = File::open(elements_path).unwrap();
-        let elements = unsafe { Mmap::map(&elements).unwrap() };
-        elements.advise_memory_access(AccessPattern::Random).expect("Error with madvise");
+        let index: Box<dyn PyGranne + Send + Sync> = match element_type.to_ascii_lowercase().as_str() {
+            "angular" => Box::new(
+                unsafe { granne::Granne::from_file(
+                    &index,
+                    granne::angular::Vectors::from_file(&elements).expect("Could not load elements."),
+                ).expect("Could not load index.") },
+            ),
+            "angular_int" => Box::new(
+                unsafe { granne::Granne::from_file(
+                    &index,
+                    granne::angular_int::Vectors::from_file(&elements).expect("Could not load elements."),
+                ).expect("Could not load index.") },
+            ),
+            "embeddings" => Box::new(variants::index::WordEmbeddingsGranne::new(
+                &index,
+                &elements,
+                &std::fs::File::open(
+                    embeddings_path.expect("embeddings_path required for this element type!")
+                ).expect("Could not open embeddings file."),
+                &words_path.expect("words_path required for this element type!"),
+            )),
+            _ => panic!("Invalid element type"),
+        };
 
-        {
-            let elements = granne::AngularVectors::load(dimension, &elements[..]);
-            let _: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
-                &index[..], &elements
-            );
-        }
-
-        Hnsw::create_instance(py, index, elements, dimension)
+        Granne::create_instance(py, RefCell::new(index))
     }
 
+    /// Searches for nearest neighbors to an element. The type of element depends on the element type of this index.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// element: array or str
+    ///     Search for nearest neighbors to this element.
+    ///
+    /// Optional:
+    /// max_search: int
+    ///     `max_search` parameter to use during the search.
+    /// num_elements: int
+    ///     Maximum number of neighbors to return.
+    ///
     def search(&self,
-               element: Vec<f32>,
-               num_elements: usize = DEFAULT_NUM_NEIGHBORS,
-               max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
+               element: &PyObject,
+               max_search: usize = DEFAULT_MAX_SEARCH,
+               num_elements: usize = DEFAULT_NUM_ELEMENTS) -> PyResult<Vec<(usize, f32)>>
     {
-        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
-        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
-            self.index(py), &elements
-        );
-
-        Ok(index.search(&element.into(), num_elements, max_search))
+        self.index(py).borrow().search(py, element, max_search, num_elements)
     }
 
-    def search_batch(&self,
-                     elements: Vec<Vec<f32>>,
-                     num_elements: usize = DEFAULT_NUM_NEIGHBORS,
-                     max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<Vec<(usize, f32)>>>
-    {
-        let _elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
-        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
-            self.index(py), &_elements
-        );
-
-        Ok(elements
-           .into_par_iter()
-           .map(|element| index.search(&element.into_iter().collect(), num_elements, max_search))
-           .collect()
-        )
+    /// Returns the element at index idx.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
+    def get_element(&self, idx: usize) -> PyResult<PyObject> {
+        Ok(self.index(py).borrow().get_element(py, idx))
     }
 
-    def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
-        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
-            self.index(py), &elements
-        );
+    /// Returns the internal element at index idx (may be the same as the element at idx).
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
+    def get_internal_element(&self, idx: usize) -> PyResult<PyObject> {
+        Ok(self.index(py).borrow().get_internal_element(py, idx))
+    }
 
-        Ok(index.get_element(idx).into())
+    /// Returns the neighbors of the element at idx in layer (default: last layer) in the HNSW graph.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
+    /// Optional:
+    /// layer: int
+    ///     Index of layer. Defaults to last layer.
+    def get_neighbors(&self, idx: usize, layer: Option<usize> = None) -> PyResult<Vec<usize>> {
+        if let Some(layer) = layer {
+            Ok(self.index(py).borrow().as_index().get_neighbors(idx, layer))
+        } else {
+            let index = self.index(py).borrow();
+            let index = index.as_index();
+            Ok(index.get_neighbors(idx, index.num_layers() - 1))
+        }
     }
 
     def __len__(&self) -> PyResult<usize> {
-        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
-        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
-            self.index(py), &elements
-        );
-
-        Ok(index.len())
+        Ok(self.index(py).borrow().as_index().len())
     }
 
-    def get_neighbors(&self, idx: usize, layer: usize) -> PyResult<Vec<usize>> {
-        let elements = granne::AngularVectors::load(*self.dimension(py), self.elements(py));
-        let index: granne::Hnsw<granne::AngularVectors, granne::AngularVector> = granne::Hnsw::load(
-            self.index(py), &elements
-        );
+    /// Returns the number of layers in this index..
+    def num_layers(&self) -> PyResult<usize> {
+        Ok(self.index(py).borrow().as_index().num_layers())
+    }
 
-        Ok(index.get_neighbors(idx, layer))
+    /// Returns the number of elements in layer.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// layer: int
+    ///     Index of layer.
+    ///
+    def layer_len(&self, layer: usize) -> PyResult<usize> {
+        Ok(self.index(py).borrow().as_index().layer_len(layer))
+    }
+
+    /// Tries to reorder the nodes and elements of this index inder order to achieve better cache locality.
+    /// Returns a mapping from new to old, i.e., order[i] == j, means that the node/element at index j was
+    /// moved to index i.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// show_progress: bool
+    ///     Default: True
+    ///
+    def reorder(&self, show_progress: bool = true) -> PyResult<Vec<usize>> {
+        let order = self.index(py).borrow_mut().reorder(show_progress);
+
+        Ok(order)
+    }
+
+    /// Saves the index to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save index
+    ///
+    def save_index(&self, path: &str) -> PyResult<PyObject> {
+        self.index(py).borrow().save_index(path).expect(&format!("Could not save index to {}", path));
+
+        Ok(py.None())
+    }
+
+    /// Saves the elements to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save elements
+    ///
+    def save_elements(&self, path: &str) -> PyResult<PyObject> {
+        self.index(py).borrow().save_elements(path).expect(&format!("Could not save elements to {}", path));
+
+        Ok(py.None())
     }
 });
 
-py_class!(class ShardedHnsw |py| {
-    data shards: Vec<(memmap::Mmap, memmap::Mmap)>;
+py_class!(class GranneBuilder |py| {
+    data builder: RefCell<Box<dyn PyGranneBuilder + Send + Sync>>;
+
+    // Required since rust-cpython cannot add docs for "special" functions
+    /// Note: This is the documentation for the `__new__` method:
+    /// A new GranneBuilder is constructed with the following parameters:
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// element_type : str
+    ///     Type of element (angular, angular_int or embeddings)
+    ///
+    /// Optional (use keywords to specify optional parameters):
+    /// elements_path: str
+    ///     Path to elements
+    /// embeddings_path: str
+    ///     Path to embeddings
+    /// words_path: str
+    ///     Path to words (Required if `embeddings_path` was provided.)
+    /// index_path: str
+    ///     Path to existing index
+    /// layer_multiplier: f32
+    ///     Each layer includes `layer_multiplier` times more elements than the previous layer. (Default: 15.0)
+    /// expected_num_elements: int
+    ///     Needs to be used when building before all elements have been inserted into the builder.
+    /// num_neighbors: int
+    ///     The maximum number of neighbors per node and layer (Default: 20).
+    /// max_search: int
+    ///     The `max_search` parameter used during build time (Default: 200).
+    /// reinsert_elements: bool
+    ///     Whether to reinsert all the elements in each layers. Takes more time, but improves recall. (Default: True)
+    /// show_progress: bool
+    ///     Whether to output progress information to STDOUT while building. (Default: True)
+    ///
+    @classmethod
+    def __init__(_cls) -> PyResult<PyObject> { Ok(py.None()) }
 
     def __new__(_cls,
-                index_paths: Vec<String>,
-                elements_paths: Vec<String>) -> PyResult<ShardedHnsw> {
+                element_type: String,
+                elements_path: Option<String> = None,
+                embeddings_path: Option<String> = None,
+                words_path: Option<String> = None,
+                index_path: Option<String> = None,
+                layer_multiplier: Option<f32> = None,
+                expected_num_elements: Option<usize> = None,
+                num_neighbors: Option<usize> = None,
+                max_search: Option<usize> = None,
+                reinsert_elements: bool = true,
+                show_progress: bool = true) -> PyResult<GranneBuilder> {
 
-        let mmaps = index_paths.iter()
-            .zip(elements_paths.iter())
-            .map(&|(index_path, elements_path)| {
-                let index = File::open(index_path).unwrap();
-                let index = unsafe { Mmap::map(&index).unwrap() };
+        let mut config = granne::BuildConfig::default()
+            .show_progress(show_progress)
+            .reinsert_elements(reinsert_elements);
 
-                let elements = File::open(elements_path).unwrap();
-                let elements = unsafe { Mmap::map(&elements).unwrap() };
+        // some unnecessary clones
+        config = layer_multiplier.map_or(config.clone(), |x| config.layer_multiplier(x));
+        config = expected_num_elements.map_or(config.clone(), |x| config.expected_num_elements(x));
+        config = num_neighbors.map_or(config.clone(), |x| config.num_neighbors(x));
+        config = max_search.map_or(config.clone(), |x| config.max_search(x));
 
-                (index, elements)
-            }).collect();
+        let index = index_path
+            .map(|path| std::fs::File::open(path).expect("Could not open index file"));
+        let elements = elements_path
+            .map(|path| std::fs::File::open(path).expect("Could not open elements file"));
 
-        ShardedHnsw::create_instance(py, mmaps)
+        let builder: Box<dyn PyGranneBuilder + Send + Sync> = match (
+            index.as_ref(),
+            elements.as_ref(),
+            element_type.to_ascii_lowercase().as_str(),
+        ) {
+            (None, None, "angular") => Box::new(granne::GranneBuilder::new(
+                config,
+                granne::angular::Vectors::new(),
+            )),
+            (None, Some(elements), "angular") => Box::new(granne::GranneBuilder::new(
+                config,
+                unsafe { granne::angular::Vectors::from_file(elements).unwrap() },
+            )),
+            (Some(index), Some(elements), "angular") => Box::new(granne::GranneBuilder::from_file(
+                config,
+                index,
+                unsafe { granne::angular::Vectors::from_file(elements).unwrap() },
+            ).expect("Could not read index!")),
+            (None, None, "angular_int") => Box::new(granne::GranneBuilder::new(
+                config,
+                granne::angular_int::Vectors::new(),
+            )),
+            (None, Some(elements), "angular_int") => Box::new(granne::GranneBuilder::new(
+                config,
+                unsafe { granne::angular_int::Vectors::from_file(elements).unwrap() },
+            )),
+            (Some(index), Some(elements), "angular_int") => Box::new(granne::GranneBuilder::from_file(
+                config,
+                index,
+                unsafe { granne::angular_int::Vectors::from_file(elements).unwrap() },
+            ).expect("Could not read index!")),
+            (index, Some(elements), "embeddings") => {
+                Box::new(variants::builder::WordEmbeddingsBuilder::new(
+                    config,
+                    elements,
+                    &std::fs::File::open(
+                        embeddings_path.expect("embeddings_path required for this element type!")
+                    ).expect("Could not open embeddings file"),
+                    &words_path.expect("words_path required for this element type!"),
+                    index,
+                ))
+            }
+            _ => panic!(),
+        };
+
+        GranneBuilder::create_instance(py, RefCell::new(builder))
     }
 
+/*
+    def get_element(&self, idx: usize) -> PyResult<PyObject> {
+        Ok(self.builder(py).borrow().get_index().get_element(py, idx))
+    }
+     */
+
+    /// Append one element to this builder. Note: the element will not be indexed until GranneBuilder.build() is called.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// element: array or str
+    ///     Append this element to the builder.
+    ///
+    def append(&self, element: &PyObject) -> PyResult<PyObject> {
+        self.builder(py).borrow_mut().push(py, element)
+    }
+
+    /// Builds an index with the first num_elements elements (or all if not specified).
+    ///
+    /// Parameters
+    /// ----------
+    /// Optional:
+    /// num_elements: int
+    ///     Number of elements to index (Default: all).
+    ///
+    def build(&self, num_elements: usize = <usize>::max_value()) -> PyResult<PyObject> {
+        if num_elements == usize::max_value() {
+            self.builder(py).borrow_mut().as_mut_builder().build();
+        } else {
+            self.builder(py).borrow_mut().as_mut_builder().build_partial(num_elements);
+        }
+
+        Ok(py.None())
+    }
+
+    /// Saves the index to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save index
+    ///
+    def save_index(&self, path: &str) -> PyResult<PyObject> {
+        self.builder(py).borrow().save_index(path).expect(&format!("Could not save index to {}", path));
+
+        Ok(py.None())
+    }
+
+    /// Saves the elements to a file.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// path: str
+    ///     Path where to save elements
+    ///
+    def save_elements(&self, path: &str) -> PyResult<PyObject> {
+        self.builder(py).borrow().save_elements(path).expect(&format!("Could not save elements to {}", path));
+
+        Ok(py.None())
+    }
+/*
     def search(&self,
-               element: Vec<f32>,
+               element: &PyObject,
                num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
                max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
     {
-        let index_elements = self.shards(py).iter().map(|&(ref a, ref b)| (a, granne::AngularVectors::load(100, &b[..]))).collect::<Vec<_>>();
-        let index: granne::ShardedHnsw<granne::AngularVectors, granne::AngularVector> = granne::ShardedHnsw::new(
-            &index_elements.iter().map(|&(ref a, ref b)| (&a[..], b)).collect::<Vec<_>>()[..]
-        );
-
-        Ok(index.search(
-            &element.into(), num_neighbors, max_search))
+        self.builder(py).borrow().get_index().search(py, element, num_neighbors, max_search)
     }
+     */
 
-    def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-
-        let index_elements = self.shards(py).iter().map(|&(ref a, ref b)| (a, granne::AngularVectors::load(100, &b[..]))).collect::<Vec<_>>();
-        let index: granne::ShardedHnsw<granne::AngularVectors, granne::AngularVector> = granne::ShardedHnsw::new(
-            &index_elements.iter().map(|&(ref a, ref b)| (&a[..], b)).collect::<Vec<_>>()[..]
-        );
-
-        Ok(index.get_element(idx).into())
+    /// Returns the neighbors of the element at idx in layer in the HNSW graph.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// idx: int
+    ///     Index of the node of interest.
+    ///
+    /// Optional:
+    /// layer: int
+    ///     Index of layer. Defaults to last layer.
+    def get_neighbors(&self, idx: usize, layer: Option<usize> = None) -> PyResult<Vec<usize>> {
+        if let Some(layer) = layer {
+            Ok(self.builder(py).borrow().as_index().get_neighbors(idx, layer))
+        } else {
+            let index = self.builder(py).borrow();
+            let index = index.as_index();
+            Ok(index.get_neighbors(idx, index.num_layers() - 1))
+        }
     }
 
     def __len__(&self) -> PyResult<usize> {
-        let index_elements = self.shards(py).iter().map(|&(ref a, ref b)| (a, granne::AngularVectors::load(100, &b[..]))).collect::<Vec<_>>();
-        let index: granne::ShardedHnsw<granne::AngularVectors, granne::AngularVector> = granne::ShardedHnsw::new(
-            &index_elements.iter().map(|&(ref a, ref b)| (&a[..], b)).collect::<Vec<_>>()[..]
-        );
-
-        Ok(index.len())
+        Ok(self.builder(py).borrow().as_index().len())
     }
 
+    /// Returns the number of elements in this builder.
+    def num_elements(&self) -> PyResult<usize> {
+        Ok(self.builder(py).borrow().as_builder().num_elements())
+    }
+
+    /// Returns the number of layers in this index..
+    def num_layers(&self) -> PyResult<usize> {
+        Ok(self.builder(py).borrow().as_index().num_layers())
+    }
+
+    /// Returns the number of elements in layer.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// layer: int
+    ///     Index of layer.
+    ///
+    def layer_len(&self, layer: usize) -> PyResult<usize> {
+        Ok(self.builder(py).borrow().as_index().layer_len(layer))
+    }
 });
 
-enum BuilderType {
-    AngularVectorBuilder(granne::HnswBuilder<'static, granne::AngularVectors<'static>, granne::AngularVector<'static>>),
-    AngularIntVectorBuilder(
-        granne::HnswBuilder<'static, granne::AngularIntVectors<'static>, granne::AngularIntVector<'static>>,
-    ),
-    MmapAngularVectorBuilder(granne::HnswBuilder<'static, granne::MmapAngularVectors, granne::AngularVector<'static>>),
-    MmapAngularIntVectorBuilder(
-        granne::HnswBuilder<'static, granne::MmapAngularIntVectors, granne::AngularIntVector<'static>>,
-    ),
+trait AsIndex {
+    fn as_index(self: &Self) -> &dyn granne::Index;
+    fn as_mut_index(self: &mut Self) -> &mut dyn granne::Index;
 }
 
-py_class!(class HnswBuilder |py| {
-    data builder: RefCell<BuilderType>;
-
-    def __new__(_cls,
-                num_layers: usize,
-                num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
-                max_search: usize = DEFAULT_MAX_SEARCH,
-                dtype: DTYPE = DTYPE::default(),
-                reinsert_elements: bool = true,
-                expected_size: usize = 0,
-                show_progress: bool = true) -> PyResult<HnswBuilder> {
-
-        let config = granne::Config {
-            num_layers: num_layers,
-            num_neighbors: num_neighbors,
-            max_search: max_search,
-            reinsert_elements: reinsert_elements,
-            show_progress: show_progress
-        };
-
-        match dtype {
-            DTYPE::I8 => {
-                let builder = if expected_size == 0 {
-                    granne::HnswBuilder::new(config)
-                } else {
-                    granne::HnswBuilder::with_expected_size(config, expected_size)
-                };
-
-                return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularIntVectorBuilder(builder)))
-            },
-            DTYPE::F32 => {
-                let builder = if expected_size == 0 {
-                    granne::HnswBuilder::new(config)
-                } else {
-                    granne::HnswBuilder::with_expected_size(config, expected_size)
-                };
-
-                return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularVectorBuilder(builder)))
-            }
-        }
+impl<'a, Elements: granne::ElementContainer> AsIndex for granne::Granne<'a, Elements> {
+    fn as_index(self: &Self) -> &dyn granne::Index {
+        self
     }
 
-    @classmethod
-    def with_owned_elements(
-        _cls,
-        dimension: usize,
-        num_layers: usize,
-        elements_path: &str,
-        index_path: Option<String> = None,
-        num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
-        max_search: usize = DEFAULT_MAX_SEARCH,
-        dtype: DTYPE = DTYPE::default(),
-        reinsert_elements: bool = true,
-        show_progress: bool = true) -> PyResult<HnswBuilder>
-    {
-        let elements = File::open(elements_path).expect("Could not open elements file");
-        let elements = unsafe { Mmap::map(&elements).unwrap() };
+    fn as_mut_index(self: &mut Self) -> &mut dyn granne::Index {
+        self
+    }
+}
 
+trait Reorder {
+    fn reorder(self: &mut Self, _show_progress: bool) -> Vec<usize> {
+        unimplemented!()
+    }
+}
 
-        let config = granne::Config {
-            num_layers: num_layers,
-            num_neighbors: num_neighbors,
-            max_search: max_search,
-            reinsert_elements: reinsert_elements,
-            show_progress: show_progress
-        };
+impl<'a, Elements: granne::ElementContainer + granne::Permutable + Sync> Reorder
+    for granne::Granne<'a, Elements>
+{
+    fn reorder(self: &mut Self, show_progress: bool) -> Vec<usize> {
+        granne::Granne::reorder(self, show_progress)
+    }
+}
 
-        match dtype {
-            DTYPE::I8 => {
-                let elements = granne::AngularIntVectors::from_vec(dimension, granne::file_io::load(&elements).to_vec());
+trait PyGranne: AsIndex + Reorder + SaveIndex {
+    fn search(
+        self: &Self,
+        py: Python,
+        element: &PyObject,
+        max_search: usize,
+        num_elements: usize,
+    ) -> PyResult<Vec<(usize, f32)>>;
+    fn get_element(self: &Self, py: Python, idx: usize) -> PyObject;
+    fn get_internal_element(self: &Self, py: Python, idx: usize) -> PyObject {
+        self.get_element(py, idx)
+    }
+}
 
-                let builder = if let Some(index_path) = index_path {
-                    let index_file = File::open(index_path).expect("Could not open index file");
-                    let mut index_file = BufReader::new(index_file);
+trait SaveIndex {
+    fn save_index(self: &Self, path: &str) -> std::io::Result<()>;
 
-                    granne::HnswBuilder::read_index_with_owned_elements(
-                        config.clone(),
-                        &mut index_file,
-                        elements).expect("Could not read index")
+    fn save_elements(self: &Self, path: &str) -> std::io::Result<()>;
+}
 
-                } else {
-                    granne::HnswBuilder::with_owned_elements(
-                        config.clone(),
-                        elements)
-                };
-
-                return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularIntVectorBuilder(builder)))
-            },
-            DTYPE::F32 => {
-                let elements = granne::AngularVectors::from_vec(dimension, granne::file_io::load(&elements).to_vec());
-
-                let builder = if let Some(index_path) = index_path {
-                    let index_file = File::open(index_path).expect("Could not open index file");
-                    let mut index_file = BufReader::new(index_file);
-
-                    granne::HnswBuilder::read_index_with_owned_elements(
-                        config.clone(),
-                        &mut index_file,
-                        elements).expect("Could not read index")
-
-                } else {
-                    granne::HnswBuilder::with_owned_elements(
-                        config.clone(),
-                        elements)
-                };
-
-                return HnswBuilder::create_instance(py, RefCell::new(BuilderType::AngularVectorBuilder(builder)))
-            }
-        }
+impl<'a, Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex
+    for granne::Granne<'a, Elements>
+{
+    fn save_index(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.write_index(&mut file)
     }
 
-    @classmethod
-    def with_mmapped_elements(
-        _cls,
-        dimension: usize,
-        num_layers: usize,
-        elements_path: &str,
-        index_path: Option<String> = None,
-        num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
-        max_search: usize = DEFAULT_MAX_SEARCH,
-        dtype: DTYPE = DTYPE::default(),
-        reinsert_elements: bool = true,
-        show_progress: bool = true) -> PyResult<HnswBuilder>
-    {
-        let config = granne::Config {
-            num_layers: num_layers,
-            num_neighbors: num_neighbors,
-            max_search: max_search,
-            reinsert_elements: reinsert_elements,
-            show_progress: show_progress
-        };
+    fn save_elements(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.write_elements(&mut file).map(|_| {})
+    }
+}
 
-        match dtype {
-            DTYPE::I8 => {
-                let elements = granne::MmapAngularIntVectors::new(elements_path, dimension);
-
-                let builder = if let Some(index_path) = index_path {
-                    let index_file = File::open(index_path).expect("Could not open index file");
-                    let mut index_file = BufReader::new(index_file);
-
-                    granne::HnswBuilder::read_index_with_owned_elements(config, &mut index_file, elements).expect("Could not read index")
-                } else {
-                    granne::HnswBuilder::with_owned_elements(config, elements)
-                };
-
-                return HnswBuilder::create_instance(py, RefCell::new(BuilderType::MmapAngularIntVectorBuilder(builder)))
-            }
-            DTYPE::F32 => {
-                let elements = granne::MmapAngularVectors::new(elements_path, dimension);
-
-                let builder = if let Some(index_path) = index_path {
-                    let index_file = File::open(index_path).expect("Could not open index file");
-                    let mut index_file = BufReader::new(index_file);
-
-                    granne::HnswBuilder::read_index_with_owned_elements(config, &mut index_file, elements).expect("Could not read index")
-                } else {
-                    granne::HnswBuilder::with_owned_elements(config, elements)
-                };
-
-                return HnswBuilder::create_instance(py, RefCell::new(BuilderType::MmapAngularVectorBuilder(builder)))
-            }
-        }
+impl<Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex
+    for granne::GranneBuilder<Elements>
+{
+    fn save_index(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.write_index(&mut file)
     }
 
-    def add(&self, element: Vec<f32>) -> PyResult<PyObject> {
-        match *self.builder(py).borrow_mut() {
-            BuilderType::AngularVectorBuilder(ref mut builder) => {
-                let element = granne::AngularVector::from(element);
-                builder.append(element);
-            },
-            BuilderType::AngularIntVectorBuilder(ref mut builder) => {
-                let element = granne::AngularIntVector::from(element);
-                builder.append(element);
-            },
-            _ => panic!("Cannot add element to mmapped builder")
-        }
+    fn save_elements(self: &Self, path: &str) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.write_elements(&mut file).map(|_| {})
+    }
+}
 
-        Ok(py.None())
+trait AsBuilder {
+    fn as_builder(self: &Self) -> &dyn granne::Builder;
+    fn as_mut_builder(self: &mut Self) -> &mut dyn granne::Builder;
+}
+
+impl<Elements: granne::ElementContainer + Sync> AsBuilder for granne::GranneBuilder<Elements> {
+    fn as_builder(self: &Self) -> &dyn granne::Builder {
+        self
     }
 
-    def __len__(&self) -> PyResult<usize> {
-        match *self.builder(py).borrow() {
-            BuilderType::AngularVectorBuilder(ref builder) => Ok(builder.len()),
-            BuilderType::AngularIntVectorBuilder(ref builder) => Ok(builder.len()),
-            BuilderType::MmapAngularVectorBuilder(ref builder) => Ok(builder.len()),
-            BuilderType::MmapAngularIntVectorBuilder(ref builder) => Ok(builder.len()),
-        }
+    fn as_mut_builder(self: &mut Self) -> &mut dyn granne::Builder {
+        self
+    }
+}
+
+impl<Elements: granne::ElementContainer + Sync> AsIndex for granne::GranneBuilder<Elements> {
+    fn as_index(self: &Self) -> &dyn granne::Index {
+        self
     }
 
-    def indexed_elements(&self) -> PyResult<usize> {
-        match *self.builder(py).borrow() {
-            BuilderType::AngularVectorBuilder(ref builder) => Ok(builder.indexed_elements()),
-            BuilderType::AngularIntVectorBuilder(ref builder) => Ok(builder.indexed_elements()),
-            BuilderType::MmapAngularVectorBuilder(ref builder) => Ok(builder.indexed_elements()),
-            BuilderType::MmapAngularIntVectorBuilder(ref builder) => Ok(builder.indexed_elements()),
-        }
+    fn as_mut_index(self: &mut Self) -> &mut dyn granne::Index {
+        self
     }
+}
 
-    def __getitem__(&self, idx: usize) -> PyResult<Vec<f32>> {
-        match *self.builder(py).borrow() {
-            BuilderType::AngularVectorBuilder(ref builder) => Ok(builder.get_index().get_element(idx).into()),
-            BuilderType::AngularIntVectorBuilder(ref builder) => Ok(builder.get_index().get_element(idx).into()),
-            BuilderType::MmapAngularVectorBuilder(ref builder) => Ok(builder.get_index().get_element(idx).into()),
-            BuilderType::MmapAngularIntVectorBuilder(ref builder) => Ok(builder.get_index().get_element(idx).into()),
-        }
+trait PyGranneBuilder: AsBuilder + AsIndex + SaveIndex {
+    fn push(self: &mut Self, _py: Python, _element: &PyObject) -> PyResult<PyObject> {
+        panic!("Not possible with this builder type!");
     }
-
-
-    def build_index(&self, num_elements: usize = <usize>::max_value()) -> PyResult<PyObject> {
-        match *self.builder(py).borrow_mut() {
-            BuilderType::AngularVectorBuilder(ref mut builder) => {
-                if num_elements == <usize>::max_value() {
-                    builder.build_index();
-                } else {
-                    builder.build_index_part(num_elements);
-                }
-            },
-            BuilderType::AngularIntVectorBuilder(ref mut builder) => {
-                if num_elements == <usize>::max_value() {
-                    builder.build_index();
-                } else {
-                    builder.build_index_part(num_elements);
-                }
-            },
-            BuilderType::MmapAngularVectorBuilder(ref mut builder) => {
-                if num_elements == <usize>::max_value() {
-                    builder.build_index();
-                } else {
-                    builder.build_index_part(num_elements);
-                }
-            },
-            BuilderType::MmapAngularIntVectorBuilder(ref mut builder) => {
-                if num_elements == <usize>::max_value() {
-                    builder.build_index();
-                } else {
-                    builder.build_index_part(num_elements);
-                }
-            },
-        }
-
-        Ok(py.None())
-    }
-
-
-    def save_index(&self, path: &str, compress: bool = false) -> PyResult<PyObject> {
-        match *self.builder(py).borrow() {
-            BuilderType::AngularVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
-            BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
-            BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
-            BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_index_to_disk(path, compress),
-        }.expect("Could not save index to disk");
-
-        Ok(py.None())
-    }
-
-    def save_elements(&self, path: &str) -> PyResult<PyObject> {
-        match *self.builder(py).borrow() {
-            BuilderType::AngularVectorBuilder(ref builder) => builder.save_elements_to_disk(path),
-            BuilderType::AngularIntVectorBuilder(ref builder) => builder.save_elements_to_disk(path),
-            BuilderType::MmapAngularVectorBuilder(ref builder) => builder.save_elements_to_disk(path),
-            BuilderType::MmapAngularIntVectorBuilder(ref builder) => builder.save_elements_to_disk(path),
-        }.expect("Could not save elements to disk");
-
-        Ok(py.None())
-    }
-
-    def search(&self, element: Vec<f32>,
-               num_neighbors: usize = DEFAULT_NUM_NEIGHBORS,
-               max_search: usize = DEFAULT_MAX_SEARCH) -> PyResult<Vec<(usize, f32)>>
-    {
-        match *self.builder(py).borrow() {
-            BuilderType::AngularVectorBuilder(ref builder) => {
-                let index = builder.get_index();
-                Ok(index.search(&element.into(), num_neighbors, max_search))
-            },
-            BuilderType::AngularIntVectorBuilder(ref builder) => {
-                let index = builder.get_index();
-                Ok(index.search(&element.into(), num_neighbors, max_search))
-            },
-            BuilderType::MmapAngularVectorBuilder(ref builder) => {
-                let index = builder.get_index();
-                Ok(index.search(&element.into(), num_neighbors, max_search))
-            },
-            BuilderType::MmapAngularIntVectorBuilder(ref builder) => {
-                let index = builder.get_index();
-                Ok(index.search(&element.into(), num_neighbors, max_search))
-            },
-        }
-    }
-
-});
+}

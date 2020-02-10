@@ -8,8 +8,10 @@ build/
 #*
 *#
 *.so
+.#*
 terraform
 *.pyc
 /wheels/
 /wheelhouse/
 example_data/
+Cargo.lock
