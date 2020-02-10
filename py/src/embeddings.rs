@@ -15,7 +15,7 @@ py_class!(pub class Embeddings |py| {
     ///
     /// Parameters
     /// ----------
-    /// Required:
+    /// Optional:
     /// embeddings_path: str
     ///     Path to embeddings
     /// words_path: str
@@ -96,6 +96,15 @@ py_class!(pub class Embeddings |py| {
     /// Appends an embedding toghether with a word to this collection.
     /// Returns true if the insertion is successful.
     /// Returns false if the word already exists, in which case the embedding will not be inserted.
+    ///
+    /// Parameters
+    /// ----------
+    /// Required:
+    /// embedding: [f32]
+    ///     An embedding vector
+    /// word: str
+    ///     The word or label representing the vector
+    ///
     def append(&self, embedding: Vec<f32>, word: String) -> PyResult<bool> {
         let inserted = self.words(py).borrow_mut().push(word);
         if inserted {
