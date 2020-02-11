@@ -406,7 +406,7 @@ py_class!(class GranneBuilder |py| {
                 index,
                 unsafe { granne::angular_int::Vectors::from_file(elements).unwrap() },
             ).expect("Could not read index!")),
-            (index, Some(elements), "embeddings") => {
+            (index, elements, "embeddings") => {
                 Box::new(variants::builder::WordEmbeddingsBuilder::new(
                     config,
                     elements,

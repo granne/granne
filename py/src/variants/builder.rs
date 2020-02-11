@@ -29,7 +29,7 @@ pub struct WordEmbeddingsBuilder {
 impl WordEmbeddingsBuilder {
     pub fn new(
         config: granne::BuildConfig,
-        elements: &std::fs::File,
+        elements: Option<&std::fs::File>,
         embeddings: &std::fs::File,
         words: &str,
         index: Option<&std::fs::File>,
@@ -38,13 +38,13 @@ impl WordEmbeddingsBuilder {
 
         let builder = if let Some(index) = index {
             granne::GranneBuilder::from_file(config, index, unsafe {
-                granne::embeddings::SumEmbeddings::from_files(embeddings, Some(elements))
+                granne::embeddings::SumEmbeddings::from_files(embeddings, elements)
                     .expect("Could not load elements.")
             })
             .expect("Could not read index.")
         } else {
             granne::GranneBuilder::new(config, unsafe {
-                granne::embeddings::SumEmbeddings::from_files(embeddings, Some(elements))
+                granne::embeddings::SumEmbeddings::from_files(embeddings, elements)
                     .expect("Could not load elements.")
             })
         };
@@ -83,4 +83,13 @@ impl SaveIndex for WordEmbeddingsBuilder {
     }
 }
 
-impl PyGranneBuilder for WordEmbeddingsBuilder {}
+impl PyGranneBuilder for WordEmbeddingsBuilder {
+    fn push(self: &mut Self, py: Python, element: &PyObject) -> PyResult<PyObject> {
+        let words = String::extract(py, element)?;
+        let ids = self.words.get_word_ids(&words);
+
+        self.builder.push(ids);
+
+        Ok(py.None())
+    }
+}
