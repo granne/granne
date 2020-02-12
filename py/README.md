@@ -106,3 +106,15 @@ for (id, dist) in index.search("aa bb cc"):
 import granne
 help(granne)
 ```
+
+## Python Wheels
+
+To build python wheels for python 3.5, 3.6 and 3.7 (requires docker).
+```
+docker build -t granne_manylinux docker/manylinux/
+docker run -v $(pwd):/granne/ granne_manylinux /opt/build_wheels.sh
+```
+The output is written to `wheels/` and can be installed by
+```
+pip install granne --no-index -f wheels/
+```

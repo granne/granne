@@ -85,9 +85,9 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
         order
     }
 
-    /// Essentially a layer-preserving sort, i.e., it reorders the elements in this index based on keys
-    /// while respecting layers. This means that the new positions of elements in layer `i` will be in
-    /// the range `[0, layer_len(i)]`.
+    /// Essentially a layer-preserving sort, i.e., it reorders the elements in this index based on
+    /// keys while respecting layers. This means that the new positions of elements in layer `i`
+    /// will be in the range `[0, layer_len(i)]`.
     ///
     /// Returns the permutation used for the reordering. `permutation[i] == j`, means that the
     /// element with idx `j`, has been moved to idx `i`.

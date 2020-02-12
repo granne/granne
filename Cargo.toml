@@ -11,7 +11,7 @@ build = "build.rs"
 debug = true
 
 [features]
-default = ["blas"]
+default = []
 singlethreaded = []
 rw_granne = []
 

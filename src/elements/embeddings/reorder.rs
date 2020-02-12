@@ -20,7 +20,7 @@ To be used together with [`Granne::reorder_by_keys`](../../struct.Granne.html#me
 let mut index: Granne<embeddings::SumEmbeddings> = /* omitted */
 # */
 
-let keys = embeddings::reorder::compute_keys_for_reordering(index.get_elements());
+let keys = embeddings::compute_keys_for_reordering(index.get_elements());
 let order = index.reorder_by_keys(&keys, false);
  */
 

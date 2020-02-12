@@ -31,7 +31,7 @@ const UNUSED: NeighborId = NeighborId::max_value();
  The index is built by using [`GranneBuilder`](struct.GranneBuilder.html) and can be stored to
  disk.
 
-`Granne` can be created either from a [file](struct.Granne.html#method.from_file) or a 
+`Granne` can be created either from a [file](struct.Granne.html#method.from_file) or a
 [`u8` slice](struct.Granne.html#method.from_bytes).
 
  */
