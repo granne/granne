@@ -53,7 +53,7 @@ macro_rules! dense_vector {
 
             /// Loads a memory-mapped a collection of vectors from a file.
             ///
-            /// # Safety
+            /// ## Safety
             ///
             /// This is unsafe because the underlying file can be modified, which would result in
             /// undefined behavior. The caller needs to guarantee that the file is not modified

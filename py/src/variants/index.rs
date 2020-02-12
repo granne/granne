@@ -82,7 +82,7 @@ impl AsIndex for WordEmbeddingsGranne {
 
 impl crate::Reorder for WordEmbeddingsGranne {
     fn reorder(self: &mut Self, show_progress: bool) -> Vec<usize> {
-        let keys = granne::embeddings::reorder::compute_keys_for_reordering(self.index.get_elements());
+        let keys = granne::embeddings::compute_keys_for_reordering(self.index.get_elements());
         self.index.reorder_by_keys(&keys, show_progress)
     }
 }

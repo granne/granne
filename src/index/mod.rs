@@ -13,7 +13,7 @@ use std::time;
 mod tests;
 
 mod io;
-mod reorder;
+pub mod reorder;
 
 #[cfg(feature = "rw_granne")]
 pub mod rw;
@@ -30,53 +30,10 @@ const UNUSED: NeighborId = NeighborId::max_value();
 /** An index for fast approximate nearest neighbor search.
  The index is built by using [`GranneBuilder`](struct.GranneBuilder.html) and can be stored to
  disk.
-## Reordering
 
-Reordering of the index can be useful in a couple of situation:
-* Since the neighbors of each node in the index is stored using a variable int encoding, reordering might make size of index smaller.
-* Improve data locality for serving the index from disk. See
-[Indexing Billions of Text Vectors](https://0x65.dev/blog/2019-12-07/indexing-billions-of-text-vectors.html)
- for a more thorough explanation of this use case.
+`Granne` can be created either from a [file](struct.Granne.html#method.from_file) or a 
+[`u8` slice](struct.Granne.html#method.from_bytes).
 
-```
-# use granne::{Granne, GranneBuilder, Index, Builder, BuildConfig, angular};
-# use tempfile;
-# const DIM: usize = 5;
-# fn main() -> std::io::Result<()> {
-# let elements: angular::Vectors = granne::test_helper::random_vectors(DIM, 1000);
-# let random_vector: angular::Vector = granne::test_helper::random_vector(DIM);
-# let num_results = 10;
-#
-# let mut builder = GranneBuilder::new(BuildConfig::default(), elements);
-# builder.build();
-# let mut index_file = tempfile::tempfile()?;
-# builder.write_index(&mut index_file)?;
-# let mut elements_file = tempfile::tempfile()?;
-# builder.write_elements(&mut elements_file)?;
-# let max_search = 10;
-# let num_neighbors = 10;
-use granne::{angular, Granne};
-
-// loading index and vectors (original)
-let elements = unsafe { angular::Vectors::from_file(&elements_file)? };
-let index = unsafe { Granne::from_file(&index_file, elements)? };
-
-// loading index and vectors (for reordering)
-let elements = unsafe { angular::Vectors::from_file(&elements_file)? };
-let mut reordered_index = unsafe { Granne::from_file(&index_file, elements)? };
-let order = reordered_index.reorder(false);
-
-// verify that results are the same
-let element = index.get_element(123);
-let res = index.search(&element, max_search, num_neighbors);
-let reordered_res = reordered_index.search(&element, max_search, num_neighbors);
-for (r, rr) in res.iter().zip(&reordered_res) {
-    assert_eq!(r.0, order[rr.0]);
-}
-
-# Ok(())
-# }
-```
  */
 pub struct Granne<'a, Elements> {
     layers: FileOrMemoryLayers<'a>,
@@ -89,25 +46,6 @@ impl<'a, Elements> Granne<'a, Elements> {
             layers: FileOrMemoryLayers::Memory(layers.into()),
             elements,
         }
-    }
-}
-
-impl<'a, Elements> Granne<'a, &Elements>
-where
-    Elements: std::borrow::ToOwned,
-{
-    /// Creates an owned index from a borrowed one.
-    pub fn to_owned(self: &Self) -> Granne<'static, Elements::Owned> {
-        let layers = match self.layers.load() {
-            Layers::FixWidth(layers) => {
-                Layers::FixWidth(layers.into_iter().map(|layer| layer.into_owned()).collect())
-            }
-            Layers::Compressed(layers) => {
-                Layers::Compressed(layers.into_iter().map(|layer| layer.into_owned()).collect())
-            }
-        };
-
-        Granne::from_parts(layers, self.elements.to_owned())
     }
 }
 
@@ -182,7 +120,7 @@ impl<'a, Elements: ElementContainer> Granne<'a, Elements> {
 
     /// Loads the index from a file. The index will be memory mapped.
     ///
-    /// # Safety
+    /// ## Safety
     ///
     /// This is unsafe because the underlying file can be modified, which would result in undefined
     /// behavior. The caller needs to guarantee that the file is not modified while being
@@ -239,6 +177,25 @@ impl<'a, Elements: ElementContainer + crate::io::Writeable> Granne<'a, Elements>
         buffer: &mut B,
     ) -> std::io::Result<usize> {
         self.elements.write(buffer)
+    }
+}
+
+impl<'a, Elements> Granne<'a, &Elements>
+where
+    Elements: std::borrow::ToOwned,
+{
+    /// Creates an owned index from a borrowed one.
+    pub fn to_owned(self: &Self) -> Granne<'static, Elements::Owned> {
+        let layers = match self.layers.load() {
+            Layers::FixWidth(layers) => {
+                Layers::FixWidth(layers.into_iter().map(|layer| layer.into_owned()).collect())
+            }
+            Layers::Compressed(layers) => {
+                Layers::Compressed(layers.into_iter().map(|layer| layer.into_owned()).collect())
+            }
+        };
+
+        Granne::from_parts(layers, self.elements.to_owned())
     }
 }
 

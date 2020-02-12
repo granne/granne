@@ -8,10 +8,12 @@ use crate::slice_vector::{FixedWidthSliceVector, VariableWidthSliceVector};
 use crate::{math, FiveByteInt, ThreeByteInt};
 use std::io::{Result, Write};
 
+#[doc(hidden)]
 pub mod parsing;
 
-// todo: decide what to do with this one
-pub mod reorder;
+mod reorder;
+
+pub use reorder::compute_keys_for_reordering;
 
 type Embeddings<'a> = FixedWidthSliceVector<'a, f32>;
 
@@ -68,7 +70,7 @@ impl<'a> SumEmbeddings<'a> {
 
     /// Loads a memory-mapped `SumEmbeddings` from `embeddings` (and optionally `elements`).
     ///
-    /// # Safety
+    /// ## Safety
     ///
     /// This is unsafe because the underlying file can be modified, which would result in undefined
     /// behavior. The caller needs to guarantee that the file is not modified while being
