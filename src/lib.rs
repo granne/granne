@@ -2,7 +2,7 @@
 #![deny(missing_docs)]
 
 /*!
-Granne (**gr**aph-based **a**pproximate **n**earest **ne**ighbors) provides approximate nearest neighbor search among (typically) high-dimensional vectors. It focuses on reducing memory usage in order to allow [indexing billions of vectors](https://0x65.dev/blog/2019-12-07/indexing-billions-of-text-vectors.html).
+Granne (**g**raph-based **r**etrieval of **a**pproximate **n**earest **ne**ighbors) provides approximate nearest neighbor search among (typically) high-dimensional vectors. It focuses on reducing memory usage in order to allow [indexing billions of vectors](https://0x65.dev/blog/2019-12-07/indexing-billions-of-text-vectors.html).
 
 Note: There is currently a limit on the number of elements that can be indexed: `2^32 - 2 == 4_294_967_294`.
 
