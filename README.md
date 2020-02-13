@@ -1,5 +1,5 @@
-## granne\*
---------
+granne\*
+----
 
 [![Crates.io](https://img.shields.io/crates/v/granne.svg)](https://crates.io/crates/granne)
 [![documentation](https://docs.rs/granne/badge.svg)](https://docs.rs/granne)
@@ -43,7 +43,7 @@ See [Python Bindings](py).
 
 #### Optional Requirements
 
-`granne` can use `BLAS` (https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms) to improve speed of some computations. On Debian/Ubuntu both `libblas-dev` and `libopenblas-dev` should work, with the latter being significantly faster.
+granne can use `BLAS` (https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms) to improve speed of some computations. On Debian/Ubuntu both `libblas-dev` and `libopenblas-dev` should work, with the latter being significantly faster.
 
 `BLAS` can be enabled by passing the `blas` feature during compilation, e.g.
 ```
@@ -54,5 +54,5 @@ On Mac OS there seems to be some issue ([maybe
 this one](https://grokbase.com/t/r/r-sig-mac/106pkkknqd/problems-with-single-precision-routines-in-64-bit-veclib-blas))
 with the default `BLAS` library. A workaround is to install e.g. `openblas` and link to that instead.
 
---------
+----
 \***granne** is Swedish and means **neighbor**
