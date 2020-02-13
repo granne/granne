@@ -9,7 +9,6 @@ documentation = "https://docs.rs/granne/"
 license = "MIT"
 readme = "README.md"
 links = "blas"
-build = "build.rs"
 exclude = [
     "benches/",
     "docker",

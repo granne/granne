@@ -265,10 +265,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elements::embeddings;
     use crate::test_helper;
-    use std::io::SeekFrom;
-    use tempfile;
 
     #[test]
     fn insert_in_parallel() {
