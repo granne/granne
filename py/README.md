@@ -103,14 +103,15 @@ import granne
 help(granne)
 ```
 
-## Python Wheels
+## Building Python Wheels
 
-To build python wheels for python 3.5, 3.6 and 3.7 (requires docker).
+A python wheel can be created by running
 ```
-docker build -t granne_manylinux docker/manylinux/
-docker run -v $(pwd):/granne/ granne_manylinux /opt/build_wheels.sh
+pip wheel .
 ```
-The output is written to `wheels/` and can be installed by
+
+In order to build `manylinux` wheels `docker` is required:
 ```
-pip install granne --no-index -f wheels/
+docker run --rm -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
 ```
+
