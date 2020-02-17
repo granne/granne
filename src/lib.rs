@@ -26,7 +26,7 @@ For more information on the unsafe:ness of `memmap`, please see the [`memmap`](h
 
 ## Basic building, saving and loading
 
-For information on how to read/load/create elements see e.g. [`angular`](angular/index.html).
+For information on how to read/load/create elements see e.g. [`angular`](angular/index.html) or the `glove.rs` example.
 
 ```
 use granne::{Granne, GranneBuilder, Index, Builder, BuildConfig, angular};

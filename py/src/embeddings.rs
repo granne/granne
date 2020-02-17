@@ -114,6 +114,14 @@ py_class!(pub class Embeddings |py| {
         Ok(inserted)
     }
 
+    /// Saves the embeddings (vectors) and words/labels to disk.
+    def save(&self, embeddings_path: &str, words_path: &str) -> PyResult<PyObject> {
+        self.save_embeddings(py, embeddings_path)?;
+        self.save_words(py, words_path)?;
+
+        Ok(py.None())
+    }
+
     /// Saves the embeddings (vectors) to disk.
     def save_embeddings(&self, path: &str) -> PyResult<PyObject> {
         let mut file = std::fs::File::create(path)

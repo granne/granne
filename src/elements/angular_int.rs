@@ -1,4 +1,8 @@
 //! This module contains element types for quantized angular vectors using `i8` as scalars.
+//!
+//! An [`angular::Vector`](../angular/struct.Vector.html) is converted into an
+//! [`angular_int::Vector`](struct.Vector.html) by mapping each dimension (originally stored as
+//! `f32`) into the range [-127, 127], which is then stored as `i8`, saving 3 bytes per dimension.
 
 use super::{Dist, ElementContainer, ExtendableElementContainer};
 use crate::{io, math, slice_vector::FixedWidthSliceVector};

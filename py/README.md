@@ -25,9 +25,6 @@ for _ in range(10000):
 
 builder.build()
 
-for (id, dist) in builder.search(np.random.rand(DIMENSION) - 0.5, max_search=150):
-    print(f"{id}: {dist}")
-
 builder.save_elements("elements.bin")
 builder.save_index("index.granne")
 ```
@@ -79,8 +76,7 @@ embeddings = granne.Embeddings()
 for word in "aa bb cc dd ee ff".split():
     embeddings.append(np.random.rand(DIMENSION) - 0.5, word)
 
-embeddings.save_embeddings("embeddings.bin")
-embeddings.save_words("words.jl")
+embeddings.save("embeddings.bin", "words.jl")
 
 builder = granne.GranneBuilder("embeddings", words_path="words.jl", embeddings_path="embeddings.bin", show_progress=False)
 
