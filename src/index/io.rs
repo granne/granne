@@ -22,9 +22,7 @@ pub(super) fn write_index(layers: &Layers, buffer: impl Write + Seek) -> Result<
     } else {
         0
     };
-    let layer_counts: Vec<usize> = (0..layers.len())
-        .map(|i| layers.as_graph(i).len())
-        .collect();
+    let layer_counts: Vec<usize> = (0..layers.len()).map(|i| layers.as_graph(i).len()).collect();
 
     let mut layer_sizes = Vec::new();
     match layers {
@@ -101,13 +99,11 @@ fn read_layer_sizes<I: Read>(index_reader: I) -> Result<Vec<usize>> {
     }
 
     // the current version stores metadata as json
-    let metadata: serde_json::Value =
-        serde_json::from_reader(index_reader).expect("Could not read metadata");
+    let metadata: serde_json::Value = serde_json::from_reader(index_reader).expect("Could not read metadata");
 
-    let num_layers: usize =
-        serde_json::from_value(metadata["num_layers"].clone()).expect("Could not read num_layers");
-    let layer_counts: Vec<usize> = serde_json::from_value(metadata["layer_counts"].clone())
-        .expect("Could not read layer_counts");
+    let num_layers: usize = serde_json::from_value(metadata["num_layers"].clone()).expect("Could not read num_layers");
+    let layer_counts: Vec<usize> =
+        serde_json::from_value(metadata["layer_counts"].clone()).expect("Could not read layer_counts");
     assert_eq!(num_layers, layer_counts.len());
 
     let layer_sizes = &metadata["layer_sizes"];

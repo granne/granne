@@ -52,8 +52,7 @@ impl<'a, 'b> Dist<Vector<'b>> for Vector<'a> {
         let (r, dx, dy) = math::dot_product_and_squared_norms_i8(x, y);
         let (r, dx, dy) = (r as f32, dx as f32, dy as f32);
 
-        let r =
-            NotNan::new(r / (dx.sqrt() * dy.sqrt())).unwrap_or_else(|_| NotNan::new(0.0).unwrap());
+        let r = NotNan::new(r / (dx.sqrt() * dy.sqrt())).unwrap_or_else(|_| NotNan::new(0.0).unwrap());
         let d = NotNan::new(1.0f32).unwrap() - r;
 
         cmp::max(NotNan::new(0.0f32).unwrap(), d)

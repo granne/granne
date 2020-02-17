@@ -212,10 +212,7 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
             u64::from_le_bytes(buf) as usize
         };
 
-        (
-            unsafe { crate::io::load_bytes_as(&buffer[U64_LEN..]) },
-            width,
-        )
+        (unsafe { crate::io::load_bytes_as(&buffer[U64_LEN..]) }, width)
     }
 
     pub fn read<I: Read>(mut reader: I) -> Result<Self> {
@@ -335,9 +332,7 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
                 let (data, width) = Self::load_mmap(&mmap[..]);
                 FixedWidthSliceVector::Memory(Cow::Owned(data.to_vec()), width)
             }
-            Self::Memory(data, width) => {
-                FixedWidthSliceVector::Memory(Cow::Owned(data.into_owned()), width)
-            }
+            Self::Memory(data, width) => FixedWidthSliceVector::Memory(Cow::Owned(data.into_owned()), width),
         }
     }
 
@@ -484,8 +479,7 @@ impl<'a, T: 'a + Clone + Send + Sync> FixedWidthSliceVector<'a, T> {
     }
 }
 
-impl<'a, T: Clone, Offset: TryFrom<usize> + Copy> Default
-    for VariableWidthSliceVector<'a, T, Offset>
+impl<'a, T: Clone, Offset: TryFrom<usize> + Copy> Default for VariableWidthSliceVector<'a, T, Offset>
 where
     usize: TryFrom<Offset>,
     <Offset as std::convert::TryFrom<usize>>::Error: std::fmt::Debug,
@@ -548,15 +542,12 @@ where
     {
         let (offsets, data) = self.load();
 
-        offsets
-            .iter()
-            .zip(offsets.iter().skip(1))
-            .map(move |(&begin, &end)| {
-                let begin = usize::try_from(begin).unwrap();
-                let end = usize::try_from(end).unwrap();
+        offsets.iter().zip(offsets.iter().skip(1)).map(move |(&begin, &end)| {
+            let begin = usize::try_from(begin).unwrap();
+            let end = usize::try_from(end).unwrap();
 
-                &data[begin..end]
-            })
+            &data[begin..end]
+        })
     }
 
     pub fn borrow<'b>(self: &'a Self) -> VariableWidthSliceVector<'b, T, Offset>
@@ -567,12 +558,7 @@ where
         Self::Memory(Cow::Borrowed(offsets), Cow::Borrowed(data))
     }
 
-    pub fn write_range<B: Write>(
-        self: &Self,
-        buffer: &mut B,
-        begin: usize,
-        end: usize,
-    ) -> Result<usize> {
+    pub fn write_range<B: Write>(self: &Self, buffer: &mut B, begin: usize, end: usize) -> Result<usize> {
         assert!(begin <= end);
         assert!(begin <= self.len());
         assert!(end <= self.len());
@@ -820,10 +806,7 @@ mod tests {
         test_extend_var(vec0, vec1);
     }
 
-    fn test_extend_var(
-        vec0: VariableWidthSliceVector<i32, usize>,
-        vec1: VariableWidthSliceVector<i32, usize>,
-    ) {
+    fn test_extend_var(vec0: VariableWidthSliceVector<i32, usize>, vec1: VariableWidthSliceVector<i32, usize>) {
         let mut vec_combined = vec0.clone();
 
         vec_combined.extend_from_slice_vector(&vec1);
@@ -920,9 +903,7 @@ mod tests {
 
         use std::mem::size_of;
         assert_eq!(
-            size_of::<usize>()
-                + (1 + vec.len()) * size_of::<Offset>()
-                + vec.len() * width * size_of::<i16>(),
+            size_of::<usize>() + (1 + vec.len()) * size_of::<Offset>() + vec.len() * width * size_of::<i16>(),
             bytes_written
         );
 
@@ -962,12 +943,7 @@ mod tests {
         assert_eq!(vec.len(), loaded_vec.len());
 
         for i in 0..vec.len() {
-            let vec_slice: Vec<_> = vec
-                .get(i)
-                .iter()
-                .filter(|&x| x % 3 == 0)
-                .map(|x| *x)
-                .collect();
+            let vec_slice: Vec<_> = vec.get(i).iter().filter(|&x| x % 3 == 0).map(|x| *x).collect();
             assert_eq!(vec_slice.as_slice(), loaded_vec.get(i));
         }
     }

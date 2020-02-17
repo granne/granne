@@ -17,10 +17,7 @@ impl<'a> PyGranne for granne::Granne<'a, granne::angular::Vectors<'a>> {
     }
 
     fn get_element(self: &Self, py: Python, idx: usize) -> PyObject {
-        self.get_element(idx)
-            .into_vec()
-            .into_py_object(py)
-            .into_object()
+        self.get_element(idx).into_vec().into_py_object(py).into_object()
     }
 }
 
@@ -37,10 +34,7 @@ impl<'a> PyGranne for granne::Granne<'a, granne::angular_int::Vectors<'a>> {
     }
 
     fn get_element(self: &Self, py: Python, idx: usize) -> PyObject {
-        self.get_element(idx)
-            .into_vec()
-            .into_py_object(py)
-            .into_object()
+        self.get_element(idx).into_vec().into_py_object(py).into_object()
     }
 }
 
@@ -50,12 +44,7 @@ pub struct WordEmbeddingsGranne {
 }
 
 impl WordEmbeddingsGranne {
-    pub fn new(
-        index: &std::fs::File,
-        elements: &std::fs::File,
-        embeddings: &std::fs::File,
-        words: &str,
-    ) -> Self {
+    pub fn new(index: &std::fs::File, elements: &std::fs::File, embeddings: &std::fs::File, words: &str) -> Self {
         let words = WordDict::new(words);
 
         let elements = unsafe {
@@ -63,8 +52,7 @@ impl WordEmbeddingsGranne {
                 .expect("Could not open embeddings/elements")
         };
 
-        let index =
-            unsafe { granne::Granne::from_file(index, elements).expect("Could not load index.") };
+        let index = unsafe { granne::Granne::from_file(index, elements).expect("Could not load index.") };
 
         Self { index, words }
     }
@@ -122,11 +110,7 @@ impl PyGranne for WordEmbeddingsGranne {
     }
 
     fn get_element(self: &Self, py: Python, idx: usize) -> PyObject {
-        self.index
-            .get_element(idx)
-            .into_vec()
-            .into_py_object(py)
-            .into_object()
+        self.index.get_element(idx).into_vec().into_py_object(py).into_object()
     }
 
     fn get_internal_element(self: &Self, py: Python, idx: usize) -> PyObject {

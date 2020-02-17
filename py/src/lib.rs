@@ -15,11 +15,7 @@ const DEFAULT_MAX_SEARCH: usize = 200;
 const DEFAULT_NUM_ELEMENTS: usize = 10;
 
 py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
-    m.add(
-        py,
-        "__doc__",
-        "Graph-based Retrieval of Approximate Nearest Neighbors",
-    )?;
+    m.add(py, "__doc__", "Graph-based Retrieval of Approximate Nearest Neighbors")?;
     m.add_class::<Granne>(py)?;
     m.add_class::<GranneBuilder>(py)?;
     m.add_class::<embeddings::Embeddings>(py)?;
@@ -565,9 +561,7 @@ trait Reorder {
     }
 }
 
-impl<'a, Elements: granne::ElementContainer + granne::Permutable + Sync> Reorder
-    for granne::Granne<'a, Elements>
-{
+impl<'a, Elements: granne::ElementContainer + granne::Permutable + Sync> Reorder for granne::Granne<'a, Elements> {
     fn reorder(self: &mut Self, show_progress: bool) -> Vec<usize> {
         granne::Granne::reorder(self, show_progress)
     }
@@ -593,9 +587,7 @@ trait SaveIndex {
     fn save_elements(self: &Self, path: &str) -> std::io::Result<()>;
 }
 
-impl<'a, Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex
-    for granne::Granne<'a, Elements>
-{
+impl<'a, Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex for granne::Granne<'a, Elements> {
     fn save_index(self: &Self, path: &str) -> std::io::Result<()> {
         let mut file = std::fs::File::create(path)?;
         self.write_index(&mut file)
@@ -607,9 +599,7 @@ impl<'a, Elements: granne::ElementContainer + granne::Writeable + Sync> SaveInde
     }
 }
 
-impl<Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex
-    for granne::GranneBuilder<Elements>
-{
+impl<Elements: granne::ElementContainer + granne::Writeable + Sync> SaveIndex for granne::GranneBuilder<Elements> {
     fn save_index(self: &Self, path: &str) -> std::io::Result<()> {
         let mut file = std::fs::File::create(path)?;
         self.write_index(&mut file)

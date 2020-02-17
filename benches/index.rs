@@ -19,9 +19,7 @@ mod index {
         ($fn_name:ident, $elements_type:ty, $dim:expr, $max_search:expr) => {
             #[bench]
             fn $fn_name(b: &mut Bencher) {
-                let elements: $elements_type = (0..1000)
-                    .map(|_| test_helper::random_vector($dim))
-                    .collect();
+                let elements: $elements_type = (0..1000).map(|_| test_helper::random_vector($dim)).collect();
 
                 let mut builder = GranneBuilder::new(
                     BuildConfig::default()
@@ -44,25 +42,10 @@ mod index {
         };
     }
 
-    builder_search_impl!(
-        builder_search_angular_vector_3_ms_50,
-        angular::Vectors,
-        3,
-        50
-    );
-    builder_search_impl!(
-        builder_search_angular_vector_100_ms_50,
-        angular::Vectors,
-        100,
-        50
-    );
+    builder_search_impl!(builder_search_angular_vector_3_ms_50, angular::Vectors, 3, 50);
+    builder_search_impl!(builder_search_angular_vector_100_ms_50, angular::Vectors, 100, 50);
 
-    builder_search_impl!(
-        builder_search_angular_int_vector_3_ms_50,
-        angular_int::Vectors,
-        3,
-        50
-    );
+    builder_search_impl!(builder_search_angular_int_vector_3_ms_50, angular_int::Vectors, 3, 50);
     builder_search_impl!(
         builder_search_angular_int_vector_100_ms_50,
         angular_int::Vectors,
@@ -74,9 +57,7 @@ mod index {
         ($fn_name:ident, $elements_type:ty, $dim:expr, $max_search:expr) => {
             #[bench]
             fn $fn_name(b: &mut Bencher) {
-                let elements: $elements_type = (0..1000)
-                    .map(|_| test_helper::random_vector($dim))
-                    .collect();
+                let elements: $elements_type = (0..1000).map(|_| test_helper::random_vector($dim)).collect();
 
                 let mut builder = GranneBuilder::new(
                     BuildConfig::default()
@@ -106,23 +87,8 @@ mod index {
     }
 
     index_search_impl!(index_search_angular_vector_3_ms_50, angular::Vectors, 3, 50);
-    index_search_impl!(
-        index_search_angular_vector_100_ms_50,
-        angular::Vectors,
-        100,
-        50
-    );
+    index_search_impl!(index_search_angular_vector_100_ms_50, angular::Vectors, 100, 50);
 
-    index_search_impl!(
-        index_search_angular_int_vector_3_ms_50,
-        angular_int::Vectors,
-        3,
-        50
-    );
-    index_search_impl!(
-        index_search_angular_int_vector_100_ms_50,
-        angular_int::Vectors,
-        100,
-        50
-    );
+    index_search_impl!(index_search_angular_int_vector_3_ms_50, angular_int::Vectors, 3, 50);
+    index_search_impl!(index_search_angular_int_vector_100_ms_50, angular_int::Vectors, 100, 50);
 }

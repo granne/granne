@@ -38,14 +38,12 @@ impl WordEmbeddingsBuilder {
 
         let builder = if let Some(index) = index {
             granne::GranneBuilder::from_file(config, index, unsafe {
-                granne::embeddings::SumEmbeddings::from_files(embeddings, elements)
-                    .expect("Could not load elements.")
+                granne::embeddings::SumEmbeddings::from_files(embeddings, elements).expect("Could not load elements.")
             })
             .expect("Could not read index.")
         } else {
             granne::GranneBuilder::new(config, unsafe {
-                granne::embeddings::SumEmbeddings::from_files(embeddings, elements)
-                    .expect("Could not load elements.")
+                granne::embeddings::SumEmbeddings::from_files(embeddings, elements).expect("Could not load elements.")
             })
         };
 

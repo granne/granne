@@ -29,9 +29,7 @@ use ordered_float::NotNan;
 use rayon::prelude::*;
 
 /// Computes keys for the elements based on their embedding id with largest norm.
-pub fn compute_keys_for_reordering(
-    embeddings: &SumEmbeddings<'_>,
-) -> Vec<impl Ord + Copy + Sync + Send> {
+pub fn compute_keys_for_reordering(embeddings: &SumEmbeddings<'_>) -> Vec<impl Ord + Copy + Sync + Send> {
     // get norms of word embeddings
     let norm = |v: &[f32]| v.iter().map(|x| x * x).sum::<f32>().sqrt();
     let w_norms: Vec<NotNan<f32>> = (0..embeddings.embeddings.len())
@@ -54,10 +52,7 @@ pub fn compute_keys_for_reordering(
         key
     };
 
-    (0..embeddings.len())
-        .into_par_iter()
-        .map(|i| get_key(i))
-        .collect()
+    (0..embeddings.len()).into_par_iter().map(|i| get_key(i)).collect()
 }
 
 #[cfg(test)]
@@ -78,10 +73,7 @@ mod tests {
         assert_eq!(queries.len(), rev_queries.len());
 
         for i in 0..queries.len() {
-            assert_eq!(
-                queries.get_terms(i),
-                rev_queries.get_terms(queries.len() - i - 1)
-            );
+            assert_eq!(queries.get_terms(i), rev_queries.get_terms(queries.len() - i - 1));
         }
     }
 
@@ -89,10 +81,7 @@ mod tests {
     fn reorder_sum_embeddings() {
         let elements = test_helper::random_sum_embeddings(5, 277, 500);
 
-        let mut builder = GranneBuilder::new(
-            BuildConfig::default().max_search(5).layer_multiplier(5.0),
-            elements,
-        );
+        let mut builder = GranneBuilder::new(BuildConfig::default().max_search(5).layer_multiplier(5.0), elements);
 
         builder.build();
 

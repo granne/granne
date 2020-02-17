@@ -62,10 +62,7 @@ impl<'a> SumEmbeddings<'a> {
 
     /// Constructs `SumEmbeddings` with `elements`.
     pub(crate) fn from_parts(embeddings: Embeddings<'a>, elements: Elements<'a>) -> Self {
-        Self {
-            embeddings,
-            elements,
-        }
+        Self { embeddings, elements }
     }
 
     /// Loads a memory-mapped `SumEmbeddings` from `embeddings` (and optionally `elements`).
@@ -75,10 +72,7 @@ impl<'a> SumEmbeddings<'a> {
     /// This is unsafe because the underlying file can be modified, which would result in undefined
     /// behavior. The caller needs to guarantee that the file is not modified while being
     /// memory-mapped.
-    pub unsafe fn from_files(
-        embeddings: &std::fs::File,
-        elements: Option<&std::fs::File>,
-    ) -> std::io::Result<Self> {
+    pub unsafe fn from_files(embeddings: &std::fs::File, elements: Option<&std::fs::File>) -> std::io::Result<Self> {
         let elements = if let Some(elements) = elements {
             Elements::from_file(elements)?
         } else {
@@ -112,11 +106,7 @@ impl<'a> SumEmbeddings<'a> {
 
     /// Returns the embedding ids for the element at `element_idx`.
     pub fn get_terms(self: &Self, element_idx: usize) -> Vec<usize> {
-        self.elements
-            .get(element_idx)
-            .iter()
-            .map(|&id| id.into())
-            .collect()
+        self.elements.get(element_idx).iter().map(|&id| id.into()).collect()
     }
 
     /// Gets the (non-normalized) embedding for the element at `element_idx`.
@@ -131,10 +121,7 @@ impl<'a> SumEmbeddings<'a> {
 
     /// Computes a raw (non-normalized) embedding for `embedding_ids`.
     /// Generic over `Id` in order to handle both &[usize] and &[EmbeddingId].
-    fn get_embedding_internal<Id: Copy + Into<usize>>(
-        self: &Self,
-        embedding_ids: &[Id],
-    ) -> Vec<f32> {
+    fn get_embedding_internal<Id: Copy + Into<usize>>(self: &Self, embedding_ids: &[Id]) -> Vec<f32> {
         if embedding_ids.is_empty() {
             if self.embeddings.len() > 0 {
                 return vec![0.0f32; self.embeddings.width()];

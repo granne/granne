@@ -105,10 +105,7 @@ fn decode_into(encoded_data: &[u8], decoded_nums: &mut Vec<u32>) {
         decoded_nums.resize(count, 0);
     } else {
         let mut buf = [0x0; ::std::mem::size_of::<u32>()];
-        for num in encoded_data
-            .chunks_exact(::std::mem::size_of::<u32>())
-            .take(count)
-        {
+        for num in encoded_data.chunks_exact(::std::mem::size_of::<u32>()).take(count) {
             buf.copy_from_slice(num);
             decoded_nums.push(u32::from_le_bytes(buf));
         }
@@ -169,19 +166,15 @@ where
     u32: TryFrom<T>,
     <u32 as std::convert::TryFrom<T>>::Error: std::fmt::Debug,
 {
-    pub fn write_as_multi_set_vector<B, P>(
-        self: &Self,
-        buffer: &mut B,
-        mut predicate: P,
-    ) -> Result<usize>
+    pub fn write_as_multi_set_vector<B, P>(self: &Self, buffer: &mut B, mut predicate: P) -> Result<usize>
     where
         B: Write + Seek,
         P: FnMut(&T) -> bool,
     {
         let initial_pos = buffer.seek(SeekFrom::Current(0))?;
 
-        let bytes_for_offsets = (1 + self.len() / super::offsets::OFFSETS_PER_CHUNK)
-            * ::std::mem::size_of::<super::offsets::Chunk>();
+        let bytes_for_offsets =
+            (1 + self.len() / super::offsets::OFFSETS_PER_CHUNK) * ::std::mem::size_of::<super::offsets::Chunk>();
 
         buffer.write_all(&(bytes_for_offsets as u64).to_le_bytes())?;
 
@@ -374,8 +367,7 @@ mod tests {
         }
 
         let mut file: File = tempfile::tempfile().unwrap();
-        vec.write_as_multi_set_vector(&mut file, |x| x % 3 == 0)
-            .unwrap();
+        vec.write_as_multi_set_vector(&mut file, |x| x % 3 == 0).unwrap();
         file.seek(SeekFrom::Start(0)).unwrap();
 
         let mut buffer = Vec::new();
@@ -386,12 +378,7 @@ mod tests {
         assert_eq!(vec.len(), loaded_vec.len());
 
         for i in 0..vec.len() {
-            let vec_slice: Vec<_> = vec
-                .get(i)
-                .iter()
-                .filter(|&x| x % 3 == 0)
-                .map(|x| *x)
-                .collect();
+            let vec_slice: Vec<_> = vec.get(i).iter().filter(|&x| x % 3 == 0).map(|x| *x).collect();
             assert_eq!(vec_slice, loaded_vec.get(i));
         }
     }
@@ -422,8 +409,7 @@ mod tests {
         }
 
         let mut file: File = tempfile::tempfile().unwrap();
-        vec.write_as_multi_set_vector(&mut file, |&x| x > 0)
-            .unwrap();
+        vec.write_as_multi_set_vector(&mut file, |&x| x > 0).unwrap();
         file.seek(SeekFrom::Start(0)).unwrap();
 
         let mut buffer = Vec::new();

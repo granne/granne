@@ -30,10 +30,7 @@ fn parse_line(line: &str) -> std::io::Result<(String, granne::angular::Vector<'s
 }
 
 fn main() -> std::io::Result<()> {
-    let input_file: String = std::env::args()
-        .skip(1)
-        .next()
-        .expect("Missing input_file!");
+    let input_file: String = std::env::args().skip(1).next().expect("Missing input_file!");
     let file = BufReader::new(File::open(input_file)?);
 
     // reading the input data
@@ -47,9 +44,7 @@ fn main() -> std::io::Result<()> {
     }
 
     // building the index
-    let build_config = granne::BuildConfig::default()
-        .show_progress(true)
-        .max_search(10); // increase this for better results
+    let build_config = granne::BuildConfig::default().show_progress(true).max_search(10); // increase this for better results
 
     let mut builder = granne::GranneBuilder::new(build_config, elements);
 

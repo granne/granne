@@ -69,11 +69,7 @@ pub fn dot_product_and_squared_norms_i8(x: &[i8], y: &[i8]) -> (i32, i32, i32) {
         let mut dx = 0i32;
         let mut dy = 0i32;
 
-        for (xi, yi) in x
-            .iter()
-            .map(|&xi| i32::from(xi))
-            .zip(y.iter().map(|&yi| i32::from(yi)))
-        {
+        for (xi, yi) in x.iter().map(|&xi| i32::from(xi)).zip(y.iter().map(|&yi| i32::from(yi))) {
             r += xi * yi;
             dx += xi * xi;
             dy += yi * yi;

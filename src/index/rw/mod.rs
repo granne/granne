@@ -42,11 +42,7 @@ where
 
         let num_elements_in_layer = cmp::max(
             current_layer.len(),
-            compute_num_elements_in_layer(
-                max_elements,
-                builder.config.layer_multiplier,
-                builder.layers.len(),
-            ),
+            compute_num_elements_in_layer(max_elements, builder.config.layer_multiplier, builder.layers.len()),
         );
 
         current_layer.resize(num_elements_in_layer, UNUSED);
@@ -64,22 +60,14 @@ where
         }
     }
 
-    pub fn save_index_and_elements_to_disk(
-        self: &Self,
-        index_path: &str,
-        elements_path: &str,
-    ) -> std::io::Result<()> {
+    pub fn save_index_and_elements_to_disk(self: &Self, index_path: &str, elements_path: &str) -> std::io::Result<()> {
         let mut elements_file = File::create(elements_path)?;
         let mut index_file = File::create(index_path)?;
 
         self.write(&mut index_file, &mut elements_file)
     }
 
-    pub fn write(
-        self: &Self,
-        index_file: impl Write + Seek,
-        elements_file: impl Write,
-    ) -> std::io::Result<()> {
+    pub fn write(self: &Self, index_file: impl Write + Seek, elements_file: impl Write) -> std::io::Result<()> {
         // prevent any writes from happening while saving to disk
         let _guard = self.write_lock.write();
 
@@ -112,10 +100,7 @@ where
         self.insert_batch(vec![element]).pop()
     }
 
-    pub fn insert_batch(
-        self: &Self,
-        mut elements_to_insert: Vec<Elements::InternalElement>,
-    ) -> Vec<usize> {
+    pub fn insert_batch(self: &Self, mut elements_to_insert: Vec<Elements::InternalElement>) -> Vec<usize> {
         if self.elements.read().len() >= self.max_elements {
             return vec![];
         }
@@ -133,11 +118,8 @@ where
             if elements.len() >= current_layer.len() {
                 *current_layer = {
                     // temporarily replace with empty slice vector
-                    let current_layer: FixedWidthSliceVector<_> = std::mem::replace(
-                        current_layer,
-                        FixedWidthSliceVector::with_width(1).into(),
-                    )
-                    .into();
+                    let current_layer: FixedWidthSliceVector<_> =
+                        std::mem::replace(current_layer, FixedWidthSliceVector::with_width(1).into()).into();
                     let mut new_layer = current_layer.clone();
                     prev_layers.push(current_layer);
 
@@ -156,10 +138,7 @@ where
 
             // insert elements that fit in the current layer (the remaining will be inserted in a
             // recursive call)
-            let num_to_insert = std::cmp::min(
-                elements_to_insert.len(),
-                current_layer.len() - elements.len(),
-            );
+            let num_to_insert = std::cmp::min(elements_to_insert.len(), current_layer.len() - elements.len());
             let ids: Vec<usize> = (elements.len()..).take(num_to_insert).collect();
 
             let remaining = elements_to_insert.split_off(num_to_insert);
@@ -180,24 +159,12 @@ where
             if self.pool.current_num_threads() > 1 {
                 self.pool.install(|| {
                     ids.par_iter().for_each(|id| {
-                        GranneBuilder::index_element(
-                            &self.config,
-                            &*elements,
-                            &index,
-                            current_layer.as_slice(),
-                            *id,
-                        )
+                        GranneBuilder::index_element(&self.config, &*elements, &index, current_layer.as_slice(), *id)
                     })
                 });
             } else {
                 ids.iter().for_each(|id| {
-                    GranneBuilder::index_element(
-                        &self.config,
-                        &*elements,
-                        &index,
-                        current_layer.as_slice(),
-                        *id,
-                    )
+                    GranneBuilder::index_element(&self.config, &*elements, &index, current_layer.as_slice(), *id)
                 })
             }
 
@@ -229,17 +196,11 @@ where
         );
 
         if let Some((entrypoint, _)) = index.search(&element, 1, 1).first() {
-            super::search_for_neighbors(
-                current_layer.as_slice(),
-                *entrypoint,
-                &*elements,
-                element,
-                max_search,
-            )
-            .into_iter()
-            .take(num_neighbors)
-            .map(|(i, d)| (i, d.into_inner()))
-            .collect()
+            super::search_for_neighbors(current_layer.as_slice(), *entrypoint, &*elements, element, max_search)
+                .into_iter()
+                .take(num_neighbors)
+                .map(|(i, d)| (i, d.into_inner()))
+                .collect()
         } else {
             vec![]
         }
@@ -270,9 +231,7 @@ mod tests {
     #[test]
     fn insert_in_parallel() {
         let builder = GranneBuilder::new(
-            BuildConfig::default()
-                .max_search(50)
-                .reinsert_elements(false),
+            BuildConfig::default().max_search(50).reinsert_elements(false),
             test_helper::random_sum_embeddings(5, 505, 0),
         );
 
@@ -354,10 +313,7 @@ mod tests {
                 .reinsert_elements(false);
 
             for max_elements in vec![13, 66, 199, 719] {
-                let builder = GranneBuilder::new(
-                    build_config.clone(),
-                    crate::elements::angular::Vectors::new(),
-                );
+                let builder = GranneBuilder::new(build_config.clone(), crate::elements::angular::Vectors::new());
 
                 let rw_builder = RwGranneBuilder::new(builder, max_elements, num_threads);
 
@@ -387,9 +343,7 @@ mod tests {
     #[test]
     fn search_empty() {
         let builder = GranneBuilder::new(
-            BuildConfig::default()
-                .max_search(50)
-                .reinsert_elements(false),
+            BuildConfig::default().max_search(50).reinsert_elements(false),
             test_helper::random_sum_embeddings(10, 100, 0),
         );
 
@@ -401,9 +355,7 @@ mod tests {
     #[test]
     fn search_with_one_element() {
         let builder = GranneBuilder::new(
-            BuildConfig::default()
-                .max_search(50)
-                .reinsert_elements(false),
+            BuildConfig::default().max_search(50).reinsert_elements(false),
             test_helper::random_sum_embeddings(10, 100, 0),
         );
 

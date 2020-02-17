@@ -38,9 +38,7 @@ pub fn random_sum_embeddings(
 
     for i in 0..num_elements {
         let len = 2 + i % 8;
-        let element: Vec<_> = (i..(i + len))
-            .map(|j| j % sum_embeddings.num_embeddings())
-            .collect();
+        let element: Vec<_> = (i..(i + len)).map(|j| j % sum_embeddings.num_embeddings()).collect();
         sum_embeddings.push(&element);
     }
 

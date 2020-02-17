@@ -79,11 +79,7 @@ pub fn angular_reference_dist(first: &Vector, second: &Vector) -> NotNan<f32> {
     let &Vector(ref x) = first;
     let &Vector(ref y) = second;
 
-    let r: f32 = x
-        .iter()
-        .zip(y.iter())
-        .map(|(&xi, &yi)| xi as f32 * yi as f32)
-        .sum();
+    let r: f32 = x.iter().zip(y.iter()).map(|(&xi, &yi)| xi as f32 * yi as f32).sum();
 
     let dx: f32 = x.iter().map(|&xi| xi as f32 * xi as f32).sum();
     let dy: f32 = y.iter().map(|&yi| yi as f32 * yi as f32).sum();

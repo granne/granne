@@ -37,15 +37,12 @@ pub fn parse_elements_and_save_to_disk(
     show_progress: bool,
 ) -> usize {
     let word_ids = parse_words(words_path);
-    let elements =
-        parsing::parse_elements_in_directory_or_file(elements_path, &word_ids, show_progress);
+    let elements = parsing::parse_elements_in_directory_or_file(elements_path, &word_ids, show_progress);
 
     let file = File::create(&output_path).unwrap();
     let mut file = BufWriter::new(file);
 
-    elements
-        .write(&mut file)
-        .expect("Failed to write elements to disk");
+    elements.write(&mut file).expect("Failed to write elements to disk");
 
     elements.len()
 }
@@ -56,15 +53,9 @@ fn get_shard_name(output_path: &Path, shard_id: usize) -> PathBuf {
     } else {
         output_path.with_file_name(format!(
             "{}-{}.{}",
-            output_path
-                .file_stem()
-                .map(|x| x.to_str().unwrap())
-                .unwrap(),
+            output_path.file_stem().map(|x| x.to_str().unwrap()).unwrap(),
             shard_id,
-            output_path
-                .extension()
-                .map(|x| x.to_str().unwrap())
-                .unwrap_or("bin")
+            output_path.extension().map(|x| x.to_str().unwrap()).unwrap_or("bin")
         ))
     }
 }
@@ -78,8 +69,7 @@ pub fn parse_elements_and_save_shards_to_disk(
 ) -> usize {
     let word_ids = parse_words(words_path);
 
-    let elements =
-        parsing::parse_elements_in_directory_or_file(elements_path, &word_ids, show_progress);
+    let elements = parsing::parse_elements_in_directory_or_file(elements_path, &word_ids, show_progress);
 
     let shard_size = (elements.len() + num_shards - 1) / num_shards;
 
@@ -97,10 +87,8 @@ pub fn parse_elements_and_save_shards_to_disk(
             );
         }
 
-        let file = File::create(&output_path).expect(&format!(
-            "Could not create file at {}",
-            output_path.to_str().unwrap()
-        ));
+        let file =
+            File::create(&output_path).expect(&format!("Could not create file at {}", output_path.to_str().unwrap()));
         let mut file = BufWriter::new(file);
 
         elements
@@ -118,8 +106,7 @@ pub fn compute_embeddings_and_save_to_disk(
     output_path: &Path,
     show_progress: bool,
 ) {
-    let word_embeddings =
-        File::open(word_embeddings_path).expect("Could not open word_embeddings file");
+    let word_embeddings = File::open(word_embeddings_path).expect("Could not open word_embeddings file");
     let word_embeddings = unsafe { memmap::Mmap::map(&word_embeddings).unwrap() };
     let embeddings = Embeddings::from_bytes(&word_embeddings);
 
@@ -142,12 +129,9 @@ pub fn compute_embeddings_and_save_to_disk(
     let num_chunks = 100;
     let chunk_size = (elements.len() + num_chunks - 1) / num_chunks;
     for i in 0..num_chunks {
-        let chunk =
-            (i * chunk_size..cmp::min((i + 1) * chunk_size, elements.len())).collect::<Vec<_>>();
-        let vectors_vec: Vec<angular_int::Vector> = chunk
-            .par_iter()
-            .map(|&i| elements.get_embedding(i).into())
-            .collect();
+        let chunk = (i * chunk_size..cmp::min((i + 1) * chunk_size, elements.len())).collect::<Vec<_>>();
+        let vectors_vec: Vec<angular_int::Vector> =
+            chunk.par_iter().map(|&i| elements.get_embedding(i).into()).collect();
 
         let mut vectors = angular_int::Vectors::new();
 
@@ -190,8 +174,7 @@ pub fn parse_elements_in_directory_or_file(
     let query_parts: Vec<Elements> = parts
         .par_iter()
         .map(|part| {
-            let query_file =
-                File::open(&part).expect(&format!("Input file: {:?} not found", &part));
+            let query_file = File::open(&part).expect(&format!("Input file: {:?} not found", &part));
 
             let elements = if part.to_str().unwrap().ends_with(".gz") {
                 let query_file = flate2::read::GzDecoder::new(query_file);

@@ -13,19 +13,13 @@ fn select_neighbors() {
     const DIM: usize = 50;
     let element: angular::Vector = test_helper::random_vector(DIM);
 
-    let other_elements: Vec<angular::Vector> =
-        (0..50).map(|_| test_helper::random_vector(DIM)).collect();
+    let other_elements: Vec<angular::Vector> = (0..50).map(|_| test_helper::random_vector(DIM)).collect();
 
-    let mut candidates: Vec<_> = other_elements
-        .iter()
-        .map(|e| e.dist(&element))
-        .enumerate()
-        .collect();
+    let mut candidates: Vec<_> = other_elements.iter().map(|e| e.dist(&element)).enumerate().collect();
 
     candidates.sort_unstable_by_key(|&(_, d)| d);
 
-    let neighbors =
-        GranneBuilder::select_neighbors(&other_elements.as_slice(), candidates.clone(), 10);
+    let neighbors = GranneBuilder::select_neighbors(&other_elements.as_slice(), candidates.clone(), 10);
 
     assert!(0 < neighbors.len() && neighbors.len() <= 10);
 
@@ -34,8 +28,7 @@ fn select_neighbors() {
         assert!(neighbors[i - 1].1 <= neighbors[i].1);
     }
 
-    let neighbors =
-        GranneBuilder::select_neighbors(&other_elements.as_slice(), candidates.clone(), 60);
+    let neighbors = GranneBuilder::select_neighbors(&other_elements.as_slice(), candidates.clone(), 60);
 
     assert_eq!(candidates.len(), neighbors.len());
 
@@ -46,10 +39,7 @@ fn select_neighbors() {
 }
 
 fn build_and_search<Elements: ElementContainer + Sync + Send + Clone>(elements: Elements) {
-    let mut builder = GranneBuilder::new(
-        BuildConfig::default().num_neighbors(20).max_search(20),
-        elements,
-    );
+    let mut builder = GranneBuilder::new(BuildConfig::default().num_neighbors(20).max_search(20), elements);
 
     builder.build();
     let index = builder.get_index();
@@ -57,11 +47,7 @@ fn build_and_search<Elements: ElementContainer + Sync + Send + Clone>(elements: 
     verify_search(&index, 0.95, 10);
 }
 
-fn verify_search<Elements: ElementContainer>(
-    index: &Granne<Elements>,
-    precision: f32,
-    max_search: usize,
-) {
+fn verify_search<Elements: ElementContainer>(index: &Granne<Elements>, precision: f32, max_search: usize) {
     let mut num_found = 0;
     for i in 0..index.len() {
         if index.search(&index.get_element(i), max_search, 1)[0].0 == i {
@@ -82,9 +68,7 @@ fn with_borrowed_elements() {
         .collect();
 
     let mut builder = GranneBuilder::new(
-        BuildConfig::default()
-            .max_search(5)
-            .reinsert_elements(false),
+        BuildConfig::default().max_search(5).reinsert_elements(false),
         elements.as_slice(),
     );
 
@@ -306,12 +290,7 @@ fn read_index_reduce_num_neighbors() {
     owning_builder.build();
 
     assert_eq!(num_elements, owning_builder.len());
-    assert!(
-        owning_builder
-            .get_neighbors(0, owning_builder.layers.len() - 1)
-            .len()
-            <= 5
-    );
+    assert!(owning_builder.get_neighbors(0, owning_builder.layers.len() - 1).len() <= 5);
 }
 
 #[test]
@@ -392,13 +371,7 @@ fn write_and_load() {
     assert_eq!(builder.elements.len(), index.len());
 
     for i in 0..builder.elements.len() {
-        assert!(
-            builder
-                .elements
-                .dist_to_element(i, &index.get_element(i))
-                .into_inner()
-                < DIST_EPSILON
-        );
+        assert!(builder.elements.dist_to_element(i, &index.get_element(i)).into_inner() < DIST_EPSILON);
     }
 }
 
@@ -442,13 +415,7 @@ fn write_and_load_compressed() {
         assert_eq!(builder.elements.len(), index.len());
 
         for i in 0..builder.elements.len() {
-            assert!(
-                builder
-                    .elements
-                    .dist_to_element(i, &index.get_element(i))
-                    .into_inner()
-                    < DIST_EPSILON
-            );
+            assert!(builder.elements.dist_to_element(i, &index.get_element(i)).into_inner() < DIST_EPSILON);
         }
         /*
                 // write the already compressed index to file and reload

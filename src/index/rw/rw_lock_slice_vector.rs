@@ -13,10 +13,7 @@ impl RwLockSliceVector {
     pub fn new(data: Vec<NeighborId>, width: usize) -> Self {
         Self {
             data: owning_ref::OwningHandle::new_with_fn(data, |d| unsafe {
-                (*(d as *mut [NeighborId]))
-                    .chunks_mut(width)
-                    .map(RwLock::new)
-                    .collect()
+                (*(d as *mut [NeighborId])).chunks_mut(width).map(RwLock::new).collect()
             }),
             width,
         }

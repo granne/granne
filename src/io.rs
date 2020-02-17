@@ -2,10 +2,8 @@ use std::io::{Result, Write};
 
 /// Loads a slice of bytes as a slice of type T
 pub unsafe fn load_bytes_as<T>(bytes: &[u8]) -> &[T] {
-    let elements: &[T] = ::std::slice::from_raw_parts(
-        bytes.as_ptr() as *const T,
-        bytes.len() / ::std::mem::size_of::<T>(),
-    );
+    let elements: &[T] =
+        ::std::slice::from_raw_parts(bytes.as_ptr() as *const T, bytes.len() / ::std::mem::size_of::<T>());
 
     elements
 }

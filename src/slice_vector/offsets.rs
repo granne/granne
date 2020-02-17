@@ -120,9 +120,7 @@ impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
 
         let (offsets, data) = buffer[U64_LEN..].split_at(num_bytes);
 
-        (Offsets::load(offsets), unsafe {
-            crate::io::load_bytes_as::<T>(data)
-        })
+        (Offsets::load(offsets), unsafe { crate::io::load_bytes_as::<T>(data) })
     }
 
     pub fn borrow<'b>(self: &'a Self) -> CompressedVariableWidthSliceVector<'b, T>
@@ -138,15 +136,11 @@ impl<'a, T: Clone> CompressedVariableWidthSliceVector<'a, T> {
         match self {
             Self::File(mmap) => {
                 let (offsets, data) = Self::load_mmap(&mmap[..]);
-                CompressedVariableWidthSliceVector::Memory(
-                    offsets.into_owned(),
-                    Cow::Owned(data.to_vec()),
-                )
+                CompressedVariableWidthSliceVector::Memory(offsets.into_owned(), Cow::Owned(data.to_vec()))
             }
-            Self::Memory(offsets, data) => CompressedVariableWidthSliceVector::Memory(
-                offsets.into_owned(),
-                Cow::Owned(data.into_owned()),
-            ),
+            Self::Memory(offsets, data) => {
+                CompressedVariableWidthSliceVector::Memory(offsets.into_owned(), Cow::Owned(data.into_owned()))
+            }
         }
     }
 }
@@ -242,12 +236,7 @@ impl<'a> Offsets<'a> {
     }
 
     pub fn push(self: &mut Self, offset: usize) {
-        if self
-            .chunks
-            .last()
-            .expect("Chunks should not be empty()")
-            .is_full()
-        {
+        if self.chunks.last().expect("Chunks should not be empty()").is_full() {
             let mut new_chunk = Chunk::new(offset);
             new_chunk.push(offset);
             self.chunks.to_mut().push(new_chunk);

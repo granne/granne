@@ -13,8 +13,7 @@ pub struct WordDict {
 
 impl WordDict {
     pub fn new(path: &str) -> Self {
-        let word_file =
-            std::fs::File::open(&path).expect(&format!("Could not open file at \"{}\"!", path));
+        let word_file = std::fs::File::open(&path).expect(&format!("Could not open file at \"{}\"!", path));
         let word_file = std::io::BufReader::new(word_file);
         let words: Vec<String> = word_file
             .lines()
@@ -24,11 +23,7 @@ impl WordDict {
             })
             .collect();
 
-        let word_to_id = words
-            .iter()
-            .enumerate()
-            .map(|(i, w)| (w.to_string(), i))
-            .collect();
+        let word_to_id = words.iter().enumerate().map(|(i, w)| (w.to_string(), i)).collect();
 
         Self {
             word_to_id: word_to_id,

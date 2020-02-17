@@ -35,10 +35,7 @@ pub trait ElementContainer {
     /// Does a batch computation of distances from `idx` to all elements in `others`.
     fn dists(self: &Self, idx: usize, others: &[usize]) -> Vec<NotNan<f32>> {
         let element = self.get(idx);
-        others
-            .iter()
-            .map(|&j| self.dist_to_element(j, &element))
-            .collect()
+        others.iter().map(|&j| self.dist_to_element(j, &element)).collect()
     }
 
     /// Returns `true` if the container contains no elements.

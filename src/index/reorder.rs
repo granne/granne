@@ -66,8 +66,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
             println!("Reordering index...");
         }
 
-        self.layers =
-            FileOrMemoryLayers::Memory(reorder_layers(&self.layers.load(), &order, show_progress));
+        self.layers = FileOrMemoryLayers::Memory(reorder_layers(&self.layers.load(), &order, show_progress));
 
         if show_progress {
             println!("Reordering elements...");
@@ -76,10 +75,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
         self.elements.permute(&order);
 
         if show_progress {
-            println!(
-                "Reordered index and elements in {} s",
-                start_time.elapsed().as_secs()
-            );
+            println!("Reordered index and elements in {} s", start_time.elapsed().as_secs());
         }
 
         order
@@ -91,11 +87,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
     ///
     /// Returns the permutation used for the reordering. `permutation[i] == j`, means that the
     /// element with idx `j`, has been moved to idx `i`.
-    pub fn reorder_by_keys(
-        self: &mut Self,
-        keys: &[impl Ord + Sync + Send],
-        show_progress: bool,
-    ) -> Vec<usize> {
+    pub fn reorder_by_keys(self: &mut Self, keys: &[impl Ord + Sync + Send], show_progress: bool) -> Vec<usize> {
         let start_time = time::Instant::now();
 
         assert_eq!(self.len(), keys.len());
@@ -107,10 +99,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
             let begin = if layer > 0 { layer_lens[layer - 1] } else { 0 };
             let end = layer_lens[layer];
 
-            let mut layer_order: Vec<_> = (begin..end)
-                .into_par_iter()
-                .map(|l| (&keys[l], l))
-                .collect();
+            let mut layer_order: Vec<_> = (begin..end).into_par_iter().map(|l| (&keys[l], l)).collect();
             layer_order.par_sort_unstable();
             order.par_extend(layer_order.into_par_iter().map(|(_key, l)| l));
         }
@@ -120,8 +109,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
             println!("Reordering index...");
         }
 
-        self.layers =
-            FileOrMemoryLayers::Memory(reorder_layers(&self.layers.load(), &order, show_progress));
+        self.layers = FileOrMemoryLayers::Memory(reorder_layers(&self.layers.load(), &order, show_progress));
 
         if show_progress {
             println!("Reordering elements...");
@@ -144,9 +132,7 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
         let progress_bar = if show_progress {
             println!("Computing order...");
 
-            Some(parking_lot::Mutex::new(pbr::ProgressBar::new(
-                self.len() as u64
-            )))
+            Some(parking_lot::Mutex::new(pbr::ProgressBar::new(self.len() as u64)))
         } else {
             None
         };
@@ -157,19 +143,12 @@ impl<'a, Elements: ElementContainer + Permutable + Sync> Granne<'a, Elements> {
                 .into_par_iter()
                 .map(|idx| {
                     if idx % step_size == 0 {
-                        progress_bar
-                            .as_ref()
-                            .map(|pb| pb.lock().add(step_size as u64));
+                        progress_bar.as_ref().map(|pb| pb.lock().add(step_size as u64));
                     }
 
-                    let mut eps = find_entrypoint_trail(
-                        &self.layers.load(),
-                        &self.elements,
-                        layer,
-                        &self.get_element(idx),
-                    );
-                    eps.iter_mut()
-                        .for_each(|i| *i = order_inv[*i as usize] as NeighborId);
+                    let mut eps =
+                        find_entrypoint_trail(&self.layers.load(), &self.elements, layer, &self.get_element(idx));
+                    eps.iter_mut().for_each(|i| *i = order_inv[*i as usize] as NeighborId);
 
                     (eps, idx)
                 })
@@ -211,15 +190,10 @@ fn find_entrypoint_trail<Elements: ElementContainer>(
         element: &Elements::Element,
     ) -> [NeighborId; NUM_LAYERS] {
         let mut eps: [NeighborId; NUM_LAYERS] = [0; NUM_LAYERS];
-        for (i, layer) in layers
-            .iter()
-            .enumerate()
-            .take(cmp::min(NUM_LAYERS, max_layer))
-        {
+        for (i, layer) in layers.iter().enumerate().take(cmp::min(NUM_LAYERS, max_layer)) {
             let ep = if i == 0 { 0 } else { eps[i] };
             let max_search = 1;
-            let res =
-                search_for_neighbors(layer, ep.try_into().unwrap(), elements, element, max_search);
+            let res = search_for_neighbors(layer, ep.try_into().unwrap(), elements, element, max_search);
             use std::convert::TryInto;
             eps[i] = res[0].0.try_into().unwrap();
         }
