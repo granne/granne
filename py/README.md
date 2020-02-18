@@ -2,7 +2,12 @@
 
 ## Installation
 
-From the repository root run:
+Compiling the python bindings requires `nightly` rust. It can be installed through `rustup`:
+```
+rustup install nightly
+```
+
+Then, from the repository root run:
 ```
 pip install .
 ```
