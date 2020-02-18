@@ -113,13 +113,18 @@ impl<'a, T: Clone> FixedWidthSliceVector<'a, T> {
         let slice_vec = Self::File(file);
 
         // try to fail early
-        let (_data, _width) = slice_vec.load();
+        let (data, width) = slice_vec.load();
+
+        assert!(width > 0 && data.len() % width == 0);
 
         Ok(slice_vec)
     }
 
     pub fn from_bytes(buffer: &'a [u8]) -> Self {
         let (data, width) = Self::load_mmap(buffer);
+
+        assert!(width > 0 && data.len() % width == 0);
+
         Self::Memory(Cow::Borrowed(data), width)
     }
 

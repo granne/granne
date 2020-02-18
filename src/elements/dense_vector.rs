@@ -62,6 +62,13 @@ macro_rules! dense_vector {
                 Ok(Self(FixedWidthSliceVector::from_file(file)?))
             }
 
+            /// Creates a collection of vectors with dimension `dim` from a slice.
+            ///
+            /// `dim` needs to be non-zero and divide the length of `vec`.
+            pub fn from_slice(slice: &'a [$scalar_type], dim: usize) -> Self {
+                Self(FixedWidthSliceVector::with_data(slice, dim))
+            }
+
             /// Creates a collection of vectors with dimension `dim` from a `Vec`.
             ///
             /// `dim` needs to be non-zero and divide the length of `vec`.
@@ -92,6 +99,11 @@ macro_rules! dense_vector {
             /// Returns the number of vectors in this collection.
             pub fn len(self: &Self) -> usize {
                 self.0.len()
+            }
+
+            /// Returns the dimension of each vector in this collection.
+            pub fn dim(self: &Self) -> usize {
+                self.0.width()
             }
 
             /// Returns a reference to the vector at `index`.
