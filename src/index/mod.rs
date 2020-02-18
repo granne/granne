@@ -632,9 +632,11 @@ impl<'a> From<Vec<FixedWidthSliceVector<'a, NeighborId>>> for Layers<'a> {
 
 /// Computes the number of elements that should be in layer `layer_idx`.
 fn compute_num_elements_in_layer(total_num_elements: usize, layer_multiplier: f32, layer_idx: usize) -> usize {
+    let layer_multiplier = layer_multiplier as f64;
+
     cmp::min(
-        (total_num_elements as f32
-            / (layer_multiplier.powf((total_num_elements as f32).log(layer_multiplier).floor() - layer_idx as f32)))
+        (total_num_elements as f64
+            / (layer_multiplier.powf((total_num_elements as f64).log(layer_multiplier).floor() - layer_idx as f64)))
         .ceil() as usize,
         total_num_elements,
     )
