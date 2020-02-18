@@ -47,7 +47,7 @@ for (id, dist) in index.search(np.random.rand(DIMENSION) - 0.5, max_search=150):
 ```
 
 Building an index with existing elements:
-```
+```python
 import granne
 
 ELEMENT_TYPE = "angular" # or "angular_int"
@@ -98,7 +98,7 @@ for (id, dist) in index.search("aa bb cc"):
 
 ## Documentation
 
-```
+```python
 import granne
 help(granne)
 ```

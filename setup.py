@@ -6,5 +6,5 @@ setup(name='granne',
       rust_extensions=[RustExtension('granne',
                                      'py/Cargo.toml', binding=Binding.RustCPython)],
       zip_safe=False,
-      setup_requires=['setuptools_rust>=0.8']
+      setup_requires=['setuptools_scm']
 )
