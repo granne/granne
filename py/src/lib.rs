@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate cpython;
 
-use cpython::{PyObject, PyResult, Python};
-use granne::{self, Index};
+use cpython::{FromPyObject, PyObject, PyResult, Python};
+use granne::{self, Dist, Index};
 use std::cell::RefCell;
 use std::path::Path;
 
@@ -19,6 +19,14 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     m.add_class::<Granne>(py)?;
     m.add_class::<GranneBuilder>(py)?;
     m.add_class::<embeddings::Embeddings>(py)?;
+    m.add(
+        py,
+        "compute_distance",
+        py_fn!(
+            py,
+            py_compute_distance(element_type: &str, a: &PyObject, b: &PyObject) // -> PyResult<f32>,
+        ),
+    )?;
     m.add(
         py,
         "parse_elements_and_save_to_disk",
@@ -47,6 +55,36 @@ py_module_initializer!(granne, initgranne, PyInit_granne, |py, m| {
     )?;
     Ok(())
 });
+
+/// Computes the distance between two elements
+///
+/// Parameters
+/// ----------
+/// Required:
+/// element_type: str
+///     Type of element (angular or angular_int)
+/// a: element
+///     First element
+/// b: element
+///     Second element
+///
+pub fn py_compute_distance(py: Python, element_type: &str, a: &PyObject, b: &PyObject) -> PyResult<f32> {
+    match element_type {
+        "angular" => {
+            let a = granne::angular::Vector::from(Vec::extract(py, a)?);
+            let b = granne::angular::Vector::from(Vec::extract(py, b)?);
+
+            Ok(a.dist(&b).into_inner())
+        }
+        "angular_int" => {
+            let a = granne::angular_int::Vector::from(Vec::extract(py, a)?);
+            let b = granne::angular_int::Vector::from(Vec::extract(py, b)?);
+
+            Ok(a.dist(&b).into_inner())
+        }
+        _ => panic!("Unsupported element type"),
+    }
+}
 
 /// Parses XXXXXXXXXXXXXXX
 ///
