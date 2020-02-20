@@ -147,26 +147,23 @@ fn incremental_build_0() {
 
     builder.build_partial(12);
 
-    assert_eq!(3, builder.layers.len());
-    assert_eq!(1, builder.layers[0].len());
-    assert_eq!(10, builder.layers[1].len());
-    assert_eq!(12, builder.layers[2].len());
+    assert_eq!(2, builder.layers.len());
+    assert_eq!(10, builder.layers[0].len());
+    assert_eq!(12, builder.layers[1].len());
 
     builder.build_partial(102);
 
-    assert_eq!(4, builder.layers.len());
-    assert_eq!(1, builder.layers[0].len());
-    assert_eq!(10, builder.layers[1].len());
-    assert_eq!(100, builder.layers[2].len());
-    assert_eq!(102, builder.layers[3].len());
+    assert_eq!(3, builder.layers.len());
+    assert_eq!(10, builder.layers[0].len());
+    assert_eq!(100, builder.layers[1].len());
+    assert_eq!(102, builder.layers[2].len());
 
     builder.build();
 
-    assert_eq!(4, builder.layers.len());
-    assert_eq!(1, builder.layers[0].len());
-    assert_eq!(10, builder.layers[1].len());
-    assert_eq!(100, builder.layers[2].len());
-    assert_eq!(1000, builder.layers[3].len());
+    assert_eq!(3, builder.layers.len());
+    assert_eq!(10, builder.layers[0].len());
+    assert_eq!(100, builder.layers[1].len());
+    assert_eq!(1000, builder.layers[2].len());
 
     verify_search(&builder.get_index(), 0.95, 5);
 }
@@ -314,6 +311,7 @@ fn test_num_elements_in_layer() {
         assert_eq!(expected, actual.as_slice());
     }
 
+    verify(1000, 10.0, &[10, 100, 1000]);
     verify(32, 2.0, &[1, 2, 4, 8, 16, 32]);
     verify(10_000, 10.0, &[1, 10, 100, 1000, 10_000, 10_000]);
     verify(20, 1.9, &[2, 3, 6, 11, 20, 20]);
@@ -526,8 +524,8 @@ fn append_elements() {
     }
     builder.build();
 
-    assert_eq!(4, builder.layers.len());
-    assert_eq!(500, builder.layers[3].len());
+    assert_eq!(3, builder.layers.len());
+    assert_eq!(500, builder.layers[2].len());
 
     let max_search = 50;
 
@@ -547,8 +545,8 @@ fn append_elements() {
     }
     builder.build();
 
-    assert_eq!(4, builder.layers.len());
-    assert_eq!(1000, builder.layers[3].len());
+    assert_eq!(3, builder.layers.len());
+    assert_eq!(1000, builder.layers[2].len());
 
     // assert that the same arbitrary element and a newly added one
     // is findable
