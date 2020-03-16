@@ -83,7 +83,7 @@ macro_rules! dense_vector {
 
             /// Clones the underlying data if not already owned.
             pub fn into_owned(self: Self) -> Vectors<'static> {
-                Self(self.0.into_owned())
+                Vectors(self.0.into_owned())
             }
 
             /// Extends `Vectors` with the elements from `vec`.
