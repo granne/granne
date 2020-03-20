@@ -1,6 +1,6 @@
 [package]
 name = "granne-py"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Erik Larsson <erik@cliqz.com>"]
 edition = "2018"
 
