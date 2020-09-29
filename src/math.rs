@@ -132,7 +132,7 @@ pub fn normalize_f32(x: &mut [f32]) {
     fn normalize_fallback(x: &mut [f32]) {
         let norm = dot_product_f32(x, x).sqrt();
 
-        if norm >= 0.0 {
+        if norm > 0.0 {
             for i in 0..x.len() {
                 x[i] /= norm;
             }
