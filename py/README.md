@@ -2,9 +2,9 @@
 
 ## Installation
 
-Compiling the python bindings requires `nightly` rust. It can be installed through `rustup`:
+Compiling the python bindings requires `stable` rust. It can be installed through `rustup`:
 ```
-rustup install nightly
+rustup install stable
 ```
 
 Then, from the repository root run:
@@ -117,5 +117,5 @@ pip wheel .
 
 In order to build `manylinux` wheels `docker` is required:
 ```
-docker run --rm -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
+docker run --rm -v `pwd`:/io quay.io/pypa/manylinux2010_x86_64 /io/build-wheels.sh
 ```
