@@ -1,6 +1,6 @@
 [package]
 name = "granne"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2018"
 authors = ["Erik Larsson <erik@cliqz.com>"]
 description = "Graph-based Retrieval of Approximate Nearest Neighbors"
