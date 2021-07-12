@@ -23,7 +23,7 @@ exclude = [
 debug = true
 
 [features]
-default = []
+default = ["singlethreaded"]
 singlethreaded = []
 rw_granne = []
 
