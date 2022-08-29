@@ -116,7 +116,8 @@ pip wheel .
 ```
 
 In order to build `manylinux` wheels `docker` is required:
+```bash
+./build_multiplatform_linux_wheels.sh
 ```
-docker run --rm -v `pwd`:/io quay.io/pypa/manylinux2014_x86_64 /io/build-wheels.sh && \
-docker run --rm -v `pwd`:/io quay.io/pypa/manylinux2014_aarch64 /io/build-wheels.sh
-```
+
+The wheels will be located under `dist/`

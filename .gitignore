@@ -15,3 +15,8 @@ terraform
 /wheelhouse/
 example_data/
 Cargo.lock
+.eggs
+dist/
+dist*/
+*.egg-info
+.idea
