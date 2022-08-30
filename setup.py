@@ -5,7 +5,7 @@ import os
 
 
 setup(name='cnstrc-granne',
-      version='0.5.2.1',  # single-thread building
+      version='0.5.2.2',  # single-thread building
       rust_extensions=[RustExtension('granne',
                                      'py/Cargo.toml', binding=Binding.RustCPython)],
       zip_safe=False,
