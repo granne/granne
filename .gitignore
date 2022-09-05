@@ -20,3 +20,4 @@ dist/
 dist*/
 *.egg-info
 .idea
+venv

@@ -108,7 +108,9 @@ import granne
 help(granne)
 ```
 
-## Building Python Wheels
+## Building Python wheels
+
+### Linux
 
 A python wheel can be created by running
 ```
@@ -121,3 +123,13 @@ In order to build `manylinux` wheels `docker` is required:
 ```
 
 The wheels will be located under `dist/`
+
+### macOS
+
+Install deps (possibly in dedicated virtualenv)
+
+```bash
+pip3 install -U pip wheel setuptools delocate
+```
+
+and run `build-macos-wheels.sh`. The wheel will be placed in `dist/` folder.
