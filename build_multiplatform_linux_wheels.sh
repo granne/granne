@@ -9,11 +9,11 @@ rm -rf dist || true
 mytmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'mytmpdir')
 
 # Build x86 wheels, put in a temp folder.
-docker run --rm -v `pwd`:/io quay.io/pypa/manylinux2014_x86_64 /io/build-wheels.sh
+docker run --platform=linux/amd64 --rm -v `pwd`:/io quay.io/pypa/manylinux2014_x86_64 /io/build-wheels.sh
 mv dist "${mytmpdir}/dist_x86_64"
 
 # Build ARM wheels, put in a temp folder.
-docker run --rm -v `pwd`:/io quay.io/pypa/manylinux2014_aarch64 /io/build-wheels.sh
+docker run --platform=linux/arm64/v8 --rm -v `pwd`:/io quay.io/pypa/manylinux2014_aarch64 /io/build-wheels.sh
 mv dist "${mytmpdir}/dist_aarch64"
 
 # Move all wheels to dist/
