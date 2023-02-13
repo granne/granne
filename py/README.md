@@ -117,12 +117,19 @@ A python wheel can be created by running
 pip wheel .
 ```
 
-In order to build `manylinux` wheels `docker` is required:
+In order to build `manylinux` and `aarch64` wheels `docker` is required:
 ```bash
-./build_multiplatform_linux_wheels.sh
+sudo ./build_multiplatform_linux_wheels.sh
 ```
 
 The wheels will be located under `dist/`
+
+after that, you need to upload wheels using `awscli`
+
+```bash
+cd dist/
+aws s3 sync . s3://constructor-packages/pypi-packages/
+```
 
 ### macOS
 
