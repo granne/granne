@@ -110,6 +110,12 @@ help(granne)
 
 ## Building Python wheels
 
+### sdist
+
+```bash
+python setup.py sdist
+```
+
 ### Linux
 
 A python wheel can be created by running
