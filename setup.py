@@ -4,8 +4,8 @@ from setuptools_rust import Binding, RustExtension
 import os
 
 
-setup(name='granne',
-      version='0.5.2',
+setup(name='cnstrc-granne',
+      version='0.5.2.3',
       rust_extensions=[RustExtension('granne',
                                      'py/Cargo.toml', binding=Binding.RustCPython)],
       zip_safe=False,
