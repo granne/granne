@@ -136,7 +136,7 @@ aws s3 sync . s3://constructor-packages/pypi-packages/
 Install deps (possibly in dedicated virtualenv)
 
 ```bash
-pip3 install -U pip wheel setuptools delocate
+pip3 install -U pip wheel setuptools delocate setuptools-rust
 ```
 
 and run `build-macos-wheels.sh`. The wheel will be placed in `dist/` folder.

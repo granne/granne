@@ -7,6 +7,10 @@ granne\*
 
 **granne** (**g**raph-based **r**etrieval of **a**pproximate **n**earest **ne**ighbors) is a Rust library for approximate nearest neighbor search based on [Hierarchical Navigable Small World (HNSW) graphs](https://arxiv.org/abs/1603.09320) and is used in [Cliqz Search](https://beta.cliqz.com). It focuses on reducing memory usage in order to allow [indexing billions of vectors](https://0x65.dev/blog/2019-12-07/indexing-billions-of-text-vectors.html).
 
+## Build Python wheels
+
+Go to the README of `py` directory.
+
 ## Features
 - Memory-mapped
 - Multithreaded index creation
