@@ -21,3 +21,9 @@ dist*/
 *.egg-info
 .idea
 venv
+venv_3.8
+venv_3.9
+venv_3.10
+venv_3.11
+venv_3.12
+venv_3.13
